@@ -645,12 +645,17 @@ export default function FinanzaApp() {
 
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "18px 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e" }}>
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e", background: "#111119" }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>TRACKER</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => window.location.reload()} title="Ricarica" style={{
+            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+            color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
+            transition: "color 0.2s, border-color 0.2s",
+          }}>↻</button>
           <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB connesso" : "localStorage (offline)"} />
           <div style={{ fontSize: 11, color: "#666", fontFamily: "'Space Mono',monospace" }}>{new Date().toLocaleDateString("it-IT",{day:"numeric",month:"long",year:"numeric"})}</div>
         </div>
