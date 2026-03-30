@@ -5,24 +5,6 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const axios = require('axios');
-
-const url = `https://poke-whp.onrender.com/`; // Render URL
-const interval = 300000; // Interval in milliseconds (300 seconds)
-
-//Reloader Function
-function reloadWebsite() {
-  axios.get(url)
-    .then(response => {
-      console.log(`Reloaded at ${new Date().toISOString()}: Status Code ${response.status}`);
-    })
-    .catch(error => {
-      console.error(`Error reloading at ${new Date().toISOString()}:`, error.message);
-    });
-}
-
-setInterval(reloadWebsite, interval);
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
@@ -252,6 +234,8 @@ async function start() {
     app.listen(PORT, () => {
       console.log(`Finanza Tracker API running on http://localhost:${PORT}`);
     });
+    // Start keep-alive pinger
+    import("./keep-alive.js").catch(() => {});
   } catch (err) {
     console.error("Failed to start server:", err);
     process.exit(1);
