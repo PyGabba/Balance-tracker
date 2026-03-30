@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Tesseract from "tesseract.js";
+import { fetchTransactions, addTransaction, deleteTransaction, isAPIConnected } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -29,13 +30,7 @@ function generaId() { return Date.now().toString(36) + Math.random().toString(36
 function formattaValuta(n) { return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n); }
 function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day: "numeric", month: "short" }); }
 
-// ─── Storage (localStorage) ───
-function loadData() {
-  try { const raw = localStorage.getItem("finanza-transactions"); return raw ? JSON.parse(raw) : []; } catch { return []; }
-}
-function saveData(txs) {
-  try { localStorage.setItem("finanza-transactions", JSON.stringify(txs)); } catch (e) { console.error("Salvataggio fallito", e); }
-}
+// Storage is now handled by src/api.js (MongoDB + localStorage fallback)
 
 // ─── Claude API ───
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
@@ -614,11 +609,37 @@ export default function FinanzaApp() {
   const [transazioni, setTransazioni] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { setTransazioni(loadData()); setLoading(false); }, []);
-  useEffect(() => { if(!loading) saveData(transazioni); }, [transazioni, loading]);
+  const loadAll = useCallback(async () => {
+    try {
+      const data = await fetchTransactions();
+      setTransazioni(data);
+    } catch (err) {
+      console.error("Load error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  function aggiungiTransazione(t) { setTransazioni(prev => [...prev, t]); setTab("home"); }
-  function eliminaTransazione(id) { setTransazioni(prev => prev.filter(t => t.id !== id)); }
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  async function aggiungiTransazione(t) {
+    try {
+      const saved = await addTransaction(t);
+      setTransazioni(prev => [...prev, saved]);
+      setTab("home");
+    } catch (err) {
+      console.error("Add error:", err);
+    }
+  }
+
+  async function eliminaTransazione(id) {
+    try {
+      await deleteTransaction(id);
+      setTransazioni(prev => prev.filter(t => t.id !== id));
+    } catch (err) {
+      console.error("Delete error:", err);
+    }
+  }
 
   if (loading) return <div style={{ minHeight: "100vh", background: "#111119", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: "#6C5CE7", fontSize: 18 }}>Caricamento...</div></div>;
 
@@ -629,7 +650,10 @@ export default function FinanzaApp() {
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>TRACKER</div>
         </div>
-        <div style={{ fontSize: 11, color: "#666", fontFamily: "'Space Mono',monospace" }}>{new Date().toLocaleDateString("it-IT",{day:"numeric",month:"long",year:"numeric"})}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB connesso" : "localStorage (offline)"} />
+          <div style={{ fontSize: 11, color: "#666", fontFamily: "'Space Mono',monospace" }}>{new Date().toLocaleDateString("it-IT",{day:"numeric",month:"long",year:"numeric"})}</div>
+        </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} />}
