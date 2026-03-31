@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, isAPIConnected } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -13,9 +13,11 @@ const CATEGORIE = [
   { id: "altro", nome: "Altro", emoji: "📦", colore: "#A8A8A8" },
 ];
 
-const PERSONE = [
-  { id: "laura", nome: "Laura", emoji: "👩", colore: "#E84393" },
-  { id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#0984E3" },
+// PERSONE is now dynamic — loaded from session after login
+// Fallback for offline/localStorage mode
+const DEFAULT_PERSONE = [
+  { id: "persona1", nome: "Persona 1", emoji: "👤", colore: "#E84393" },
+  { id: "persona2", nome: "Persona 2", emoji: "👤", colore: "#0984E3" },
 ];
 
 const SPLIT_PRESETS = [
@@ -92,26 +94,28 @@ async function ocrFallback(file, onP) {
 }
 
 // ─── Debt calculator ───
-function calcolaDebiti(transazioni) {
-  let saldoVersoLaura = 0;
+function calcolaDebiti(transazioni, persone) {
+  const persona1Id = persone[0]?.id;
+  let saldo = 0;
   for (const t of transazioni) {
     if (t.tipo !== "uscita" || !t.pagatoDa || t.splitPagante == null) continue;
     const quotaAltro = t.importo * (100 - t.splitPagante) / 100;
-    if (t.pagatoDa === "laura") saldoVersoLaura += quotaAltro;
-    else saldoVersoLaura -= quotaAltro;
+    if (t.pagatoDa === persona1Id) saldo += quotaAltro;
+    else saldo -= quotaAltro;
   }
-  return saldoVersoLaura;
+  return saldo;
 }
 
 // ─── Split selector ───
-function SplitSelector({ pagatoDa, setPagatoDa, splitPagante, setSplitPagante }) {
-  const altroNome = pagatoDa === "laura" ? "Gabriele" : "Laura";
+function SplitSelector({ pagatoDa, setPagatoDa, splitPagante, setSplitPagante, persone }) {
+  const pagante = persone.find(p => p.id === pagatoDa) || persone[0];
+  const altro = persone.find(p => p.id !== pagatoDa) || persone[1];
   const splitAltro = 100 - splitPagante;
   return (
     <div style={{ marginBottom: 18 }}>
       <label style={labelStyle}>Chi ha pagato?</label>
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        {PERSONE.map(p => (
+        {persone.map(p => (
           <button key={p.id} onClick={() => setPagatoDa(p.id)} style={{
             flex: 1, padding: "12px 8px", border: pagatoDa === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
             borderRadius: 14, cursor: "pointer", background: pagatoDa === p.id ? p.colore + "22" : "#1a1a28",
@@ -139,11 +143,11 @@ function SplitSelector({ pagatoDa, setPagatoDa, splitPagante, setSplitPagante })
         <input type="range" min="0" max="100" value={splitPagante} onChange={e => setSplitPagante(Number(e.target.value))}
           style={{ width: "100%", accentColor: "#6C5CE7", cursor: "pointer" }} />
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-          <span style={{ fontSize: 12, color: pagatoDa === "laura" ? "#E84393" : "#0984E3", fontWeight: 700, fontFamily: "'Space Mono',monospace" }}>
-            {pagatoDa === "laura" ? "Laura" : "Gabriele"} {splitPagante}%
+          <span style={{ fontSize: 12, color: pagante.colore, fontWeight: 700, fontFamily: "'Space Mono',monospace" }}>
+            {pagante.nome} {splitPagante}%
           </span>
-          <span style={{ fontSize: 12, color: pagatoDa === "laura" ? "#0984E3" : "#E84393", fontWeight: 700, fontFamily: "'Space Mono',monospace" }}>
-            {altroNome} {splitAltro}%
+          <span style={{ fontSize: 12, color: altro.colore, fontWeight: 700, fontFamily: "'Space Mono',monospace" }}>
+            {altro.nome} {splitAltro}%
           </span>
         </div>
       </div>
@@ -215,15 +219,17 @@ function TabBar({ tab, setTab }) {
 }
 
 // ─── Home ───
-function HomeView({ transazioni, onDelete }) {
+function HomeView({ transazioni, onDelete, persone }) {
   const oggi = new Date();
   const meseCorrente = transazioni.filter(t => { const d = new Date(t.data); return d.getMonth()===oggi.getMonth()&&d.getFullYear()===oggi.getFullYear(); });
   const entrate = meseCorrente.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
   const uscite = meseCorrente.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
   const recenti = [...transazioni].sort((a, b) => new Date(b.data) - new Date(a.data)).slice(0, 20);
-  const debitoGlobale = calcolaDebiti(transazioni);
-  const debitoMese = calcolaDebiti(meseCorrente);
+  const debitoGlobale = calcolaDebiti(transazioni, persone);
+  const debitoMese = calcolaDebiti(meseCorrente, persone);
+  const p1 = persone[0] || DEFAULT_PERSONE[0];
+  const p2 = persone[1] || DEFAULT_PERSONE[1];
 
   return (
     <div style={{ padding: "20px 16px" }}>
@@ -246,14 +252,14 @@ function HomeView({ transazioni, onDelete }) {
 
       {/* Debt card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio Laura ↔ Gabriele</div>
+        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio {p1.nome} ↔ {p2.nome}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: "#777", width: 60, flexShrink: 0 }}>{MESI[oggi.getMonth()]}</div>
           {debitoMese === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Pari</div> : (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-              <span style={{ fontSize: 18 }}>{debitoMese > 0 ? "👨" : "👩"}</span>
-              <span style={{ fontSize: 12, color: "#ccc" }}>{debitoMese > 0 ? "Gabriele deve a Laura" : "Laura deve a Gabriele"}</span>
-              <span style={{ marginLeft: "auto", fontSize: 15, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: debitoMese > 0 ? "#E84393" : "#0984E3" }}>{formattaValuta(Math.abs(debitoMese))}</span>
+              <span style={{ fontSize: 18 }}>{debitoMese > 0 ? p2.emoji : p1.emoji}</span>
+              <span style={{ fontSize: 12, color: "#ccc" }}>{debitoMese > 0 ? `${p2.nome} deve a ${p1.nome}` : `${p1.nome} deve a ${p2.nome}`}</span>
+              <span style={{ marginLeft: "auto", fontSize: 15, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: debitoMese > 0 ? p1.colore : p2.colore }}>{formattaValuta(Math.abs(debitoMese))}</span>
             </div>
           )}
         </div>
@@ -261,9 +267,9 @@ function HomeView({ transazioni, onDelete }) {
           <div style={{ fontSize: 11, color: "#777", width: 60, flexShrink: 0 }}>Totale</div>
           {debitoGlobale === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Pari</div> : (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-              <span style={{ fontSize: 18 }}>{debitoGlobale > 0 ? "👨" : "👩"}</span>
-              <span style={{ fontSize: 12, color: "#ccc" }}>{debitoGlobale > 0 ? "Gabriele deve a Laura" : "Laura deve a Gabriele"}</span>
-              <span style={{ marginLeft: "auto", fontSize: 17, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: debitoGlobale > 0 ? "#E84393" : "#0984E3" }}>{formattaValuta(Math.abs(debitoGlobale))}</span>
+              <span style={{ fontSize: 18 }}>{debitoGlobale > 0 ? p2.emoji : p1.emoji}</span>
+              <span style={{ fontSize: 12, color: "#ccc" }}>{debitoGlobale > 0 ? `${p2.nome} deve a ${p1.nome}` : `${p1.nome} deve a ${p2.nome}`}</span>
+              <span style={{ marginLeft: "auto", fontSize: 17, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: debitoGlobale > 0 ? p1.colore : p2.colore }}>{formattaValuta(Math.abs(debitoGlobale))}</span>
             </div>
           )}
         </div>
@@ -276,7 +282,7 @@ function HomeView({ transazioni, onDelete }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {recenti.map(t => {
             const cat = CATEGORIE.find(c => c.id === t.categoria) || CATEGORIE[7];
-            const persona = PERSONE.find(p => p.id === t.pagatoDa);
+            const persona = persone.find(p => p.id === t.pagatoDa);
             return (
               <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538" }}>
                 <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.colore + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
@@ -302,14 +308,14 @@ function HomeView({ transazioni, onDelete }) {
 }
 
 // ─── Add ───
-function AggiungiView({ onAggiungi }) {
+function AggiungiView({ onAggiungi, persone }) {
   const [tipo, setTipo] = useState("uscita");
   const [importo, setImporto] = useState("");
   const [categoria, setCategoria] = useState("cibo");
   const [descrizione, setDescrizione] = useState("");
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
-  const [pagatoDa, setPagatoDa] = useState("laura");
+  const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
   const [splitPagante, setSplitPagante] = useState(50);
 
   function handleSubmit() {
@@ -323,7 +329,8 @@ function AggiungiView({ onAggiungi }) {
   const val = parseFloat(importo.replace(",",".")) || 0;
   const quotaPagante = val * splitPagante / 100;
   const quotaAltro = val - quotaPagante;
-  const altroNome = pagatoDa === "laura" ? "Gabriele" : "Laura";
+  const pagante = persone.find(p => p.id === pagatoDa) || persone[0];
+  const altro = persone.find(p => p.id !== pagatoDa) || persone[1];
 
   return (
     <div style={{ padding: "20px 16px" }}>
@@ -359,15 +366,15 @@ function AggiungiView({ onAggiungi }) {
               ))}
             </div>
           </div>
-          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} />
+          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} persone={persone} />
           {val > 0 && splitPagante < 100 && (
             <div style={{ background: "#1e1e30", borderRadius: 12, padding: "10px 14px", marginBottom: 18, border: "1px solid #333355" }}>
               <div style={{ fontSize: 11, color: "#999", marginBottom: 6 }}>Riepilogo divisione</div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontFamily: "'Space Mono',monospace" }}>
-                <span style={{ color: pagatoDa==="laura"?"#E84393":"#0984E3" }}>{pagatoDa==="laura"?"Laura":"Gabriele"}: {formattaValuta(quotaPagante)}</span>
-                <span style={{ color: pagatoDa==="laura"?"#0984E3":"#E84393" }}>{altroNome}: {formattaValuta(quotaAltro)}</span>
+                <span style={{ color: pagante.colore }}>{pagante.nome}: {formattaValuta(quotaPagante)}</span>
+                <span style={{ color: altro.colore }}>{altro.nome}: {formattaValuta(quotaAltro)}</span>
               </div>
-              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>→ {altroNome} deve {formattaValuta(quotaAltro)} a {pagatoDa==="laura"?"Laura":"Gabriele"}</div>
+              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>→ {altro.nome} deve {formattaValuta(quotaAltro)} a {pagante.nome}</div>
             </div>
           )}
         </>
@@ -391,7 +398,7 @@ function AggiungiView({ onAggiungi }) {
 }
 
 // ─── Scanner ───
-function ScansionaView({ onAggiungi }) {
+function ScansionaView({ onAggiungi, persone }) {
   const [anteprima, setAnteprima] = useState(null);
   const [importo, setImporto] = useState("");
   const [categoria, setCategoria] = useState("cibo");
@@ -401,7 +408,7 @@ function ScansionaView({ onAggiungi }) {
   const [stato, setStato] = useState("idle");
   const [progresso, setProgresso] = useState(0);
   const [ocrInfo, setOcrInfo] = useState(null);
-  const [pagatoDa, setPagatoDa] = useState("laura");
+  const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
   const [splitPagante, setSplitPagante] = useState(50);
 
   async function handleFile(e) {
@@ -495,7 +502,7 @@ function ScansionaView({ onAggiungi }) {
               ))}
             </div>
           </div>
-          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} />
+          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} persone={persone} />
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Descrizione</label>
             <input type="text" value={descrizione} onChange={e=>setDescrizione(e.target.value)} placeholder="Es: Spesa Esselunga..." style={inputStyle} />
@@ -522,7 +529,7 @@ const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom
 const inputStyle = { width: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box" };
 
 // ─── Stats ───
-function StatsView({ transazioni }) {
+function StatsView({ transazioni, persone }) {
   const oggi = new Date();
   const [meseOffset, setMeseOffset] = useState(0);
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
@@ -533,9 +540,11 @@ function StatsView({ transazioni }) {
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
   const perCategoria = CATEGORIE.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
   const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
-  const lauraSpeso = usciteMese.filter(t=>t.pagatoDa==="laura").reduce((s,t)=>s+t.importo,0);
-  const gabrieleSpeso = usciteMese.filter(t=>t.pagatoDa==="gabriele").reduce((s,t)=>s+t.importo,0);
-  const debitoMese = calcolaDebiti(txMese);
+  const p1 = persone[0] || DEFAULT_PERSONE[0];
+  const p2 = persone[1] || DEFAULT_PERSONE[1];
+  const p1Speso = usciteMese.filter(t=>t.pagatoDa===p1.id).reduce((s,t)=>s+t.importo,0);
+  const p2Speso = usciteMese.filter(t=>t.pagatoDa===p2.id).reduce((s,t)=>s+t.importo,0);
+  const debitoMese = calcolaDebiti(txMese, persone);
 
   // Frequency analysis
   const numTransazioni = usciteMese.length;
@@ -571,24 +580,24 @@ function StatsView({ transazioni }) {
           <div style={{ fontSize: 18, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(totalUscite)}</div>
         </div>
       </div>
-      {(lauraSpeso > 0 || gabrieleSpeso > 0) && (
+      {(p1Speso > 0 || p2Speso > 0) && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", marginBottom: 16, border: "1px solid #252538" }}>
           <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Chi ha pagato</div>
           <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 20 }}>👩</span>
-              <div><div style={{ fontSize: 11, color: "#E84393", fontWeight: 600 }}>Laura</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(lauraSpeso)}</div></div>
+              <span style={{ fontSize: 20 }}>{p1.emoji}</span>
+              <div><div style={{ fontSize: 11, color: p1.colore, fontWeight: 600 }}>{p1.nome}</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(p1Speso)}</div></div>
             </div>
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 20 }}>👨</span>
-              <div><div style={{ fontSize: 11, color: "#0984E3", fontWeight: 600 }}>Gabriele</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(gabrieleSpeso)}</div></div>
+              <span style={{ fontSize: 20 }}>{p2.emoji}</span>
+              <div><div style={{ fontSize: 11, color: p2.colore, fontWeight: 600 }}>{p2.nome}</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(p2Speso)}</div></div>
             </div>
           </div>
           {debitoMese !== 0 && (
             <div style={{ borderTop: "1px solid #252538", paddingTop: 8, fontSize: 12, color: "#ccc" }}>
               {debitoMese > 0
-                ? <span>👨 Gabriele deve <strong style={{ color: "#E84393" }}>{formattaValuta(debitoMese)}</strong> a Laura</span>
-                : <span>👩 Laura deve <strong style={{ color: "#0984E3" }}>{formattaValuta(Math.abs(debitoMese))}</strong> a Gabriele</span>}
+                ? <span>{p2.emoji} {p2.nome} deve <strong style={{ color: p1.colore }}>{formattaValuta(debitoMese)}</strong> a {p1.nome}</span>
+                : <span>{p1.emoji} {p1.nome} deve <strong style={{ color: p2.colore }}>{formattaValuta(Math.abs(debitoMese))}</strong> a {p2.nome}</span>}
             </div>
           )}
         </div>
@@ -679,44 +688,113 @@ function StatsView({ transazioni }) {
   );
 }
 
+// ─── Login Screen ───
+function LoginScreen({ onLogin }) {
+  const [pin, setPin] = useState("");
+  const [errore, setErrore] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin() {
+    if (pin.length < 4) return;
+    setLoading(true);
+    setErrore("");
+    try {
+      await login(pin);
+      onLogin();
+    } catch (err) {
+      setErrore(err.message || "PIN non valido");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ fontSize: 36, fontWeight: 800, marginBottom: 4 }}>
+        <span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span>
+      </div>
+      <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 40 }}>TRACKER</div>
+
+      <div style={{ width: "100%", maxWidth: 300 }}>
+        <label style={{ ...labelStyle, textAlign: "center", display: "block" }}>Inserisci il PIN</label>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={8}
+          value={pin}
+          onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setErrore(""); }}
+          onKeyDown={e => e.key === "Enter" && handleLogin()}
+          placeholder="••••"
+          style={{
+            ...inputStyle,
+            fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace",
+            textAlign: "center", letterSpacing: 12,
+          }}
+          autoFocus
+        />
+
+        {errore && (
+          <div style={{ marginTop: 12, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{errore}</div>
+        )}
+
+        <button onClick={handleLogin} disabled={loading || pin.length < 4} style={{
+          width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: pin.length >= 4 ? "pointer" : "default",
+          fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginTop: 20,
+          background: pin.length >= 4 ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+          color: pin.length >= 4 ? "#fff" : "#666",
+          opacity: loading ? 0.6 : 1,
+          transition: "all 0.3s",
+        }}>
+          {loading ? "Accesso..." : "Accedi"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ───
 export default function FinanzaApp() {
+  const [authed, setAuthed] = useState(isLoggedIn());
   const [tab, setTab] = useState("home");
   const [transazioni, setTransazioni] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
+  const householdName = getHouseholdName();
 
   const loadAll = useCallback(async () => {
     try {
       const data = await fetchTransactions();
       setTransazioni(data);
     } catch (err) {
+      if (err.message === "Sessione scaduta") { setAuthed(false); return; }
       console.error("Load error:", err);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { if (authed) loadAll(); else setLoading(false); }, [authed, loadAll]);
+
+  function handleLogin() { setAuthed(true); setLoading(true); loadAll(); }
+  function handleLogout() { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }
 
   async function aggiungiTransazione(t) {
     try {
       const saved = await addTransaction(t);
       setTransazioni(prev => [...prev, saved]);
       setTab("home");
-    } catch (err) {
-      console.error("Add error:", err);
-    }
+    } catch (err) { console.error("Add error:", err); }
   }
 
   async function eliminaTransazione(id) {
     try {
       await deleteTransaction(id);
       setTransazioni(prev => prev.filter(t => t.id !== id));
-    } catch (err) {
-      console.error("Delete error:", err);
-    }
+    } catch (err) { console.error("Delete error:", err); }
   }
 
+  if (!authed) return <LoginScreen onLogin={handleLogin} />;
   if (loading) return <div style={{ minHeight: "100vh", background: "#111119", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: "#6C5CE7", fontSize: 18 }}>Caricamento...</div></div>;
 
   return (
@@ -724,23 +802,26 @@ export default function FinanzaApp() {
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e", background: "#111119" }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
-          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>TRACKER</div>
+          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => window.location.reload()} title="Ricarica" style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
-            transition: "color 0.2s, border-color 0.2s",
           }}>↻</button>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB connesso" : "localStorage (offline)"} />
-          <div style={{ fontSize: 11, color: "#666", fontFamily: "'Space Mono',monospace" }}>{new Date().toLocaleDateString("it-IT",{day:"numeric",month:"long",year:"numeric"})}</div>
+          <button onClick={handleLogout} title="Logout" style={{
+            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+            color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
+            fontFamily: "'DM Sans',sans-serif",
+          }}>Esci</button>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
         </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} />}
-        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} />}
-        {tab === "scansiona" && <ScansionaView onAggiungi={aggiungiTransazione} />}
-        {tab === "stats" && <StatsView transazioni={transazioni} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} persone={persone} />}
+        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
+        {tab === "scansiona" && <ScansionaView onAggiungi={aggiungiTransazione} persone={persone} />}
+        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} />}
       </div>
       <TabBar tab={tab} setTab={setTab} />
     </div>

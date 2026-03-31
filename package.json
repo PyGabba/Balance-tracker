@@ -8,7 +8,9 @@
     "dev:client": "vite",
     "dev:server": "cd server && node --watch index.js",
     "build": "vite build",
+    "build:server": "cd server && npm install",
     "preview": "vite preview",
+    "start": "cd server && node index.js",
     "start:server": "cd server && node index.js"
   },
   "dependencies": {
