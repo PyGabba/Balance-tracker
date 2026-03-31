@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -220,22 +220,42 @@ function TabBar({ tab, setTab }) {
 }
 
 // ─── Home ───
-function HomeView({ transazioni, onDelete, persone }) {
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone }) {
   const oggi = new Date();
-  const meseCorrente = transazioni.filter(t => { const d = new Date(t.data); return d.getMonth()===oggi.getMonth()&&d.getFullYear()===oggi.getFullYear(); });
-  const entrate = meseCorrente.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
-  const uscite = meseCorrente.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
+  const [meseOffset, setMeseOffset] = useState(0);
+  const [editId, setEditId] = useState(null);
+
+  const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
+  const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
+
+  const txMese = transazioni.filter(t => {
+    const d = new Date(t.data);
+    return d.getMonth() === meseVis.getMonth() && d.getFullYear() === meseVis.getFullYear();
+  });
+  const entrate = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
+  const uscite = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
-  const recenti = [...transazioni].sort((a, b) => new Date(b.data) - new Date(a.data)).slice(0, 20);
+  const txOrdinate = [...txMese].sort((a, b) => new Date(b.data) - new Date(a.data));
+
   const debitoGlobale = calcolaDebiti(transazioni, persone);
-  const debitoMese = calcolaDebiti(meseCorrente, persone);
+  const debitoMese = calcolaDebiti(txMese, persone);
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
 
+  const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 16, padding: "5px 12px", cursor: "pointer" };
+
   return (
     <div style={{ padding: "20px 16px" }}>
+      {/* Month selector */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <button onClick={() => setMeseOffset(o => o + 1)} style={navBtn}>◂</button>
+        <div style={{ fontSize: 17, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{nomeMese}</div>
+        <button onClick={() => setMeseOffset(o => Math.max(0, o - 1))} style={{ ...navBtn, opacity: meseOffset === 0 ? 0.3 : 1 }} disabled={meseOffset === 0}>▸</button>
+      </div>
+
+      {/* Saldo card */}
       <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "24px 20px", marginBottom: 12, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
-        <div style={{ fontSize: 12, color: "#999", letterSpacing: 1, textTransform: "uppercase" }}>Saldo di {MESI[oggi.getMonth()]}</div>
+        <div style={{ fontSize: 12, color: "#999", letterSpacing: 1, textTransform: "uppercase" }}>Saldo di {MESI[meseVis.getMonth()]}</div>
         <div style={{ fontSize: 36, fontWeight: 800, marginTop: 6, fontFamily: "'Space Mono', monospace", color: saldo >= 0 ? "#4ECDC4" : "#FF6B6B", letterSpacing: -1 }}>
           {saldo >= 0 ? "+" : ""}{formattaValuta(saldo)}
         </div>
@@ -255,7 +275,7 @@ function HomeView({ transazioni, onDelete, persone }) {
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio {p1.nome} ↔ {p2.nome}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#777", width: 60, flexShrink: 0 }}>{MESI[oggi.getMonth()]}</div>
+          <div style={{ fontSize: 11, color: "#777", width: 60, flexShrink: 0 }}>{MESI[meseVis.getMonth()]}</div>
           {debitoMese === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Pari</div> : (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
               <span style={{ fontSize: 18 }}>{debitoMese > 0 ? p2.emoji : p1.emoji}</span>
@@ -274,36 +294,219 @@ function HomeView({ transazioni, onDelete, persone }) {
             </div>
           )}
         </div>
+        {/* Settle button */}
+        {debitoGlobale !== 0 && (
+          <button onClick={() => {
+            const debitore = debitoGlobale > 0 ? p2 : p1;
+            const creditore = debitoGlobale > 0 ? p1 : p2;
+            const amount = Math.abs(debitoGlobale);
+            if (!confirm(`Saldare il debito?\n${debitore.nome} paga ${formattaValuta(amount)} a ${creditore.nome}`)) return;
+            // Create a settlement transaction: the debtor "pays" the creditor
+            // This is an expense paid by the debtor, 100% for the creditor (splitPagante=0)
+            onSettle({
+              id: generaId(),
+              tipo: "uscita",
+              importo: amount,
+              categoria: "altro",
+              descrizione: `Saldo debito → ${creditore.nome}`,
+              data: new Date().toISOString().slice(0, 10),
+              pagatoDa: debitore.id,
+              splitPagante: 0,
+              daScontrino: false,
+            });
+          }} style={{
+            width: "100%", marginTop: 12, padding: "11px", border: "none", borderRadius: 12, cursor: "pointer",
+            background: "linear-gradient(135deg, #4ECDC4, #3ab8b0)", color: "#fff",
+            fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
+            boxShadow: "0 4px 16px #4ECDC444",
+          }}>
+            Salda debito ({formattaValuta(Math.abs(debitoGlobale))})
+          </button>
+        )}
       </div>
 
-      <div style={{ fontSize: 13, color: "#999", marginBottom: 10, letterSpacing: 0.5, textTransform: "uppercase" }}>Ultime transazioni</div>
-      {recenti.length === 0 ? (
-        <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>Nessuna transazione ancora.<br/>Premi + per iniziare!</div>
+      {/* Transactions for selected month */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Transazioni di {MESI[meseVis.getMonth()]}</div>
+        <div style={{ fontSize: 12, color: "#666", fontFamily: "'Space Mono',monospace" }}>{txOrdinate.length}</div>
+      </div>
+      {txOrdinate.length === 0 ? (
+        <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>Nessuna transazione in {nomeMese}.<br/>Premi + per iniziare!</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {recenti.map(t => {
-            const cat = CATEGORIE.find(c => c.id === t.categoria) || CATEGORIE[7];
-            const persona = persone.find(p => p.id === t.pagatoDa);
-            return (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538" }}>
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.colore + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
-                  {t.daScontrino ? "🧾" : cat.emoji}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || cat.nome}</div>
-                  <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
-                    {formattaData(t.data)}
-                    {persona && <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{persona.emoji} {t.splitPagante != null && t.splitPagante !== 100 ? `${t.splitPagante}%` : ""}</span>}
-                    {t.daScontrino && <span>📷</span>}
-                  </div>
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: t.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>{t.tipo === "entrata" ? "+" : "-"}{formattaValuta(t.importo)}</div>
-                <button onClick={() => onDelete(t.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, padding: "2px 6px", borderRadius: 6, flexShrink: 0 }}>×</button>
-              </div>
-            );
-          })}
+          {txOrdinate.map(t => (
+            <TransactionRow key={t.id} t={t} persone={persone} isEditing={editId === t.id}
+              onTap={() => setEditId(editId === t.id ? null : t.id)}
+              onDelete={() => { onDelete(t.id); setEditId(null); }}
+              onSave={(updates) => { onEdit(t.id, updates); setEditId(null); }}
+              onCancel={() => setEditId(null)}
+            />
+          ))}
         </div>
       )}
+
+      {/* Edit overlay backdrop */}
+      {editId && <div onClick={() => setEditId(null)} style={{ position: "fixed", inset: 0, background: "#0006", zIndex: 5 }} />}
+    </div>
+  );
+}
+
+// ─── Transaction Row with inline edit ───
+function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCancel }) {
+  const cat = CATEGORIE.find(c => c.id === t.categoria) || CATEGORIE[7];
+  const persona = persone.find(p => p.id === t.pagatoDa);
+
+  // Edit state
+  const [tipo, setTipo] = useState(t.tipo);
+  const [importo, setImporto] = useState(String(t.importo));
+  const [categoria, setCategoria] = useState(t.categoria || "altro");
+  const [descrizione, setDescrizione] = useState(t.descrizione || "");
+  const [data, setData] = useState(t.data);
+  const [pagatoDa, setPagatoDa] = useState(t.pagatoDa || persone[0]?.id || "");
+  const [splitPagante, setSplitPagante] = useState(t.splitPagante ?? 50);
+  const [intestataA, setIntestataA] = useState(t.intestataA || persone[0]?.id || "");
+  const [salvato, setSalvato] = useState(false);
+
+  // Reset edit state when transaction changes
+  useEffect(() => {
+    setTipo(t.tipo); setImporto(String(t.importo)); setCategoria(t.categoria || "altro");
+    setDescrizione(t.descrizione || ""); setData(t.data);
+    setPagatoDa(t.pagatoDa || persone[0]?.id || ""); setSplitPagante(t.splitPagante ?? 50);
+    setIntestataA(t.intestataA || persone[0]?.id || "");
+  }, [t, persone]);
+
+  function handleSave() {
+    const val = parseFloat(String(importo).replace(",", "."));
+    if (!val || val <= 0) return;
+    onSave({
+      tipo, importo: val, categoria, descrizione: descrizione.trim(), data,
+      pagatoDa: tipo === "uscita" ? pagatoDa : null,
+      splitPagante: tipo === "uscita" ? splitPagante : null,
+      intestataA: tipo === "entrata" ? intestataA : null,
+    });
+    setSalvato(true);
+    setTimeout(() => setSalvato(false), 1000);
+  }
+
+  const personaIntestata = persone.find(p => p.id === t.intestataA);
+
+  // Compact row
+  if (!isEditing) {
+    return (
+      <div onClick={onTap} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538", cursor: "pointer", transition: "background 0.2s" }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.colore + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+          {t.daScontrino ? "🧾" : cat.emoji}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || cat.nome}</div>
+          <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
+            {formattaData(t.data)}
+            {persona && t.tipo === "uscita" && <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{persona.emoji} {t.splitPagante != null && t.splitPagante !== 100 ? `${t.splitPagante}%` : ""}</span>}
+            {personaIntestata && t.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
+            {t.daScontrino && <span>📷</span>}
+          </div>
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: t.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>{t.tipo === "entrata" ? "+" : "-"}{formattaValuta(t.importo)}</div>
+      </div>
+    );
+  }
+
+  // Expanded edit form
+  return (
+    <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", border: "2px solid #6C5CE7", position: "relative", zIndex: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#eee" }}>Modifica transazione</div>
+        <button onClick={onCancel} style={{ background: "none", border: "none", color: "#888", fontSize: 18, cursor: "pointer" }}>✕</button>
+      </div>
+
+      {/* Tipo */}
+      <div style={{ display: "flex", background: "#111119", borderRadius: 12, padding: 3, marginBottom: 14, border: "1px solid #252538" }}>
+        {["uscita", "entrata"].map(tp => (
+          <button key={tp} onClick={() => setTipo(tp)} style={{
+            flex: 1, padding: "8px 0", border: "none", borderRadius: 10, cursor: "pointer",
+            fontSize: 13, fontWeight: 600,
+            background: tipo === tp ? (tp === "uscita" ? "#FF6B6B22" : "#4ECDC422") : "transparent",
+            color: tipo === tp ? (tp === "uscita" ? "#FF6B6B" : "#4ECDC4") : "#666",
+          }}>{tp === "uscita" ? "▼ Uscita" : "▲ Entrata"}</button>
+        ))}
+      </div>
+
+      {/* Importo */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Importo (€)</label>
+        <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)}
+          style={{ ...inputStyle, fontSize: 22, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo === "uscita" ? "#FF6B6B" : "#4ECDC4", background: "#111119" }} />
+      </div>
+
+      {/* Categoria */}
+      {tipo === "uscita" && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Categoria</label>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5 }}>
+            {CATEGORIE.map(c => (
+              <button key={c.id} onClick={() => setCategoria(c.id)} style={{
+                background: categoria === c.id ? c.colore + "33" : "#111119",
+                border: categoria === c.id ? `2px solid ${c.colore}88` : "2px solid #252538",
+                borderRadius: 10, padding: "6px 2px", cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+              }}>
+                <span style={{ fontSize: 16 }}>{c.emoji}</span>
+                <span style={{ fontSize: 8, color: categoria === c.id ? c.colore : "#888", fontWeight: 600 }}>{c.nome}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Chi ha pagato + split */}
+      {tipo === "uscita" && (
+        <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} persone={persone} />
+      )}
+
+      {/* Entrata di chi */}
+      {tipo === "entrata" && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>Entrata di chi?</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {persone.map(p => (
+              <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
+                flex: 1, padding: "10px 6px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
+                borderRadius: 12, cursor: "pointer", background: intestataA === p.id ? p.colore + "22" : "#111119",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s",
+              }}>
+                <span style={{ fontSize: 18 }}>{p.emoji}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: intestataA === p.id ? p.colore : "#888" }}>{p.nome}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Descrizione */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Descrizione</label>
+        <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Es: Pranzo..." style={{ ...inputStyle, background: "#111119" }} />
+      </div>
+
+      {/* Data */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={labelStyle}>Data</label>
+        <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, background: "#111119", colorScheme: "dark" }} />
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => { if (confirm("Eliminare questa transazione?")) onDelete(); }} style={{
+          padding: "12px", border: "1px solid #FF6B6B44", borderRadius: 12, cursor: "pointer",
+          background: "#FF6B6B11", color: "#FF6B6B", fontSize: 13, fontWeight: 600, flexShrink: 0,
+        }}>Elimina</button>
+        <button onClick={handleSave} style={{
+          flex: 1, padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
+          fontSize: 14, fontWeight: 700, color: "#fff",
+          background: salvato ? "linear-gradient(135deg, #4ECDC4, #3ab8b0)" : "linear-gradient(135deg, #6C5CE7, #a855f7)",
+          boxShadow: "0 4px 16px #6C5CE744",
+        }}>{salvato ? "✓ Salvato!" : "Salva modifiche"}</button>
+      </div>
     </div>
   );
 }
@@ -318,11 +521,17 @@ function AggiungiView({ onAggiungi, persone }) {
   const [salvato, setSalvato] = useState(false);
   const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
   const [splitPagante, setSplitPagante] = useState(50);
+  const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
 
   function handleSubmit() {
     const val = parseFloat(importo.replace(",", "."));
     if (!val || val <= 0) return;
-    onAggiungi({ id: generaId(), tipo, importo: val, categoria, descrizione: descrizione.trim(), data, pagatoDa: tipo === "uscita" ? pagatoDa : null, splitPagante: tipo === "uscita" ? splitPagante : null });
+    onAggiungi({
+      id: generaId(), tipo, importo: val, categoria, descrizione: descrizione.trim(), data,
+      pagatoDa: tipo === "uscita" ? pagatoDa : null,
+      splitPagante: tipo === "uscita" ? splitPagante : null,
+      intestataA: tipo === "entrata" ? intestataA : null,
+    });
     setImporto(""); setDescrizione(""); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
@@ -379,6 +588,23 @@ function AggiungiView({ onAggiungi, persone }) {
             </div>
           )}
         </>
+      )}
+      {tipo === "entrata" && (
+        <div style={{ marginBottom: 18 }}>
+          <label style={labelStyle}>Entrata di chi?</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {persone.map(p => (
+              <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
+                flex: 1, padding: "12px 8px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
+                borderRadius: 14, cursor: "pointer", background: intestataA === p.id ? p.colore + "22" : "#1a1a28",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s",
+              }}>
+                <span style={{ fontSize: 22 }}>{p.emoji}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: intestataA === p.id ? p.colore : "#888", fontFamily: "'DM Sans',sans-serif" }}>{p.nome}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       <div style={{ marginBottom: 18 }}>
         <label style={labelStyle}>Descrizione (opzionale)</label>
@@ -991,6 +1217,13 @@ export default function FinanzaApp() {
     } catch (err) { console.error("Delete error:", err); }
   }
 
+  async function modificaTransazione(id, updates) {
+    try {
+      const updated = await updateTransaction(id, updates);
+      setTransazioni(prev => prev.map(t => t.id === id ? { ...t, ...updated } : t));
+    } catch (err) { console.error("Update error:", err); }
+  }
+
   if (!authed) return <LoginScreen onLogin={handleLogin} />;
   if (loading) return <div style={{ minHeight: "100vh", background: "#111119", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: "#6C5CE7", fontSize: 18 }}>Caricamento...</div></div>;
 
@@ -1015,7 +1248,7 @@ export default function FinanzaApp() {
         </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} persone={persone} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "scansiona" && <ScansionaView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} />}
