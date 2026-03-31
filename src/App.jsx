@@ -198,6 +198,7 @@ function TabBar({ tab, setTab }) {
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
     { id: "scansiona", label: "Scontrino", icon: "📷" },
     { id: "stats", label: "Statistiche", icon: "◔" },
+    { id: "export", label: "Esporta", icon: "↓" },
   ];
   return (
     <div style={{ display: "flex", justifyContent: "space-around", background: "#161620", borderTop: "1px solid #2a2a3a", padding: "8px 0 max(12px, env(safe-area-inset-bottom))", position: "sticky", bottom: 0 }}>
@@ -688,6 +689,202 @@ function StatsView({ transazioni, persone }) {
   );
 }
 
+// ─── Export View ───
+const ALL_COLUMNS = [
+  { id: "data", label: "Data" },
+  { id: "tipo", label: "Tipo" },
+  { id: "importo", label: "Importo (€)" },
+  { id: "categoria", label: "Categoria" },
+  { id: "descrizione", label: "Descrizione" },
+  { id: "pagatoDa", label: "Pagato da" },
+  { id: "splitPagante", label: "Split % pagante" },
+  { id: "quotaAltro", label: "Quota altra persona (€)" },
+  { id: "daScontrino", label: "Da scontrino" },
+];
+
+function ExportView({ transazioni, persone }) {
+  const oggi = new Date();
+  const [meseDa, setMeseDa] = useState(`${oggi.getFullYear()}-${String(oggi.getMonth()+1).padStart(2,"0")}`);
+  const [meseA, setMeseA] = useState(meseDa);
+  const [colonne, setColonne] = useState(ALL_COLUMNS.map(c => c.id));
+  const [ordinamento, setOrdinamento] = useState("data-asc");
+  const [esportando, setEsportando] = useState(false);
+
+  function toggleColonna(id) {
+    setColonne(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  }
+
+  function selezionaTutte() { setColonne(ALL_COLUMNS.map(c => c.id)); }
+  function deselezionaTutte() { setColonne(["data", "importo"]); } // minimo
+
+  // Filter transactions by month range
+  const filtrate = transazioni.filter(t => {
+    const mese = t.data?.slice(0, 7); // "YYYY-MM"
+    return mese && mese >= meseDa && mese <= meseA;
+  });
+
+  // Sort
+  const ordinate = [...filtrate].sort((a, b) => {
+    const [campo, dir] = ordinamento.split("-");
+    let va, vb;
+    if (campo === "data") { va = a.data; vb = b.data; }
+    else if (campo === "importo") { va = a.importo; vb = b.importo; }
+    else if (campo === "categoria") { va = a.categoria; vb = b.categoria; }
+    else if (campo === "pagatoDa") { va = a.pagatoDa || ""; vb = b.pagatoDa || ""; }
+    else { va = a.data; vb = b.data; }
+    if (va < vb) return dir === "asc" ? -1 : 1;
+    if (va > vb) return dir === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  async function esporta() {
+    setEsportando(true);
+    try {
+      const XLSX = await import("xlsx");
+
+      const rows = ordinate.map(t => {
+        const row = {};
+        const p = persone.find(p => p.id === t.pagatoDa);
+        if (colonne.includes("data")) row["Data"] = t.data;
+        if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "uscita" ? "Uscita" : "Entrata";
+        if (colonne.includes("importo")) row["Importo (€)"] = t.importo;
+        if (colonne.includes("categoria")) row["Categoria"] = t.categoria;
+        if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
+        if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
+        if (colonne.includes("splitPagante")) row["Split % pagante"] = t.splitPagante != null ? t.splitPagante : "";
+        if (colonne.includes("quotaAltro")) row["Quota altra persona (€)"] = t.splitPagante != null ? +(t.importo * (100 - t.splitPagante) / 100).toFixed(2) : "";
+        if (colonne.includes("daScontrino")) row["Da scontrino"] = t.daScontrino ? "Sì" : "No";
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      // Auto-width columns
+      const colWidths = Object.keys(rows[0] || {}).map(key => ({
+        wch: Math.max(key.length, ...rows.map(r => String(r[key] ?? "").length)) + 2,
+      }));
+      ws["!cols"] = colWidths;
+
+      const wb = XLSX.utils.book_new();
+      const sheetName = meseDa === meseA ? meseDa : `${meseDa}_${meseA}`;
+      XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+      XLSX.writeFile(wb, `finanza_${sheetName}.xlsx`);
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Errore durante l'esportazione: " + err.message);
+    } finally {
+      setEsportando(false);
+    }
+  }
+
+  // Generate month options (last 24 months)
+  const mesiOptions = [];
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(oggi.getFullYear(), oggi.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const label = `${MESI[d.getMonth()]} ${d.getFullYear()}`;
+    mesiOptions.push({ val, label });
+  }
+
+  const sortOptions = [
+    { val: "data-asc", label: "Data ↑ (vecchie prima)" },
+    { val: "data-desc", label: "Data ↓ (recenti prima)" },
+    { val: "importo-desc", label: "Importo ↓ (più alto)" },
+    { val: "importo-asc", label: "Importo ↑ (più basso)" },
+    { val: "categoria-asc", label: "Categoria A→Z" },
+    { val: "pagatoDa-asc", label: "Pagato da A→Z" },
+  ];
+
+  return (
+    <div style={{ padding: "20px 16px" }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>Esporta dati</div>
+      <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>Scarica le transazioni come file Excel</div>
+
+      {/* Month range */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Da mese</label>
+          <select value={meseDa} onChange={e => { setMeseDa(e.target.value); if (e.target.value > meseA) setMeseA(e.target.value); }}
+            style={{ ...inputStyle, colorScheme: "dark", cursor: "pointer" }}>
+            {mesiOptions.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>A mese</label>
+          <select value={meseA} onChange={e => setMeseA(e.target.value)}
+            style={{ ...inputStyle, colorScheme: "dark", cursor: "pointer" }}>
+            {mesiOptions.filter(m => m.val >= meseDa).map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Column selector */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>Colonne da esportare</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={selezionaTutte} style={{ background: "none", border: "none", color: "#6C5CE7", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Tutte</button>
+            <button onClick={deselezionaTutte} style={{ background: "none", border: "none", color: "#888", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Minimo</button>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {ALL_COLUMNS.map(c => {
+            const active = colonne.includes(c.id);
+            return (
+              <button key={c.id} onClick={() => toggleColonna(c.id)} style={{
+                padding: "7px 12px", borderRadius: 10, cursor: "pointer",
+                fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                background: active ? "#6C5CE722" : "#1a1a28",
+                border: active ? "2px solid #6C5CE7" : "2px solid #252538",
+                color: active ? "#6C5CE7" : "#888",
+                transition: "all 0.2s",
+              }}>{c.label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Sort order */}
+      <div style={{ marginBottom: 18 }}>
+        <label style={labelStyle}>Ordinamento</label>
+        <select value={ordinamento} onChange={e => setOrdinamento(e.target.value)}
+          style={{ ...inputStyle, colorScheme: "dark", cursor: "pointer" }}>
+          {sortOptions.map(s => <option key={s.val} value={s.val}>{s.label}</option>)}
+        </select>
+      </div>
+
+      {/* Preview */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", marginBottom: 20, border: "1px solid #252538" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{ordinate.length} transazioni</div>
+            <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{colonne.length} colonne selezionate</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace" }}>
+              {formattaValuta(ordinate.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0))}
+            </div>
+            <div style={{ fontSize: 10, color: "#888" }}>uscite totali</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Export button */}
+      <button onClick={esporta} disabled={ordinate.length === 0 || esportando} style={{
+        width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: ordinate.length > 0 ? "pointer" : "default",
+        fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
+        background: ordinate.length > 0 ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+        color: ordinate.length > 0 ? "#fff" : "#666",
+        boxShadow: ordinate.length > 0 ? "0 4px 20px #6C5CE744" : "none",
+        opacity: esportando ? 0.6 : 1,
+        transition: "all 0.3s",
+      }}>
+        {esportando ? "Generazione file..." : ordinate.length === 0 ? "Nessuna transazione nel periodo" : `Scarica XLSX (${ordinate.length} righe)`}
+      </button>
+    </div>
+  );
+}
+
 // ─── Login Screen ───
 function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
@@ -822,6 +1019,7 @@ export default function FinanzaApp() {
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "scansiona" && <ScansionaView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} />}
+        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
       </div>
       <TabBar tab={tab} setTab={setTab} />
     </div>
