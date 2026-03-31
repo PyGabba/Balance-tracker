@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import Tesseract from "tesseract.js";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName } from "./api.js";
 
 const CATEGORIE = [
@@ -85,7 +84,8 @@ function estraiNegozio(testo) {
 }
 
 async function ocrFallback(file, onP) {
-  const worker = await Tesseract.createWorker("ita", 1, {
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("ita", 1, {
     logger: m => { if (m.status === "recognizing text") onP(m.progress || 0); }
   });
   const { data } = await worker.recognize(file);
