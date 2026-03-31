@@ -133,7 +133,7 @@ app.get("/api/transactions", requireHousehold, async (req, res) => {
 // POST /api/transactions
 app.post("/api/transactions", requireHousehold, async (req, res) => {
   try {
-    const { tipo, importo, categoria, descrizione, data, pagatoDa, splitPagante, daScontrino } = req.body;
+    const { tipo, importo, categoria, descrizione, data, pagatoDa, splitPagante, daScontrino, intestataA } = req.body;
 
     if (!tipo || !importo || !data) {
       return res.status(400).json({ error: "Campi obbligatori: tipo, importo, data" });
@@ -148,6 +148,7 @@ app.post("/api/transactions", requireHousehold, async (req, res) => {
       data,
       pagatoDa: pagatoDa || null,
       splitPagante: splitPagante != null ? parseInt(splitPagante) : null,
+      intestataA: intestataA || null,
       daScontrino: !!daScontrino,
       createdAt: new Date(),
     };
@@ -183,7 +184,7 @@ app.put("/api/transactions/:id", requireHousehold, async (req, res) => {
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: "ID non valido" });
 
     const update = {};
-    const allowed = ["tipo", "importo", "categoria", "descrizione", "data", "pagatoDa", "splitPagante", "daScontrino"];
+    const allowed = ["tipo", "importo", "categoria", "descrizione", "data", "pagatoDa", "splitPagante", "daScontrino", "intestataA"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         update[key] = key === "importo" ? parseFloat(req.body[key])
