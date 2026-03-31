@@ -141,6 +141,24 @@ export async function deleteTransaction(id) {
   return true;
 }
 
+export async function updateTransaction(id, updates) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/transactions/${id}`, {
+        method: "PUT", headers: authHeaders(), body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) {
+      console.error("updateTransaction:", err);
+      apiAvailable = false;
+    }
+  }
+  const all = lsLoad().map(t => t.id === id ? { ...t, ...updates } : t);
+  lsSave(all);
+  return all.find(t => t.id === id);
+}
+
 export function isAPIConnected() {
   return apiAvailable === true;
 }
