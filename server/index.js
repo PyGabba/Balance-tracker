@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
-// prova
+
 dotenv.config();
 
 const app = express();
