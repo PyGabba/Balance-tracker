@@ -10,6 +10,7 @@ const CATEGORIE = [
   { id: "shopping", nome: "Shopping", emoji: "🛍️", colore: "#DDA0DD" },
   { id: "bollette", nome: "Bollette", emoji: "💡", colore: "#F0A500" },
   { id: "altro", nome: "Altro", emoji: "📦", colore: "#A8A8A8" },
+  { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" },
 ];
 
 // PERSONE is now dynamic — loaded from session after login
@@ -379,7 +380,9 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
     const val = parseFloat(String(importo).replace(",", "."));
     if (!val || val <= 0) return;
     onSave({
-      tipo, importo: val, categoria, descrizione: descrizione.trim(), data,
+      tipo, importo: val,
+      categoria: tipo === "entrata" ? "entrata" : categoria,
+      descrizione: descrizione.trim(), data,
       pagatoDa: tipo === "uscita" ? pagatoDa : null,
       splitPagante: tipo === "uscita" ? splitPagante : null,
       intestataA: tipo === "entrata" ? intestataA : null,
@@ -443,7 +446,7 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
         <div style={{ marginBottom: 12 }}>
           <label style={labelStyle}>Categoria</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5 }}>
-            {CATEGORIE.map(c => (
+            {CATEGORIE.filter(c => c.id !== "entrata").map(c => (
               <button key={c.id} onClick={() => setCategoria(c.id)} style={{
                 background: categoria === c.id ? c.colore + "33" : "#111119",
                 border: categoria === c.id ? `2px solid ${c.colore}88` : "2px solid #252538",
@@ -527,7 +530,9 @@ function AggiungiView({ onAggiungi, persone }) {
     const val = parseFloat(importo.replace(",", "."));
     if (!val || val <= 0) return;
     onAggiungi({
-      id: generaId(), tipo, importo: val, categoria, descrizione: descrizione.trim(), data,
+      id: generaId(), tipo, importo: val,
+      categoria: tipo === "entrata" ? "entrata" : categoria,
+      descrizione: descrizione.trim(), data,
       pagatoDa: tipo === "uscita" ? pagatoDa : null,
       splitPagante: tipo === "uscita" ? splitPagante : null,
       intestataA: tipo === "entrata" ? intestataA : null,
@@ -565,7 +570,7 @@ function AggiungiView({ onAggiungi, persone }) {
           <div style={{ marginBottom: 18 }}>
             <label style={labelStyle}>Categoria</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-              {CATEGORIE.map(c => (
+              {CATEGORIE.filter(c => c.id !== "entrata").map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id)} style={{
                   background: categoria===c.id?c.colore+"33":"#1a1a28", border: categoria===c.id?`2px solid ${c.colore}88`:"2px solid #252538",
                   borderRadius: 14, padding: "10px 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
@@ -721,7 +726,7 @@ function ScansionaView({ onAggiungi, persone }) {
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Categoria</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-              {CATEGORIE.map(c => (
+              {CATEGORIE.filter(c => c.id !== "entrata").map(c => (
                 <button key={c.id} onClick={()=>setCategoria(c.id)} style={{
                   background: categoria===c.id?c.colore+"33":"#1a1a28", border: categoria===c.id?`2px solid ${c.colore}88`:"2px solid #252538",
                   borderRadius: 12, padding: "8px 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
@@ -765,7 +770,7 @@ function StatsView({ transazioni, persone }) {
   const usciteMese = txMese.filter(t => t.tipo === "uscita");
   const totalUscite = usciteMese.reduce((s,t) => s+t.importo, 0);
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
-  const perCategoria = CATEGORIE.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
+  const perCategoria = CATEGORIE.filter(c=>c.id!=="entrata").map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
   const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
