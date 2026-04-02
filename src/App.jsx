@@ -778,6 +778,21 @@ function StatsView({ transazioni, persone }) {
   const p2Speso = usciteMese.filter(t=>t.pagatoDa===p2.id).reduce((s,t)=>s+t.importo,0);
   const debitoMese = calcolaDebiti(txMese, persone);
 
+  // ─── Frequency analysis (must be before Trends) ───
+  const numTransazioni = usciteMese.length;
+  const spesaMedia = numTransazioni > 0 ? totalUscite / numTransazioni : 0;
+  const giorniMese = new Date(meseVis.getFullYear(), meseVis.getMonth() + 1, 0).getDate();
+  const perGiorno = Array.from({ length: giorniMese }, (_, i) => {
+    const g = i + 1;
+    const tot = usciteMese.filter(t => new Date(t.data).getDate() === g).reduce((s, t) => s + t.importo, 0);
+    const count = usciteMese.filter(t => new Date(t.data).getDate() === g).length;
+    return { giorno: g, totale: tot, count };
+  });
+  const maxGiorno = Math.max(...perGiorno.map(g => g.totale), 1);
+  const fasce = [{ label: "0–10", min: 0, max: 10 },{ label: "10–25", min: 10, max: 25 },{ label: "25–50", min: 25, max: 50 },{ label: "50–100", min: 50, max: 100 },{ label: "100+", min: 100, max: Infinity }];
+  const istogramma = fasce.map(f => ({ ...f, count: usciteMese.filter(t => t.importo >= f.min && t.importo < f.max).length }));
+  const maxIsto = Math.max(...istogramma.map(f => f.count), 1);
+
   // ─── Trends & Insights ───
   const mesePrecedente = new Date(meseVis.getFullYear(), meseVis.getMonth() - 1, 1);
   const txMesePrec = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===mesePrecedente.getMonth()&&d.getFullYear()===mesePrecedente.getFullYear(); });
@@ -831,19 +846,6 @@ function StatsView({ transazioni, persone }) {
   if (catUp) insights.push({ icon: catUp.emoji, color: catUp.colore, text: `${catUp.nome} +${Math.round(catUp.delta)}% vs mese scorso (${formattaValuta(catUp.curr)})` });
   if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% vs mese scorso (${formattaValuta(catDown.curr)})` });
   if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: "#6C5CE7", text: `Media giornaliera: ${formattaValuta(mediaGiornaliera)}/giorno` });
-  const numTransazioni = usciteMese.length;
-  const spesaMedia = numTransazioni > 0 ? totalUscite / numTransazioni : 0;
-  const giorniMese = new Date(meseVis.getFullYear(), meseVis.getMonth() + 1, 0).getDate();
-  const perGiorno = Array.from({ length: giorniMese }, (_, i) => {
-    const g = i + 1;
-    const tot = usciteMese.filter(t => new Date(t.data).getDate() === g).reduce((s, t) => s + t.importo, 0);
-    const count = usciteMese.filter(t => new Date(t.data).getDate() === g).length;
-    return { giorno: g, totale: tot, count };
-  });
-  const maxGiorno = Math.max(...perGiorno.map(g => g.totale), 1);
-  const fasce = [{ label: "0–10", min: 0, max: 10 },{ label: "10–25", min: 10, max: 25 },{ label: "25–50", min: 25, max: 50 },{ label: "50–100", min: 50, max: 100 },{ label: "100+", min: 100, max: Infinity }];
-  const istogramma = fasce.map(f => ({ ...f, count: usciteMese.filter(t => t.importo >= f.min && t.importo < f.max).length }));
-  const maxIsto = Math.max(...istogramma.map(f => f.count), 1);
 
   const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 18, padding: "6px 14px", cursor: "pointer" };
 
