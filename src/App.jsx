@@ -778,7 +778,59 @@ function StatsView({ transazioni, persone }) {
   const p2Speso = usciteMese.filter(t=>t.pagatoDa===p2.id).reduce((s,t)=>s+t.importo,0);
   const debitoMese = calcolaDebiti(txMese, persone);
 
-  // Frequency analysis
+  // ─── Trends & Insights ───
+  const mesePrecedente = new Date(meseVis.getFullYear(), meseVis.getMonth() - 1, 1);
+  const txMesePrec = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===mesePrecedente.getMonth()&&d.getFullYear()===mesePrecedente.getFullYear(); });
+  const usciteMesePrec = txMesePrec.filter(t => t.tipo === "uscita");
+  const totalUscitePrec = usciteMesePrec.reduce((s,t) => s+t.importo, 0);
+  const totalEntratePrec = txMesePrec.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
+
+  // Month over month change
+  const deltaPct = totalUscitePrec > 0 ? ((totalUscite - totalUscitePrec) / totalUscitePrec * 100) : null;
+  const deltaEntPct = totalEntratePrec > 0 ? ((totalEntrate - totalEntratePrec) / totalEntratePrec * 100) : null;
+
+  // Category comparison vs previous month
+  const catTrends = CATEGORIE.filter(c=>c.id!=="entrata").map(cat => {
+    const curr = usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0);
+    const prev = usciteMesePrec.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0);
+    const delta = prev > 0 ? ((curr - prev) / prev * 100) : (curr > 0 ? 100 : 0);
+    return { ...cat, curr, prev, delta };
+  }).filter(c => c.curr > 0 || c.prev > 0).sort((a,b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  // Biggest single expense
+  const maxTx = usciteMese.length > 0 ? usciteMese.reduce((a,b) => a.importo > b.importo ? a : b) : null;
+
+  // Saving rate
+  const savingRate = totalEntrate > 0 ? ((totalEntrate - totalUscite) / totalEntrate * 100) : 0;
+
+  // Average daily spend
+  const giornoOggi = meseVis.getMonth() === oggi.getMonth() && meseVis.getFullYear() === oggi.getFullYear() ? oggi.getDate() : giorniMese;
+  const mediaGiornaliera = giornoOggi > 0 ? totalUscite / giornoOggi : 0;
+  const mediaGiornalieraPrec = giorniMese > 0 && totalUscitePrec > 0 ? totalUscitePrec / new Date(mesePrecedente.getFullYear(), mesePrecedente.getMonth()+1, 0).getDate() : 0;
+
+  // Top spending day
+  const topDay = perGiorno.reduce((a,b) => a.totale > b.totale ? a : b, { giorno: 0, totale: 0 });
+
+  // Generate smart insights
+  const insights = [];
+  if (deltaPct !== null) {
+    if (deltaPct > 15) insights.push({ icon: "📈", color: "#FF6B6B", text: `Uscite in aumento del ${Math.round(deltaPct)}% rispetto a ${MESI[mesePrecedente.getMonth()]}` });
+    else if (deltaPct < -15) insights.push({ icon: "📉", color: "#4ECDC4", text: `Uscite in calo del ${Math.round(Math.abs(deltaPct))}% rispetto a ${MESI[mesePrecedente.getMonth()]}` });
+    else insights.push({ icon: "➡️", color: "#F0A500", text: `Spesa stabile rispetto a ${MESI[mesePrecedente.getMonth()]} (${deltaPct >= 0 ? "+" : ""}${Math.round(deltaPct)}%)` });
+  }
+  if (savingRate > 20) insights.push({ icon: "💪", color: "#4ECDC4", text: `Tasso di risparmio: ${Math.round(savingRate)}% — ottimo!` });
+  else if (savingRate > 0) insights.push({ icon: "💡", color: "#F0A500", text: `Tasso di risparmio: ${Math.round(savingRate)}%` });
+  else if (totalEntrate > 0) insights.push({ icon: "⚠️", color: "#FF6B6B", text: `Spendi più di quanto guadagni questo mese` });
+  if (maxTx) {
+    const maxCat = CATEGORIE.find(c=>c.id===maxTx.categoria);
+    insights.push({ icon: "🏷️", color: "#DDA0DD", text: `Spesa più grande: ${formattaValuta(maxTx.importo)} — ${maxTx.descrizione || maxCat?.nome || ""}` });
+  }
+  if (topDay.totale > 0) insights.push({ icon: "📅", color: "#45B7D1", text: `Giorno più costoso: ${topDay.giorno} ${MESI[meseVis.getMonth()]} (${formattaValuta(topDay.totale)})` });
+  const catUp = catTrends.find(c => c.delta > 30 && c.curr > 20);
+  const catDown = catTrends.find(c => c.delta < -30 && c.prev > 20);
+  if (catUp) insights.push({ icon: catUp.emoji, color: catUp.colore, text: `${catUp.nome} +${Math.round(catUp.delta)}% vs mese scorso (${formattaValuta(catUp.curr)})` });
+  if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% vs mese scorso (${formattaValuta(catDown.curr)})` });
+  if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: "#6C5CE7", text: `Media giornaliera: ${formattaValuta(mediaGiornaliera)}/giorno` });
   const numTransazioni = usciteMese.length;
   const spesaMedia = numTransazioni > 0 ? totalUscite / numTransazioni : 0;
   const giorniMese = new Date(meseVis.getFullYear(), meseVis.getMonth() + 1, 0).getDate();
@@ -912,6 +964,134 @@ function StatsView({ transazioni, persone }) {
               <span style={{ fontSize: 9, color: "#666" }}>Più</span>
             </div>
           </div>
+        </>
+      )}
+
+      {/* ─── Trends & Insights ─── */}
+      {(insights.length > 0 || catTrends.length > 0) && (
+        <>
+          {/* Smart insights */}
+          {insights.length > 0 && (
+            <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Insights</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {insights.map((ins, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1.2 }}>{ins.icon}</span>
+                    <span style={{ fontSize: 13, color: "#ccc", fontFamily: "'DM Sans',sans-serif", lineHeight: 1.4 }}>{ins.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Month over month comparison bars */}
+          {totalUscitePrec > 0 && (
+            <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Confronto vs {MESI[mesePrecedente.getMonth()]}</div>
+              {/* Uscite comparison */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: "#888" }}>Uscite</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: deltaPct > 0 ? "#FF6B6B" : "#4ECDC4" }}>
+                    {deltaPct >= 0 ? "+" : ""}{Math.round(deltaPct)}%
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 4, height: 20 }}>
+                  <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
+                    <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscitePrec / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: "#FF6B6B44", borderRadius: 6 }} />
+                    <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#aaa" }}>{MESI[mesePrecedente.getMonth()]} {formattaValuta(totalUscitePrec)}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 4, height: 20, marginTop: 4 }}>
+                  <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
+                    <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscite / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: "#FF6B6B88", borderRadius: 6 }} />
+                    <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#eee", fontWeight: 600 }}>{MESI[meseVis.getMonth()]} {formattaValuta(totalUscite)}</div>
+                  </div>
+                </div>
+              </div>
+              {/* Entrate comparison */}
+              {(totalEntrate > 0 || totalEntratePrec > 0) && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: "#888" }}>Entrate</span>
+                    {deltaEntPct !== null && <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: deltaEntPct >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+                      {deltaEntPct >= 0 ? "+" : ""}{Math.round(deltaEntPct)}%
+                    </span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, height: 20 }}>
+                    <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
+                      <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntratePrec / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: "#4ECDC444", borderRadius: 6 }} />
+                      <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#aaa" }}>{MESI[mesePrecedente.getMonth()]} {formattaValuta(totalEntratePrec)}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, height: 20, marginTop: 4 }}>
+                    <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
+                      <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntrate / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: "#4ECDC488", borderRadius: 6 }} />
+                      <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#eee", fontWeight: 600 }}>{MESI[meseVis.getMonth()]} {formattaValuta(totalEntrate)}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Category trends vs previous month */}
+          {catTrends.length > 0 && totalUscitePrec > 0 && (
+            <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Trend per categoria</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {catTrends.slice(0, 6).map(c => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 16, width: 24, textAlign: "center", flexShrink: 0 }}>{c.emoji}</span>
+                    <span style={{ fontSize: 12, color: "#ccc", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "'Space Mono',monospace", color: "#888", flexShrink: 0 }}>{formattaValuta(c.curr)}</span>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, fontFamily: "'Space Mono',monospace", flexShrink: 0,
+                      padding: "2px 6px", borderRadius: 6, minWidth: 48, textAlign: "center",
+                      color: c.delta > 10 ? "#FF6B6B" : c.delta < -10 ? "#4ECDC4" : "#F0A500",
+                      background: c.delta > 10 ? "#FF6B6B15" : c.delta < -10 ? "#4ECDC415" : "#F0A50015",
+                    }}>
+                      {c.delta >= 0 ? "+" : ""}{Math.round(c.delta)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Saving rate gauge */}
+          {totalEntrate > 0 && (
+            <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Tasso di risparmio</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {/* Gauge ring */}
+                <svg viewBox="0 0 80 80" width="70" height="70" style={{ flexShrink: 0 }}>
+                  <circle cx="40" cy="40" r="32" fill="none" stroke="#252538" strokeWidth="8" />
+                  <circle cx="40" cy="40" r="32" fill="none"
+                    stroke={savingRate > 20 ? "#4ECDC4" : savingRate > 0 ? "#F0A500" : "#FF6B6B"}
+                    strokeWidth="8" strokeLinecap="round"
+                    strokeDasharray={`${Math.max(0, Math.min(100, savingRate)) / 100 * 201} 201`}
+                    transform="rotate(-90 40 40)" />
+                  <text x="40" y="38" textAnchor="middle" fill="#eee" fontSize="14" fontWeight="800" fontFamily="'Space Mono',monospace">
+                    {Math.round(savingRate)}%
+                  </text>
+                  <text x="40" y="50" textAnchor="middle" fill="#888" fontSize="7" fontFamily="'DM Sans',sans-serif">risparmio</text>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "#ccc", marginBottom: 4 }}>
+                    {savingRate > 30 ? "Eccellente! Stai risparmiando molto." :
+                     savingRate > 15 ? "Buon lavoro, stai risparmiando." :
+                     savingRate > 0 ? "Margine ridotto — attenzione alle spese." :
+                     "Stai spendendo più di quanto guadagni."}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#888" }}>
+                    Risparmiati: {formattaValuta(Math.max(0, totalEntrate - totalUscite))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
