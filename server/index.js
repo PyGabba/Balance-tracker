@@ -14,8 +14,8 @@ app.use(express.json({ limit: "10mb" }));
 const HOUSEHOLDS = [
   { id: "laura-gabriele", nome: "Laura & Gabriele", pin: process.env.PIN_LAURA_GABRIELE || "1234",
     persone: [{ id: "laura", nome: "Laura", emoji: "👩", colore: "#E84393" },{ id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#0984E3" }] },
-  { id: "gianmarco-giulia", nome: "Gian Marco & Giulia", pin: process.env.PIN_GIANMARCO_GIULIA || "5678",
-    persone: [{ id: "gianmarco", nome: "Gian Marco", emoji: "👨", colore: "#00B894" },{ id: "giulia", nome: "Giulia", emoji: "👩", colore: "#FD79A8" }] },
+  { id: "viaggio-irlanda", nome: "Irlanda", pin: process.env.PIN_IRLANDA || "5678",
+    persone: [{ id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#00B894" },{ id: "laura", nome: "Laura", emoji: "👩", colore: "#FD79A8" },{ id: "marco", nome: "Marco", emoji: "👨", colore: "#0984E3" },{ id: "roberta", nome: "Roberta", emoji: "👩", colore: "#E84393" }] },
 ];
 
 let db, transactionsCol;
