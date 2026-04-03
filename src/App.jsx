@@ -1231,29 +1231,38 @@ export default function FinanzaApp() {
 
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
-      {/* Fixed header */}
-      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
-          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
+      
+      {/* CONTENITORE STICKY: Mantiene l'header e la MonthBar fissi in alto */}
+      <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#111119", flexShrink: 0 }}>
+        
+        {/* Fixed header */}
+        <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
+            <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => window.location.reload()} title="Ricarica" style={{
+              background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+              color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
+            }}>↻</button>
+            <button onClick={handleLogout} title="Logout" style={{
+              background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+              color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
+              fontFamily: "'DM Sans',sans-serif",
+            }}>Esci</button>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button onClick={() => window.location.reload()} title="Ricarica" style={{
-            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-            color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
-          }}>↻</button>
-          <button onClick={handleLogout} title="Logout" style={{
-            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-            color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
-            fontFamily: "'DM Sans',sans-serif",
-          }}>Esci</button>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
-        </div>
+
+        {/* Fixed month selector bar — only for Home and Stats */}
+        {showMonthBar && (
+          <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
+        )}
+
       </div>
-      {/* Fixed month selector bar — only for Home and Stats */}
-      {showMonthBar && (
-        <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
-      )}
+      {/* FINE CONTENITORE STICKY */}
+
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
@@ -1261,6 +1270,7 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
       </div>
+      
       <TabBar tab={tab} setTab={setTab} />
     </div>
   );
