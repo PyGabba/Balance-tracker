@@ -751,7 +751,7 @@ function StatsView({ transazioni, persone, meseOffset }) {
   const p2 = persone[1] || DEFAULT_PERSONE[1];
   const p1Speso = usciteMese.filter(t=>t.pagatoDa===p1.id).reduce((s,t)=>s+t.importo,0);
   const p2Speso = usciteMese.filter(t=>t.pagatoDa===p2.id).reduce((s,t)=>s+t.importo,0);
-  const debitoMese = calcolaDebiti(txMese, persone);
+  const debitiMese = calcolaDebitiMatrix(txMese, persone);
 
   // ─── Frequency analysis (must be before Trends) ───
   const numTransazioni = usciteMese.length;
@@ -848,11 +848,18 @@ function StatsView({ transazioni, persone, meseOffset }) {
               <div><div style={{ fontSize: 11, color: p2.colore, fontWeight: 600 }}>{p2.nome}</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(p2Speso)}</div></div>
             </div>
           </div>
-          {debitoMese !== 0 && (
-            <div style={{ borderTop: "1px solid #252538", paddingTop: 8, fontSize: 12, color: "#ccc" }}>
-              {debitoMese > 0
-                ? <span>{p2.emoji} {p2.nome} deve <strong style={{ color: p1.colore }}>{formattaValuta(debitoMese)}</strong> a {p1.nome}</span>
-                : <span>{p1.emoji} {p1.nome} deve <strong style={{ color: p2.colore }}>{formattaValuta(Math.abs(debitoMese))}</strong> a {p2.nome}</span>}
+          {debitiMese.length > 0 && (
+            <div style={{ borderTop: "1px solid #252538", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              {debitiMese.map((d, i) => {
+                const allP = getAllPersone(transazioni, persone);
+                const pDa = allP.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
+                const pA = allP.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: "#888" };
+                return (
+                  <div key={i} style={{ fontSize: 12, color: "#ccc" }}>
+                    <span>{pDa.emoji} {pDa.nome} deve <strong style={{ color: pA.colore }}>{formattaValuta(d.importo)}</strong> a {pA.nome}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
