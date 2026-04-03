@@ -132,6 +132,22 @@ function DonutChart({ segmenti }) {
   );
 }
 
+// ─── Month selector bar (fixed, shared between Home and Stats) ───
+function MonthBar({ meseOffset, setMeseOffset }) {
+  const oggi = new Date();
+  const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
+  const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
+  const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 16, padding: "5px 12px", cursor: "pointer" };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#111119", borderBottom: "1px solid #1e1e2e", flexShrink: 0 }}>
+      <button onClick={() => setMeseOffset(o => o + 1)} style={navBtn}>◂</button>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{nomeMese}</div>
+      <button onClick={() => setMeseOffset(o => Math.max(0, o - 1))} style={{ ...navBtn, opacity: meseOffset === 0 ? 0.3 : 1 }} disabled={meseOffset === 0}>▸</button>
+    </div>
+  );
+}
+
 // ─── Tab bar ───
 function TabBar({ tab, setTab }) {
   const tabs = [
@@ -160,9 +176,8 @@ function TabBar({ tab, setTab }) {
 }
 
 // ─── Home ───
-function HomeView({ transazioni, onDelete, onEdit, onSettle, persone }) {
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset }) {
   const oggi = new Date();
-  const [meseOffset, setMeseOffset] = useState(0);
   const [editId, setEditId] = useState(null);
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
@@ -182,19 +197,8 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone }) {
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
 
-  const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 16, padding: "5px 12px", cursor: "pointer" };
-
   return (
     <div>
-      {/* Sticky month selector */}
-      <div style={{ position: "sticky", top: 0, zIndex: 4, background: "#111119", padding: "12px 16px", borderBottom: "1px solid #1e1e2e" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button onClick={() => setMeseOffset(o => o + 1)} style={navBtn}>◂</button>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{nomeMese}</div>
-          <button onClick={() => setMeseOffset(o => Math.max(0, o - 1))} style={{ ...navBtn, opacity: meseOffset === 0 ? 0.3 : 1 }} disabled={meseOffset === 0}>▸</button>
-        </div>
-      </div>
-
       <div style={{ padding: "14px 16px 20px" }}>
       {/* Saldo card */}
       <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "24px 20px", marginBottom: 12, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
@@ -577,9 +581,8 @@ const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom
 const inputStyle = { width: "100%", maxWidth: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", WebkitAppearance: "none" };
 
 // ─── Stats ───
-function StatsView({ transazioni, persone }) {
+function StatsView({ transazioni, persone, meseOffset }) {
   const oggi = new Date();
-  const [meseOffset, setMeseOffset] = useState(0);
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
   const txMese = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===meseVis.getMonth()&&d.getFullYear()===meseVis.getFullYear(); });
@@ -663,19 +666,8 @@ function StatsView({ transazioni, persone }) {
   if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% vs mese scorso (${formattaValuta(catDown.curr)})` });
   if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: "#6C5CE7", text: `Media giornaliera: ${formattaValuta(mediaGiornaliera)}/giorno` });
 
-  const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 18, padding: "6px 14px", cursor: "pointer" };
-
   return (
     <div>
-      {/* Sticky month selector */}
-      <div style={{ position: "sticky", top: 0, zIndex: 4, background: "#111119", padding: "12px 16px", borderBottom: "1px solid #1e1e2e" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button onClick={()=>setMeseOffset(o=>o+1)} style={navBtn}>◂</button>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "#eee" }}>{nomeMese}</div>
-          <button onClick={()=>setMeseOffset(o=>Math.max(0,o-1))} style={{...navBtn,opacity:meseOffset===0?0.3:1}} disabled={meseOffset===0}>▸</button>
-        </div>
-      </div>
-
       <div style={{ padding: "14px 16px 20px" }}>
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
         <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "16px 14px", border: "1px solid #252538" }}>
@@ -1188,6 +1180,7 @@ export default function FinanzaApp() {
   const [tab, setTab] = useState("home");
   const [transazioni, setTransazioni] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [meseOffset, setMeseOffset] = useState(0);
 
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();
@@ -1234,9 +1227,12 @@ export default function FinanzaApp() {
   if (!authed) return <LoginScreen onLogin={handleLogin} />;
   if (loading) return <div style={{ minHeight: "100vh", background: "#111119", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: "#6C5CE7", fontSize: 18 }}>Caricamento...</div></div>;
 
+  const showMonthBar = tab === "home" || tab === "stats";
+
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1e1e2e", background: "#111119" }}>
+      {/* Fixed header */}
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
@@ -1254,10 +1250,15 @@ export default function FinanzaApp() {
           <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
         </div>
       </div>
+      {/* Fixed month selector bar — only for Home and Stats */}
+      {showMonthBar && (
+        <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
+      )}
+      {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
-        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} />}
+        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
       </div>
       <TabBar tab={tab} setTab={setTab} />
