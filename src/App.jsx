@@ -34,64 +34,216 @@ function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day:
 
 // Storage is now handled by src/api.js (MongoDB + localStorage fallback)
 
-// ─── Debt calculator ───
-function calcolaDebiti(transazioni, persone) {
-  const persona1Id = persone[0]?.id;
-  let saldo = 0;
+// ─── Multi-person debt calculator ───
+// Returns array: [{ da: personaId, a: personaId, importo: number }]
+function calcolaDebitiMatrix(transazioni, persone) {
+  const balances = {};
   for (const t of transazioni) {
-    if (t.tipo !== "uscita" || !t.pagatoDa || t.splitPagante == null) continue;
-    const quotaAltro = t.importo * (100 - t.splitPagante) / 100;
-    if (t.pagatoDa === persona1Id) saldo += quotaAltro;
-    else saldo -= quotaAltro;
+    if (t.tipo !== "uscita" || !t.pagatoDa) continue;
+    const payer = t.pagatoDa;
+    let shares = [];
+
+    if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
+      shares = t.splits;
+    } else if (t.splitPagante != null) {
+      // Old format backward compat
+      const other = persone.find(p => p.id !== payer);
+      if (other) shares = [{ personaId: payer, quota: t.splitPagante }, { personaId: other.id, quota: 100 - t.splitPagante }];
+    }
+    if (!shares.length) continue;
+    const totalQ = shares.reduce((s, sh) => s + (sh.quota || 0), 0);
+    if (totalQ === 0) continue;
+    for (const sh of shares) {
+      if (sh.personaId === payer) continue;
+      const owed = t.importo * (sh.quota / totalQ);
+      const key = `${sh.personaId}->${payer}`;
+      balances[key] = (balances[key] || 0) + owed;
+    }
   }
-  return saldo;
+  // Net out pairs
+  const pairs = new Set(), debiti = [];
+  for (const key of Object.keys(balances)) {
+    const [da, a] = key.split("->");
+    const pk = [da, a].sort().join(":");
+    if (pairs.has(pk)) continue; pairs.add(pk);
+    const ab = balances[`${da}->${a}`] || 0;
+    const ba = balances[`${a}->${da}`] || 0;
+    const net = ab - ba;
+    if (Math.abs(net) > 0.01) debiti.push(net > 0 ? { da, a, importo: Math.round(net * 100) / 100 } : { da: a, a: da, importo: Math.round(Math.abs(net) * 100) / 100 });
+  }
+  return debiti;
 }
 
-// ─── Split selector ───
-function SplitSelector({ pagatoDa, setPagatoDa, splitPagante, setSplitPagante, persone }) {
-  const pagante = persone.find(p => p.id === pagatoDa) || persone[0];
-  const altro = persone.find(p => p.id !== pagatoDa) || persone[1];
-  const splitAltro = 100 - splitPagante;
+// Convenience: get all known people from transactions (household + extras)
+function getAllPersone(transazioni, householdPersone) {
+  const known = new Map(householdPersone.map(p => [p.id, p]));
+  for (const t of transazioni) {
+    if (t.extraPersone && Array.isArray(t.extraPersone)) {
+      for (const ep of t.extraPersone) {
+        if (!known.has(ep.id)) known.set(ep.id, ep);
+      }
+    }
+    if (t.splits && Array.isArray(t.splits)) {
+      for (const s of t.splits) {
+        if (!known.has(s.personaId)) known.set(s.personaId, { id: s.personaId, nome: s.personaId, emoji: "👤", colore: "#888" });
+      }
+    }
+  }
+  return Array.from(known.values());
+}
+
+// ─── Multi-person split selector ───
+const COLORI_EXTRA = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
+
+function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone }) {
+  const [showAddExtra, setShowAddExtra] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  // All participants = household persone + extra persone
+  const allPersone = [...persone, ...(extraPersone || [])];
+
+  function toggleParticipant(pid) {
+    const current = splits || [];
+    if (current.find(s => s.personaId === pid)) {
+      // Remove, redistribute
+      const remaining = current.filter(s => s.personaId !== pid);
+      if (remaining.length > 0) {
+        const each = Math.round(100 / remaining.length);
+        const adjusted = remaining.map((s, i) => ({ ...s, quota: i === remaining.length - 1 ? 100 - each * (remaining.length - 1) : each }));
+        setSplits(adjusted);
+      } else {
+        setSplits([]);
+      }
+    } else {
+      // Add with equal split
+      const newList = [...current, { personaId: pid, quota: 0 }];
+      const each = Math.round(100 / newList.length);
+      const adjusted = newList.map((s, i) => ({ ...s, quota: i === newList.length - 1 ? 100 - each * (newList.length - 1) : each }));
+      setSplits(adjusted);
+    }
+  }
+
+  function setQuota(pid, val) {
+    setSplits((splits || []).map(s => s.personaId === pid ? { ...s, quota: Math.max(0, Math.min(100, val)) } : s));
+  }
+
+  function splitEqual() {
+    const current = splits || [];
+    if (current.length === 0) return;
+    const each = Math.round(100 / current.length);
+    setSplits(current.map((s, i) => ({ ...s, quota: i === current.length - 1 ? 100 - each * (current.length - 1) : each })));
+  }
+
+  function addExtraPerson() {
+    if (!newName.trim()) return;
+    const id = newName.trim().toLowerCase().replace(/\s+/g, "_");
+    if (allPersone.find(p => p.id === id)) return;
+    const ep = { id, nome: newName.trim(), emoji: "👤", colore: COLORI_EXTRA[(extraPersone || []).length % COLORI_EXTRA.length] };
+    setExtraPersone([...(extraPersone || []), ep]);
+    // Auto-add to split
+    const newSplits = [...(splits || []), { personaId: id, quota: 0 }];
+    const each = Math.round(100 / newSplits.length);
+    setSplits(newSplits.map((s, i) => ({ ...s, quota: i === newSplits.length - 1 ? 100 - each * (newSplits.length - 1) : each })));
+    setNewName("");
+    setShowAddExtra(false);
+  }
+
+  const totalQuota = (splits || []).reduce((s, x) => s + x.quota, 0);
+  const val = parseFloat(importo) || 0;
+
   return (
     <div style={{ marginBottom: 18 }}>
+      {/* Who paid */}
       <label style={labelStyle}>Chi ha pagato?</label>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        {persone.map(p => (
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        {allPersone.map(p => (
           <button key={p.id} onClick={() => setPagatoDa(p.id)} style={{
-            flex: 1, padding: "12px 8px", border: pagatoDa === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
-            borderRadius: 14, cursor: "pointer", background: pagatoDa === p.id ? p.colore + "22" : "#1a1a28",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s",
+            flex: "1 0 auto", minWidth: 80, padding: "10px 8px",
+            border: pagatoDa === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
+            borderRadius: 12, cursor: "pointer", background: pagatoDa === p.id ? p.colore + "22" : "#1a1a28",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s",
           }}>
-            <span style={{ fontSize: 22 }}>{p.emoji}</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: pagatoDa === p.id ? p.colore : "#888", fontFamily: "'DM Sans',sans-serif" }}>{p.nome}</span>
+            <span style={{ fontSize: 18 }}>{p.emoji}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: pagatoDa === p.id ? p.colore : "#888" }}>{p.nome}</span>
           </button>
         ))}
       </div>
-      <label style={labelStyle}>Divisione spesa</label>
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        {SPLIT_PRESETS.map(sp => {
-          const active = splitPagante === sp.value;
+
+      {/* Participants */}
+      <label style={labelStyle}>Chi partecipa alla spesa?</label>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        {allPersone.map(p => {
+          const active = (splits || []).find(s => s.personaId === p.id);
           return (
-            <button key={sp.value} onClick={() => setSplitPagante(sp.value)} style={{
-              flex: 1, padding: "8px 0", border: active ? "2px solid #6C5CE7" : "2px solid #252538",
-              borderRadius: 10, cursor: "pointer", background: active ? "#6C5CE722" : "#1a1a28",
-              color: active ? "#6C5CE7" : "#888", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
-            }}>{sp.label}</button>
+            <button key={p.id} onClick={() => toggleParticipant(p.id)} style={{
+              padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+              border: active ? `2px solid ${p.colore}` : "2px solid #252538",
+              background: active ? p.colore + "22" : "#1a1a28",
+              display: "flex", alignItems: "center", gap: 5, transition: "all 0.2s",
+            }}>
+              <span style={{ fontSize: 14 }}>{p.emoji}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: active ? p.colore : "#666" }}>{p.nome}</span>
+            </button>
           );
         })}
+        <button onClick={() => setShowAddExtra(!showAddExtra)} style={{
+          padding: "8px 12px", borderRadius: 10, cursor: "pointer",
+          border: "2px dashed #333355", background: "#1a1a28",
+          color: "#6C5CE7", fontSize: 13, fontWeight: 700,
+        }}>+ Persona</button>
       </div>
-      <div style={{ background: "#1a1a28", borderRadius: 12, padding: "10px 14px", border: "1px solid #252538" }}>
-        <input type="range" min="0" max="100" value={splitPagante} onChange={e => setSplitPagante(Number(e.target.value))}
-          style={{ width: "100%", accentColor: "#6C5CE7", cursor: "pointer" }} />
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-          <span style={{ fontSize: 12, color: pagante.colore, fontWeight: 700, fontFamily: "'Space Mono',monospace" }}>
-            {pagante.nome} {splitPagante}%
-          </span>
-          <span style={{ fontSize: 12, color: altro.colore, fontWeight: 700, fontFamily: "'Space Mono',monospace" }}>
-            {altro.nome} {splitAltro}%
-          </span>
+
+      {/* Add extra person */}
+      {showAddExtra && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addExtraPerson()}
+            placeholder="Nome persona..." style={{ ...inputStyle, flex: 1, padding: "10px 12px", fontSize: 13, background: "#111119" }} />
+          <button onClick={addExtraPerson} style={{
+            padding: "10px 16px", border: "none", borderRadius: 12, cursor: "pointer",
+            background: "#6C5CE7", color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0,
+          }}>Aggiungi</button>
         </div>
-      </div>
+      )}
+
+      {/* Quick split buttons */}
+      {(splits || []).length >= 2 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          <button onClick={splitEqual} style={{ flex: 1, padding: "7px 0", border: "2px solid #252538", borderRadius: 10, cursor: "pointer", background: "#1a1a28", color: "#6C5CE7", fontSize: 12, fontWeight: 700 }}>
+            Dividi equamente
+          </button>
+          <button onClick={() => {
+            const s = (splits || []);
+            if (s.length > 0) setSplits(s.map(x => x.personaId === pagatoDa ? { ...x, quota: 100 } : { ...x, quota: 0 }));
+          }} style={{ flex: 1, padding: "7px 0", border: "2px solid #252538", borderRadius: 10, cursor: "pointer", background: "#1a1a28", color: "#888", fontSize: 12, fontWeight: 700 }}>
+            100% pagante
+          </button>
+        </div>
+      )}
+
+      {/* Per-person quota inputs */}
+      {(splits || []).length > 0 && (
+        <div style={{ background: "#111119", borderRadius: 12, padding: "10px 12px", border: "1px solid #252538" }}>
+          {(splits || []).map(s => {
+            const p = allPersone.find(x => x.id === s.personaId) || { nome: s.personaId, emoji: "👤", colore: "#888" };
+            return (
+              <div key={s.personaId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #1e1e2e" }}>
+                <span style={{ fontSize: 16 }}>{p.emoji}</span>
+                <span style={{ fontSize: 12, color: p.colore, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</span>
+                <input type="number" inputMode="numeric" value={s.quota} onChange={e => setQuota(s.personaId, parseInt(e.target.value) || 0)}
+                  style={{ width: 50, padding: "4px 6px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontWeight: 700, textAlign: "center", fontFamily: "'Space Mono',monospace", outline: "none" }} />
+                <span style={{ fontSize: 11, color: "#666", width: 14 }}>%</span>
+                {val > 0 && <span style={{ fontSize: 11, color: "#aaa", fontFamily: "'Space Mono',monospace", minWidth: 55, textAlign: "right" }}>{formattaValuta(val * s.quota / Math.max(totalQuota, 1))}</span>}
+              </div>
+            );
+          })}
+          {totalQuota !== 100 && (
+            <div style={{ fontSize: 11, color: totalQuota > 100 ? "#FF6B6B" : "#F0A500", marginTop: 6, fontWeight: 600 }}>
+              Totale: {totalQuota}% {totalQuota !== 100 ? `(dovrebbe essere 100%)` : ""}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -192,8 +344,9 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const saldo = entrate - uscite;
   const txOrdinate = [...txMese].sort((a, b) => new Date(b.data) - new Date(a.data));
 
-  const debitoGlobale = calcolaDebiti(transazioni, persone);
-  const debitoMese = calcolaDebiti(txMese, persone);
+  const debitiGlobale = calcolaDebitiMatrix(transazioni, persone);
+  const debitiMese = calcolaDebitiMatrix(txMese, persone);
+  const allPeople = getAllPersone(transazioni, persone);
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
 
@@ -220,55 +373,67 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 
       {/* Debt card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio {p1.nome} ↔ {p2.nome}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#777", width: 60, flexShrink: 0 }}>{MESI[meseVis.getMonth()]}</div>
-          {debitoMese === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Pari</div> : (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-              <span style={{ fontSize: 18 }}>{debitoMese > 0 ? p2.emoji : p1.emoji}</span>
-              <span style={{ fontSize: 12, color: "#ccc" }}>{debitoMese > 0 ? `${p2.nome} deve a ${p1.nome}` : `${p1.nome} deve a ${p2.nome}`}</span>
-              <span style={{ marginLeft: "auto", fontSize: 15, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: debitoMese > 0 ? p1.colore : p2.colore }}>{formattaValuta(Math.abs(debitoMese))}</span>
+        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio debiti</div>
+        {/* Month debts */}
+        <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>{MESI[meseVis.getMonth()]}</div>
+        {debitiMese.length === 0 ? <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>Tutti pari</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+            {debitiMese.map((d, i) => {
+              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
+              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: "#888" };
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 16 }}>{pDa.emoji}</span>
+                  <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: pA.colore }}>{formattaValuta(d.importo)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* Global debts */}
+        <div style={{ borderTop: "1px solid #252538", paddingTop: 10 }}>
+          <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>Totale</div>
+          {debitiGlobale.length === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Tutti pari</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {debitiGlobale.map((d, i) => {
+                const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
+                const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: "#888" };
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 16 }}>{pDa.emoji}</span>
+                    <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: pA.colore }}>{formattaValuta(d.importo)}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-        <div style={{ borderTop: "1px solid #252538", paddingTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontSize: 11, color: "#777", width: 60, flexShrink: 0 }}>Totale</div>
-          {debitoGlobale === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Pari</div> : (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-              <span style={{ fontSize: 18 }}>{debitoGlobale > 0 ? p2.emoji : p1.emoji}</span>
-              <span style={{ fontSize: 12, color: "#ccc" }}>{debitoGlobale > 0 ? `${p2.nome} deve a ${p1.nome}` : `${p1.nome} deve a ${p2.nome}`}</span>
-              <span style={{ marginLeft: "auto", fontSize: 17, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: debitoGlobale > 0 ? p1.colore : p2.colore }}>{formattaValuta(Math.abs(debitoGlobale))}</span>
-            </div>
-          )}
-        </div>
-        {/* Settle button */}
-        {debitoGlobale !== 0 && (
-          <button onClick={() => {
-            const debitore = debitoGlobale > 0 ? p2 : p1;
-            const creditore = debitoGlobale > 0 ? p1 : p2;
-            const amount = Math.abs(debitoGlobale);
-            if (!confirm(`Saldare il debito?\n${debitore.nome} paga ${formattaValuta(amount)} a ${creditore.nome}`)) return;
-            // Create a settlement transaction: the debtor "pays" the creditor
-            // This is an expense paid by the debtor, 100% for the creditor (splitPagante=0)
-            onSettle({
-              id: generaId(),
-              tipo: "uscita",
-              importo: amount,
-              categoria: "altro",
-              descrizione: `Saldo debito → ${creditore.nome}`,
-              data: new Date().toISOString().slice(0, 10),
-              pagatoDa: debitore.id,
-              splitPagante: 0,
-              
-            });
-          }} style={{
-            width: "100%", marginTop: 12, padding: "11px", border: "none", borderRadius: 12, cursor: "pointer",
-            background: "linear-gradient(135deg, #4ECDC4, #3ab8b0)", color: "#fff",
-            fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
-            boxShadow: "0 4px 16px #4ECDC444",
-          }}>
-            Salda debito ({formattaValuta(Math.abs(debitoGlobale))})
-          </button>
+        {/* Settle buttons */}
+        {debitiGlobale.length > 0 && (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+            {debitiGlobale.map((d, i) => {
+              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da };
+              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a };
+              return (
+                <button key={i} onClick={() => {
+                  if (!confirm(`Saldare?\n${pDa.nome} paga ${formattaValuta(d.importo)} a ${pA.nome}`)) return;
+                  onSettle({
+                    id: generaId(), tipo: "uscita", importo: d.importo, categoria: "altro",
+                    descrizione: `Saldo debito → ${pA.nome}`, data: new Date().toISOString().slice(0, 10),
+                    pagatoDa: d.da, splits: [{ personaId: d.a, quota: 100 }],
+                  });
+                }} style={{
+                  width: "100%", padding: "10px", border: "none", borderRadius: 10, cursor: "pointer",
+                  background: "linear-gradient(135deg, #4ECDC4, #3ab8b0)", color: "#fff",
+                  fontSize: 12, fontWeight: 700, boxShadow: "0 2px 10px #4ECDC433",
+                }}>
+                  Salda {pDa.nome} → {pA.nome} ({formattaValuta(d.importo)})
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -311,15 +476,17 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
   const [descrizione, setDescrizione] = useState(t.descrizione || "");
   const [data, setData] = useState(t.data);
   const [pagatoDa, setPagatoDa] = useState(t.pagatoDa || persone[0]?.id || "");
-  const [splitPagante, setSplitPagante] = useState(t.splitPagante ?? 50);
+  const [splits, setSplits] = useState(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : persone.map(p => ({ personaId: p.id, quota: Math.round(100 / persone.length) }))));
+  const [extraPersone, setExtraPersone] = useState(t.extraPersone || []);
   const [intestataA, setIntestataA] = useState(t.intestataA || persone[0]?.id || "");
   const [salvato, setSalvato] = useState(false);
 
-  // Reset edit state when transaction changes
   useEffect(() => {
     setTipo(t.tipo); setImporto(String(t.importo)); setCategoria(t.categoria || "altro");
     setDescrizione(t.descrizione || ""); setData(t.data);
-    setPagatoDa(t.pagatoDa || persone[0]?.id || ""); setSplitPagante(t.splitPagante ?? 50);
+    setPagatoDa(t.pagatoDa || persone[0]?.id || "");
+    setSplits(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : persone.map(p => ({ personaId: p.id, quota: Math.round(100 / persone.length) }))));
+    setExtraPersone(t.extraPersone || []);
     setIntestataA(t.intestataA || persone[0]?.id || "");
   }, [t, persone]);
 
@@ -331,7 +498,8 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
       categoria: tipo === "entrata" ? "entrata" : categoria,
       descrizione: descrizione.trim(), data,
       pagatoDa: tipo === "uscita" ? pagatoDa : null,
-      splitPagante: tipo === "uscita" ? splitPagante : null,
+      splits: tipo === "uscita" ? splits : null,
+      extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
     });
     setSalvato(true);
@@ -351,7 +519,7 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
           <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || cat.nome}</div>
           <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
             {formattaData(t.data)}
-            {persona && t.tipo === "uscita" && <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{persona.emoji} {t.splitPagante != null && t.splitPagante !== 100 ? `${t.splitPagante}%` : ""}</span>}
+            {persona && t.tipo === "uscita" && <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{persona.emoji} {t.splits && t.splits.length > 2 ? `÷${t.splits.length}` : t.splits ? "" : t.splitPagante != null && t.splitPagante !== 100 ? `${t.splitPagante}%` : ""}</span>}
             {personaIntestata && t.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
           </div>
         </div>
@@ -409,7 +577,7 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
 
       {/* Chi ha pagato + split */}
       {tipo === "uscita" && (
-        <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} persone={persone} />
+        <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splits={splits} setSplits={setSplits} persone={persone} importo={importo} extraPersone={extraPersone} setExtraPersone={setExtraPersone} />
       )}
 
       {/* Entrata di chi */}
@@ -469,7 +637,8 @@ function AggiungiView({ onAggiungi, persone }) {
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
   const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
-  const [splitPagante, setSplitPagante] = useState(50);
+  const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === 0 ? 50 : 50 })));
+  const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
 
   function handleSubmit() {
@@ -480,7 +649,8 @@ function AggiungiView({ onAggiungi, persone }) {
       categoria: tipo === "entrata" ? "entrata" : categoria,
       descrizione: descrizione.trim(), data,
       pagatoDa: tipo === "uscita" ? pagatoDa : null,
-      splitPagante: tipo === "uscita" ? splitPagante : null,
+      splits: tipo === "uscita" ? splits : null,
+      extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
     });
     setImporto(""); setDescrizione(""); setSalvato(true);
@@ -488,10 +658,6 @@ function AggiungiView({ onAggiungi, persone }) {
   }
 
   const val = parseFloat(importo.replace(",",".")) || 0;
-  const quotaPagante = val * splitPagante / 100;
-  const quotaAltro = val - quotaPagante;
-  const pagante = persone.find(p => p.id === pagatoDa) || persone[0];
-  const altro = persone.find(p => p.id !== pagatoDa) || persone[1];
 
   return (
     <div style={{ padding: "20px 16px" }}>
@@ -527,17 +693,7 @@ function AggiungiView({ onAggiungi, persone }) {
               ))}
             </div>
           </div>
-          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} persone={persone} />
-          {val > 0 && splitPagante < 100 && (
-            <div style={{ background: "#1e1e30", borderRadius: 12, padding: "10px 14px", marginBottom: 18, border: "1px solid #333355" }}>
-              <div style={{ fontSize: 11, color: "#999", marginBottom: 6 }}>Riepilogo divisione</div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontFamily: "'Space Mono',monospace" }}>
-                <span style={{ color: pagante.colore }}>{pagante.nome}: {formattaValuta(quotaPagante)}</span>
-                <span style={{ color: altro.colore }}>{altro.nome}: {formattaValuta(quotaAltro)}</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>→ {altro.nome} deve {formattaValuta(quotaAltro)} a {pagante.nome}</div>
-            </div>
-          )}
+          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splits={splits} setSplits={setSplits} persone={persone} importo={importo} extraPersone={extraPersone} setExtraPersone={setExtraPersone} />
         </>
       )}
       {tipo === "entrata" && (
@@ -924,8 +1080,7 @@ const ALL_COLUMNS = [
   { id: "categoria", label: "Categoria" },
   { id: "descrizione", label: "Descrizione" },
   { id: "pagatoDa", label: "Pagato da" },
-  { id: "splitPagante", label: "Split % pagante" },
-  { id: "quotaAltro", label: "Quota altra persona (€)" },
+  { id: "partecipanti", label: "Partecipanti e quote" },
 ];
 
 function ExportView({ transazioni, persone }) {
@@ -977,8 +1132,19 @@ function ExportView({ transazioni, persone }) {
         if (colonne.includes("categoria")) row["Categoria"] = t.categoria;
         if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
         if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
-        if (colonne.includes("splitPagante")) row["Split % pagante"] = t.splitPagante != null ? t.splitPagante : "";
-        if (colonne.includes("quotaAltro")) row["Quota altra persona (€)"] = t.splitPagante != null ? +(t.importo * (100 - t.splitPagante) / 100).toFixed(2) : "";
+        if (colonne.includes("partecipanti")) {
+          if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
+            const allP = getAllPersone(transazioni, persone);
+            row["Partecipanti"] = t.splits.map(s => {
+              const sp = allP.find(x => x.id === s.personaId);
+              return `${sp?.nome || s.personaId} ${s.quota}%`;
+            }).join(", ");
+          } else if (t.splitPagante != null) {
+            row["Partecipanti"] = `${p?.nome || ""} ${t.splitPagante}%`;
+          } else {
+            row["Partecipanti"] = "";
+          }
+        }
         return row;
       });
 
@@ -1231,38 +1397,29 @@ export default function FinanzaApp() {
 
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column" }}>
-      
-      {/* CONTENITORE STICKY: Mantiene l'header e la MonthBar fissi in alto */}
-      <div style={{ position: "sticky", top: 0, zIndex: 20, background: "#111119", flexShrink: 0 }}>
-        
-        {/* Fixed header */}
-        <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e" }}>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
-            <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => window.location.reload()} title="Ricarica" style={{
-              background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-              color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
-            }}>↻</button>
-            <button onClick={handleLogout} title="Logout" style={{
-              background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-              color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
-              fontFamily: "'DM Sans',sans-serif",
-            }}>Esci</button>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
-          </div>
+      {/* Fixed header */}
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
+          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
         </div>
-
-        {/* Fixed month selector bar — only for Home and Stats */}
-        {showMonthBar && (
-          <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
-        )}
-
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={() => window.location.reload()} title="Ricarica" style={{
+            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+            color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
+          }}>↻</button>
+          <button onClick={handleLogout} title="Logout" style={{
+            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+            color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
+            fontFamily: "'DM Sans',sans-serif",
+          }}>Esci</button>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
+        </div>
       </div>
-      {/* FINE CONTENITORE STICKY */}
-
+      {/* Fixed month selector bar — only for Home and Stats */}
+      {showMonthBar && (
+        <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
+      )}
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
@@ -1270,7 +1427,6 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
       </div>
-      
       <TabBar tab={tab} setTab={setTab} />
     </div>
   );

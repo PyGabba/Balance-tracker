@@ -2,265 +2,197 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
-
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
 const DB_NAME = process.env.DB_NAME || "finanza_tracker";
-
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-// ─── Households config ───
-// Each household has an id, a PIN for login, and two members
 const HOUSEHOLDS = [
-  {
-    id: "laura-gabriele",
-    nome: "Laura & Gabriele",
-    pin: process.env.PIN_LAURA_GABRIELE || "1234",
-    persone: [
-      { id: "laura", nome: "Laura", emoji: "👩", colore: "#E84393" },
-      { id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#0984E3" },
-    ],
-  },
-  {
-    id: "gianmarco-giulia",
-    nome: "Gian Marco & Giulia",
-    pin: process.env.PIN_GIANMARCO_GIULIA || "5678",
-    persone: [
-      { id: "gianmarco", nome: "Gian Marco", emoji: "👨", colore: "#00B894" },
-      { id: "giulia", nome: "Giulia", emoji: "👩", colore: "#FD79A8" },
-    ],
-  },
+  { id: "laura-gabriele", nome: "Laura & Gabriele", pin: process.env.PIN_LAURA_GABRIELE || "1234",
+    persone: [{ id: "laura", nome: "Laura", emoji: "👩", colore: "#E84393" },{ id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#0984E3" }] },
+  { id: "gianmarco-giulia", nome: "Gian Marco & Giulia", pin: process.env.PIN_GIANMARCO_GIULIA || "5678",
+    persone: [{ id: "gianmarco", nome: "Gian Marco", emoji: "👨", colore: "#00B894" },{ id: "giulia", nome: "Giulia", emoji: "👩", colore: "#FD79A8" }] },
 ];
 
-// ─── MongoDB connection ───
-let db;
-let transactionsCol;
-
+let db, transactionsCol;
 async function connectDB() {
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
-  db = client.db(DB_NAME);
-  transactionsCol = db.collection("transactions");
-
+  const client = new MongoClient(MONGO_URI); await client.connect();
+  db = client.db(DB_NAME); transactionsCol = db.collection("transactions");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
-  await transactionsCol.createIndex({ householdId: 1, tipo: 1 });
-  await transactionsCol.createIndex({ householdId: 1, pagatoDa: 1 });
-  await transactionsCol.createIndex({ householdId: 1, categoria: 1 });
-
-  console.log(`Connected to MongoDB: ${DB_NAME}`);
-  return client;
+  console.log("Connected: " + DB_NAME); return client;
 }
 
-// ─── Auth middleware ───
-// Expects header: x-household-id
 function requireHousehold(req, res, next) {
   const hid = req.headers["x-household-id"];
-  if (!hid) return res.status(401).json({ error: "Household non specificato" });
   const household = HOUSEHOLDS.find(h => h.id === hid);
   if (!household) return res.status(401).json({ error: "Household non valido" });
-  req.household = household;
-  req.householdId = hid;
-  next();
+  req.household = household; req.householdId = hid; next();
 }
 
-// ─── Auth routes ───
-
-// POST /api/auth/login — verify PIN and return household info
+// ─── Auth ───
 app.post("/api/auth/login", (req, res) => {
-  const { pin } = req.body;
-  if (!pin) return res.status(400).json({ error: "PIN richiesto" });
-
-  const household = HOUSEHOLDS.find(h => h.pin === pin);
+  const household = HOUSEHOLDS.find(h => h.pin === (req.body && req.body.pin));
   if (!household) return res.status(401).json({ error: "PIN non valido" });
-
-  // Return household info (no sensitive data)
-  res.json({
-    householdId: household.id,
-    nome: household.nome,
-    persone: household.persone,
-  });
+  res.json({ householdId: household.id, nome: household.nome, persone: household.persone });
 });
+app.get("/api/auth/households", (req, res) => res.json(HOUSEHOLDS.map(h => ({ id: h.id, nome: h.nome, persone: h.persone }))));
 
-// GET /api/auth/households — list available households (no PINs)
-app.get("/api/auth/households", (req, res) => {
-  res.json(HOUSEHOLDS.map(h => ({ id: h.id, nome: h.nome, persone: h.persone })));
-});
-
-// GET /api/auth/household/:id — get household info (requires valid header)
-app.get("/api/auth/household/:id", (req, res) => {
-  const household = HOUSEHOLDS.find(h => h.id === req.params.id);
-  if (!household) return res.status(404).json({ error: "Household non trovato" });
-  res.json({ id: household.id, nome: household.nome, persone: household.persone });
-});
-
-// ─── Transaction routes (all require household) ───
-
-// GET /api/transactions
+// ─── GET transactions ───
 app.get("/api/transactions", requireHousehold, async (req, res) => {
   try {
     const { tipo, categoria, pagatoDa, meseAnno, limit } = req.query;
     const filter = { householdId: req.householdId };
-
     if (tipo) filter.tipo = tipo;
     if (categoria) filter.categoria = categoria;
     if (pagatoDa) filter.pagatoDa = pagatoDa;
-
     if (meseAnno) {
-      const [anno, mese] = meseAnno.split("-").map(Number);
-      const start = new Date(anno, mese - 1, 1).toISOString().slice(0, 10);
-      const end = new Date(anno, mese, 0).toISOString().slice(0, 10);
-      filter.data = { $gte: start, $lte: end };
+      const [a, m] = meseAnno.split("-").map(Number);
+      filter.data = { $gte: new Date(a, m - 1, 1).toISOString().slice(0, 10), $lte: new Date(a, m, 0).toISOString().slice(0, 10) };
     }
-
-    const docs = await transactionsCol
-      .find(filter)
-      .sort({ data: -1, _id: -1 })
-      .limit(parseInt(limit) || 500)
-      .toArray();
-
-    const result = docs.map(({ _id, householdId, ...rest }) => ({ id: _id.toString(), ...rest }));
-    res.json(result);
-  } catch (err) {
-    console.error("GET /api/transactions error:", err);
-    res.status(500).json({ error: "Errore nel recupero delle transazioni" });
-  }
+    const docs = await transactionsCol.find(filter).sort({ data: -1, _id: -1 }).limit(parseInt(limit) || 500).toArray();
+    res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// POST /api/transactions
+// ─── POST transaction ───
 app.post("/api/transactions", requireHousehold, async (req, res) => {
   try {
-    const { tipo, importo, categoria, descrizione, data, pagatoDa, splitPagante, daScontrino, intestataA } = req.body;
-
-    if (!tipo || !importo || !data) {
-      return res.status(400).json({ error: "Campi obbligatori: tipo, importo, data" });
-    }
-
+    const b = req.body;
+    if (!b.tipo || !b.importo || !b.data) return res.status(400).json({ error: "Campi obbligatori" });
     const doc = {
       householdId: req.householdId,
-      tipo,
-      importo: parseFloat(importo),
-      categoria: categoria || "altro",
-      descrizione: descrizione || "",
-      data,
-      pagatoDa: pagatoDa || null,
-      splitPagante: splitPagante != null ? parseInt(splitPagante) : null,
-      intestataA: intestataA || null,
-      daScontrino: !!daScontrino,
+      tipo: b.tipo,
+      importo: parseFloat(b.importo),
+      categoria: b.categoria || "altro",
+      descrizione: b.descrizione || "",
+      data: b.data,
+      pagatoDa: b.pagatoDa || null,
+      splits: Array.isArray(b.splits) && b.splits.length > 0 ? b.splits : null,
+      extraPersone: Array.isArray(b.extraPersone) && b.extraPersone.length > 0 ? b.extraPersone : null,
+      splitPagante: b.splitPagante != null ? parseInt(b.splitPagante) : null,
+      intestataA: b.intestataA || null,
       createdAt: new Date(),
     };
-
     const result = await transactionsCol.insertOne(doc);
-    const { householdId, ...rest } = doc;
-    res.status(201).json({ id: result.insertedId.toString(), ...rest });
-  } catch (err) {
-    console.error("POST /api/transactions error:", err);
-    res.status(500).json({ error: "Errore nel salvataggio" });
-  }
+    const id = result.insertedId.toString();
+    delete doc.householdId;
+    res.status(201).json({ id, ...doc });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// DELETE /api/transactions/:id
+// ─── DELETE transaction ───
 app.delete("/api/transactions/:id", requireHousehold, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "ID non valido" });
-
-    const result = await transactionsCol.deleteOne({ _id: new ObjectId(id), householdId: req.householdId });
-    if (result.deletedCount === 0) return res.status(404).json({ error: "Transazione non trovata" });
-    res.json({ deleted: true, id });
-  } catch (err) {
-    console.error("DELETE /api/transactions error:", err);
-    res.status(500).json({ error: "Errore nell'eliminazione" });
-  }
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const r = await transactionsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata" });
+    res.json({ deleted: true, id: req.params.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// PUT /api/transactions/:id
+// ─── PUT transaction ───
 app.put("/api/transactions/:id", requireHousehold, async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "ID non valido" });
-
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const update = {};
-    const allowed = ["tipo", "importo", "categoria", "descrizione", "data", "pagatoDa", "splitPagante", "daScontrino", "intestataA"];
+    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","splitPagante","intestataA","splits","extraPersone"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
-        update[key] = key === "importo" ? parseFloat(req.body[key])
-          : key === "splitPagante" ? (req.body[key] != null ? parseInt(req.body[key]) : null)
-          : req.body[key];
+        if (key === "importo") update[key] = parseFloat(req.body[key]);
+        else if (key === "splitPagante") update[key] = req.body[key] != null ? parseInt(req.body[key]) : null;
+        else if (key === "splits") update[key] = Array.isArray(req.body[key]) ? req.body[key] : null;
+        else if (key === "extraPersone") update[key] = Array.isArray(req.body[key]) ? req.body[key] : null;
+        else update[key] = req.body[key];
       }
     }
     update.updatedAt = new Date();
-
     const result = await transactionsCol.findOneAndUpdate(
-      { _id: new ObjectId(id), householdId: req.householdId },
-      { $set: update },
-      { returnDocument: "after" }
+      { _id: new ObjectId(req.params.id), householdId: req.householdId },
+      { $set: update }, { returnDocument: "after" }
     );
-
-    if (!result) return res.status(404).json({ error: "Transazione non trovata" });
-    const { _id, householdId, ...rest } = result;
-    res.json({ id: _id.toString(), ...rest });
-  } catch (err) {
-    console.error("PUT /api/transactions error:", err);
-    res.status(500).json({ error: "Errore nell'aggiornamento" });
-  }
+    if (!result) return res.status(404).json({ error: "Non trovata" });
+    const id = result._id.toString(); delete result._id; delete result.householdId;
+    res.json({ id, ...result });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// GET /api/stats/summary
+// ─── N-person debt matrix ───
+app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
+  try {
+    const txs = await transactionsCol.find({
+      householdId: req.householdId, tipo: "uscita", pagatoDa: { $ne: null }
+    }).toArray();
+
+    const net = {};
+    function addDebt(creditor, debtor, amount) {
+      if (creditor === debtor || amount <= 0) return;
+      if (!net[creditor]) net[creditor] = {};
+      if (!net[debtor]) net[debtor] = {};
+      net[creditor][debtor] = (net[creditor][debtor] || 0) + amount;
+      net[debtor][creditor] = (net[debtor][creditor] || 0) - amount;
+    }
+
+    for (const t of txs) {
+      const payer = t.pagatoDa;
+      if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
+        const totalQ = t.splits.reduce((s, sh) => s + (sh.quota || 0), 0);
+        if (totalQ <= 0) continue;
+        for (const sh of t.splits) {
+          if (sh.personaId === payer) continue;
+          addDebt(payer, sh.personaId, t.importo * (sh.quota / totalQ));
+        }
+      } else if (t.splitPagante != null) {
+        const other = req.household.persone.find(p => p.id !== payer);
+        if (other) addDebt(payer, other.id, t.importo * (100 - t.splitPagante) / 100);
+      }
+    }
+
+    const debiti = [], seen = {};
+    for (const a of Object.keys(net)) {
+      for (const b of Object.keys(net[a] || {})) {
+        const key = [a, b].sort().join("|");
+        if (seen[key]) continue;
+        seen[key] = true;
+        const v = net[a][b] || 0;
+        if (Math.abs(v) > 0.01) {
+          debiti.push(v > 0
+            ? { da: b, a: a, importo: +(v.toFixed(2)) }
+            : { da: a, a: b, importo: +(Math.abs(v).toFixed(2)) }
+          );
+        }
+      }
+    }
+    res.json({ debiti });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// ─── Stats summary ───
 app.get("/api/stats/summary", requireHousehold, async (req, res) => {
   try {
-    const { meseAnno } = req.query;
     const match = { householdId: req.householdId };
-    if (meseAnno) {
-      const [anno, mese] = meseAnno.split("-").map(Number);
-      match.data = { $gte: new Date(anno, mese-1, 1).toISOString().slice(0,10), $lte: new Date(anno, mese, 0).toISOString().slice(0,10) };
+    if (req.query.meseAnno) {
+      const [a, m] = req.query.meseAnno.split("-").map(Number);
+      match.data = { $gte: new Date(a, m - 1, 1).toISOString().slice(0, 10), $lte: new Date(a, m, 0).toISOString().slice(0, 10) };
     }
     const results = await transactionsCol.aggregate([
       { $match: match },
-      { $group: { _id: { tipo: "$tipo", categoria: "$categoria", pagatoDa: "$pagatoDa" }, totale: { $sum: "$importo" }, count: { $sum: 1 } } },
+      { $group: { _id: { tipo: "$tipo", categoria: "$categoria", pagatoDa: "$pagatoDa" }, totale: { $sum: "$importo" }, count: { $sum: 1 } } }
     ]).toArray();
     res.json(results);
-  } catch (err) {
-    console.error("GET /api/stats/summary error:", err);
-    res.status(500).json({ error: "Errore nelle statistiche" });
-  }
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// GET /api/stats/debiti
-app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
-  try {
-    const persona1 = req.household.persone[0].id;
-    const pipeline = [
-      { $match: { householdId: req.householdId, tipo: "uscita", pagatoDa: { $ne: null }, splitPagante: { $ne: null } } },
-      { $project: { pagatoDa: 1, importo: 1, splitPagante: 1, quotaAltro: { $multiply: ["$importo", { $divide: [{ $subtract: [100, "$splitPagante"] }, 100] }] } } },
-      { $group: { _id: null, saldo: { $sum: { $cond: [{ $eq: ["$pagatoDa", persona1] }, "$quotaAltro", { $multiply: ["$quotaAltro", -1] }] } } } },
-    ];
-    const result = await transactionsCol.aggregate(pipeline).toArray();
-    res.json({ saldoVersoPersona1: result.length > 0 ? result[0].saldo : 0 });
-  } catch (err) {
-    console.error("GET /api/stats/debiti error:", err);
-    res.status(500).json({ error: "Errore nel calcolo debiti" });
-  }
-});
+app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", db: !!db });
-});
-
-// ─── Start server ───
 async function start() {
   try {
     await connectDB();
-    app.listen(PORT, () => console.log(`Finanza Tracker API on http://localhost:${PORT}`));
+    app.listen(PORT, () => console.log(`Finanza Tracker API on :${PORT}`));
     import("./keep-alive.js").catch(() => {});
-  } catch (err) {
-    console.error("Failed to start:", err);
-    process.exit(1);
-  }
+  } catch (e) { console.error(e); process.exit(1); }
 }
-
 start();
