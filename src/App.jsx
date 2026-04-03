@@ -34,66 +34,6 @@ function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day:
 
 // Storage is now handled by src/api.js (MongoDB + localStorage fallback)
 
-// ─── Claude API ───
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
-
-async function analizzaScontrinoAPI(base64, mediaType) {
-  if (!API_KEY) throw new Error("No API key");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000,
-      messages: [{ role: "user", content: [
-        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: 'Analizza questo scontrino. Rispondi SOLO con JSON valido senza backtick: {"importo":<numero>,"descrizione":"<max 30 char>","categoria":"<cibo|trasporti|casa|salute|svago|shopping|bollette|altro>","data":"<YYYY-MM-DD o null>"}' }
-      ]}]
-    })
-  });
-  if (!res.ok) throw new Error("API " + res.status);
-  const d = await res.json(); if (d.error) throw new Error(d.error.message);
-  const txt = (d.content || []).map(c => c.text || "").join("");
-  const clean = txt.replace(/```json\s?|```/g, "").trim();
-  const m = clean.match(/\{[\s\S]*\}/);
-  return JSON.parse(m ? m[0] : clean);
-}
-
-// ─── OCR helpers ───
-function estraiTotale(testo) {
-  const righe = testo.split("\n").map(r => r.trim()).filter(Boolean);
-  for (const r of righe) { if (/total/i.test(r)) { const n = r.match(/(\d{1,6}[.,]\d{2})/g); if (n) return parseFloat(n[n.length-1].replace(",",".")); } }
-  const all = []; for (const r of righe) { const m = r.match(/(\d{1,6}[.,]\d{2})/g); if (m) m.forEach(x => all.push(parseFloat(x.replace(",",".")))); }
-  return all.length > 0 ? Math.max(...all) : null;
-}
-function estraiData(testo) { const m = testo.match(/(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})/); if (m) return `${m[3]}-${m[2]}-${m[1]}`; const m2 = testo.match(/(\d{4})-(\d{2})-(\d{2})/); return m2?m2[0]:null; }
-function indovinaCategoria(testo) {
-  const t = testo.toLowerCase();
-  if (/supermercato|alimentari|coop|esselunga|conad|lidl|eurospin|pam|despar|carrefour|iper/i.test(t)) return "cibo";
-  if (/ristorante|pizzeria|bar |caffè|caffe|trattoria|sushi|mcdonald|burger/i.test(t)) return "cibo";
-  if (/farmacia|parafarmacia|sanitaria/i.test(t)) return "salute";
-  if (/benzina|carburante|eni|q8|ip |shell|autostrad|parcheggio|taxi|uber|treno|italo|trenitalia/i.test(t)) return "trasporti";
-  if (/enel|edison|luce|gas|acqua|telecom|tim|vodafone|wind|fastweb|bolletta/i.test(t)) return "bollette";
-  if (/decathlon|zara|h&m|ikea|mediaworld|unieuro|amazon|negozio/i.test(t)) return "shopping";
-  if (/cinema|teatro|netflix|spotify|concert|bigliett/i.test(t)) return "svago";
-  if (/affitto|condomini|mobil/i.test(t)) return "casa";
-  return "altro";
-}
-function estraiNegozio(testo) {
-  for (const r of testo.split("\n").map(r=>r.trim()).filter(Boolean).slice(0,5)) {
-    const c = r.replace(/[^a-zA-ZÀ-ú\s&']/g,"").trim();
-    if (c.length>=3&&c.length<=40&&!/^(via |tel |p\.?\s?iva|documento|scontrino|fiscale)/i.test(c)) return c;
-  } return "";
-}
-
-async function ocrFallback(file, onP) {
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("ita", 1, {
-    logger: m => { if (m.status === "recognizing text") onP(m.progress || 0); }
-  });
-  const { data } = await worker.recognize(file);
-  await worker.terminate();
-  return data.text || "";
-}
-
 // ─── Debt calculator ───
 function calcolaDebiti(transazioni, persone) {
   const persona1Id = persone[0]?.id;
@@ -197,7 +137,6 @@ function TabBar({ tab, setTab }) {
   const tabs = [
     { id: "home", label: "Home", icon: "⌂" },
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
-    { id: "scansiona", label: "Scontrino", icon: "📷" },
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
@@ -209,7 +148,7 @@ function TabBar({ tab, setTab }) {
           display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
           color: tab === t.id ? "#6C5CE7" : "#666", transition: "color 0.2s",
         }}>
-          <span style={{ fontSize: t.id==="aggiungi"?28:t.id==="scansiona"?20:22, lineHeight: 1,
+          <span style={{ fontSize: t.id==="aggiungi"?28:22, lineHeight: 1,
             fontWeight: t.id==="aggiungi"?300:400,
             ...(t.id==="aggiungi"&&tab!=="aggiungi"?{background:"linear-gradient(135deg,#6C5CE7,#a855f7)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}:{}),
           }}>{t.icon}</span>
@@ -313,7 +252,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone }) {
               data: new Date().toISOString().slice(0, 10),
               pagatoDa: debitore.id,
               splitPagante: 0,
-              daScontrino: false,
+              
             });
           }} style={{
             width: "100%", marginTop: 12, padding: "11px", border: "none", borderRadius: 12, cursor: "pointer",
@@ -398,7 +337,7 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
     return (
       <div onClick={onTap} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538", cursor: "pointer", transition: "background 0.2s" }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.colore + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
-          {t.daScontrino ? "🧾" : cat.emoji}
+          {cat.emoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || cat.nome}</div>
@@ -406,7 +345,6 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
             {formattaData(t.data)}
             {persona && t.tipo === "uscita" && <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{persona.emoji} {t.splitPagante != null && t.splitPagante !== 100 ? `${t.splitPagante}%` : ""}</span>}
             {personaIntestata && t.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
-            {t.daScontrino && <span>📷</span>}
           </div>
         </div>
         <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: t.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>{t.tipo === "entrata" ? "+" : "-"}{formattaValuta(t.importo)}</div>
@@ -630,132 +568,6 @@ function AggiungiView({ onAggiungi, persone }) {
 }
 
 // ─── Scanner ───
-function ScansionaView({ onAggiungi, persone }) {
-  const [anteprima, setAnteprima] = useState(null);
-  const [importo, setImporto] = useState("");
-  const [categoria, setCategoria] = useState("cibo");
-  const [descrizione, setDescrizione] = useState("");
-  const [data, setData] = useState(new Date().toISOString().slice(0, 10));
-  const [salvato, setSalvato] = useState(false);
-  const [stato, setStato] = useState("idle");
-  const [progresso, setProgresso] = useState(0);
-  const [ocrInfo, setOcrInfo] = useState(null);
-  const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
-  const [splitPagante, setSplitPagante] = useState(50);
-
-  async function handleFile(e) {
-    const file = e.target.files?.[0]; if (!file) return;
-    setStato("analisi"); setProgresso(0); setOcrInfo(null); setSalvato(false);
-    try { setAnteprima(URL.createObjectURL(file)); } catch (_) {}
-    let base64 = null;
-    try { base64 = await new Promise((r,j)=>{const f=new FileReader();f.onload=()=>{const s=f.result;typeof s==="string"&&s.includes(",")?r(s.split(",")[1]):j();};f.onerror=j;f.readAsDataURL(file);}); } catch(_){}
-    setProgresso(10);
-    if (API_KEY && base64) {
-      try { setProgresso(20); const mt=file.type?.startsWith("image/")?file.type:"image/jpeg"; const res=await analizzaScontrinoAPI(base64,mt); setProgresso(100);
-        if(res.errore)throw new Error(res.errore); setOcrInfo({totale:res.importo,metodo:"AI"});
-        if(res.importo)setImporto(String(res.importo)); if(res.data)setData(res.data); if(res.categoria)setCategoria(res.categoria); if(res.descrizione)setDescrizione(res.descrizione);
-        setStato("done"); return; } catch(err){console.log("API fallback:",err.message);}
-    }
-    try { setProgresso(25); const testo=await ocrFallback(file,p=>setProgresso(25+Math.round(p*70))); setProgresso(100);
-      if(testo.trim().length<5){setOcrInfo({totale:null,metodo:"manuale"});setStato("done");return;}
-      const tot=estraiTotale(testo),dr=estraiData(testo),neg=estraiNegozio(testo);
-      setOcrInfo({totale:tot,metodo:"OCR"}); if(tot)setImporto(String(tot)); if(dr)setData(dr); setCategoria(indovinaCategoria(testo)); if(neg)setDescrizione(neg);
-      setStato("done");} catch(e){console.error(e);setOcrInfo({totale:null,metodo:"manuale"});setStato("done");}
-  }
-
-  function handleConferma() {
-    const val=parseFloat(String(importo).replace(",",".")); if(!val||val<=0)return;
-    onAggiungi({id:generaId(),tipo:"uscita",importo:val,categoria,descrizione:descrizione.trim(),data,daScontrino:true,pagatoDa,splitPagante});
-    setSalvato(true); setTimeout(()=>reset(),1800);
-  }
-  function reset(){setAnteprima(null);setImporto("");setDescrizione("");setCategoria("cibo");setData(new Date().toISOString().slice(0,10));setStato("idle");setOcrInfo(null);setSalvato(false);}
-
-  return (
-    <div style={{ padding: "20px 16px" }}>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>Scansiona scontrino</div>
-      <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>{API_KEY ? "Carica la foto: l'AI estrae importo e dati" : "Carica la foto: l'OCR estrae il totale"}</div>
-
-      {stato === "idle" && (
-        <div style={{ position: "relative", marginBottom: 20 }}>
-          <input type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer", zIndex: 2 }} />
-          <div style={{ border: "2px dashed #333355", borderRadius: 20, padding: "44px 20px", textAlign: "center", background: "#1a1a28", pointerEvents: "none" }}>
-            <div style={{ fontSize: 48, marginBottom: 10 }}>📸</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#ccc", marginBottom: 4 }}>Tocca per scattare o caricare</div>
-            <div style={{ fontSize: 12, color: "#666" }}>JPG, PNG — Inquadra bene il totale</div>
-          </div>
-        </div>
-      )}
-
-      {stato === "analisi" && (
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
-          {anteprima && <div style={{ width: "100%", maxHeight: 180, borderRadius: 16, overflow: "hidden", marginBottom: 20, border: "1px solid #252538" }}><img src={anteprima} alt="" style={{ width: "100%", maxHeight: 180, objectFit: "cover", display: "block" }} /></div>}
-          <div style={{ background: "#1a1a28", borderRadius: 16, padding: "20px 24px", border: "1px solid #252538", display: "inline-block" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-              <div style={{ width: 22, height: 22, border: "3px solid #6C5CE733", borderTop: "3px solid #6C5CE7", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-              <span style={{ color: "#ccc", fontSize: 14, fontWeight: 600 }}>Lettura scontrino...</span>
-            </div>
-            <div style={{ width: 200, height: 6, background: "#252538", borderRadius: 3, overflow: "hidden" }}>
-              <div style={{ height: "100%", borderRadius: 3, background: "linear-gradient(90deg,#6C5CE7,#a855f7)", width: `${progresso}%`, transition: "width 0.3s" }} />
-            </div>
-          </div>
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        </div>
-      )}
-
-      {stato === "done" && (
-        <div>
-          {anteprima && (
-            <div style={{ marginBottom: 16, position: "relative" }}>
-              <div style={{ width: "100%", maxHeight: 150, borderRadius: 16, overflow: "hidden", border: "1px solid #4ECDC444" }}>
-                <img src={anteprima} alt="" style={{ width: "100%", maxHeight: 150, objectFit: "cover", display: "block" }} />
-              </div>
-              <button onClick={reset} style={{ position: "absolute", top: 8, right: 8, background: "#000a", border: "none", borderRadius: 20, color: "#fff", width: 28, height: 28, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-            </div>
-          )}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: ocrInfo?.totale?"#4ECDC422":"#F0A50022", borderRadius: 16, padding: "6px 14px", marginBottom: 16, border: ocrInfo?.totale?"1px solid #4ECDC444":"1px solid #F0A50044" }}>
-            <span style={{ fontSize: 13 }}>{ocrInfo?.totale ? "✨" : "✏️"}</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: ocrInfo?.totale?"#4ECDC4":"#F0A500" }}>
-              {ocrInfo?.totale?`Totale rilevato: ${formattaValuta(ocrInfo.totale)}${ocrInfo?.metodo==="AI"?" (AI)":" (OCR)"}`:"Inserisci il totale manualmente"}
-            </span>
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Totale (€)</label>
-            <input type="number" inputMode="decimal" value={importo} onChange={e=>setImporto(e.target.value)} placeholder="0,00"
-              style={{ ...inputStyle, fontSize: 26, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: "#FF6B6B" }} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Categoria</label>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-              {CATEGORIE.filter(c => c.id !== "entrata").map(c => (
-                <button key={c.id} onClick={()=>setCategoria(c.id)} style={{
-                  background: categoria===c.id?c.colore+"33":"#1a1a28", border: categoria===c.id?`2px solid ${c.colore}88`:"2px solid #252538",
-                  borderRadius: 12, padding: "8px 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-                }}><span style={{fontSize:18}}>{c.emoji}</span><span style={{fontSize:9,color:categoria===c.id?c.colore:"#888",fontWeight:600}}>{c.nome}</span></button>
-              ))}
-            </div>
-          </div>
-          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splitPagante={splitPagante} setSplitPagante={setSplitPagante} persone={persone} />
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Descrizione</label>
-            <input type="text" value={descrizione} onChange={e=>setDescrizione(e.target.value)} placeholder="Es: Spesa Esselunga..." style={inputStyle} />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>Data</label>
-            <input type="date" value={data} onChange={e=>setData(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={reset} style={{ flex: 1, padding: "14px", border: "1px solid #333", borderRadius: 14, cursor: "pointer", background: "#1a1a28", color: "#999", fontSize: 14, fontWeight: 600 }}>Annulla</button>
-            <button onClick={handleConferma} style={{
-              flex: 2, padding: "14px", border: "none", borderRadius: 14, cursor: "pointer",
-              fontSize: 16, fontWeight: 700, color: "#fff", opacity: importo?1:0.5,
-              background: salvato?"linear-gradient(135deg,#4ECDC4,#3ab8b0)":"linear-gradient(135deg,#6C5CE7,#a855f7)", boxShadow: "0 4px 20px #6C5CE744",
-            }}>{salvato ? "✓ Aggiunto!" : "Conferma e salva"}</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom: 6, letterSpacing: 0.5, textTransform: "uppercase" };
 const inputStyle = { width: "100%", maxWidth: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", WebkitAppearance: "none" };
@@ -1112,7 +924,6 @@ const ALL_COLUMNS = [
   { id: "pagatoDa", label: "Pagato da" },
   { id: "splitPagante", label: "Split % pagante" },
   { id: "quotaAltro", label: "Quota altra persona (€)" },
-  { id: "daScontrino", label: "Da scontrino" },
 ];
 
 function ExportView({ transazioni, persone }) {
@@ -1166,7 +977,6 @@ function ExportView({ transazioni, persone }) {
         if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
         if (colonne.includes("splitPagante")) row["Split % pagante"] = t.splitPagante != null ? t.splitPagante : "";
         if (colonne.includes("quotaAltro")) row["Quota altra persona (€)"] = t.splitPagante != null ? +(t.importo * (100 - t.splitPagante) / 100).toFixed(2) : "";
-        if (colonne.includes("daScontrino")) row["Da scontrino"] = t.daScontrino ? "Sì" : "No";
         return row;
       });
 
@@ -1437,7 +1247,6 @@ export default function FinanzaApp() {
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
-        {tab === "scansiona" && <ScansionaView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
       </div>

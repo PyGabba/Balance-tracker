@@ -5,19 +5,19 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 let apiAvailable = null;
 let currentHousehold = null; // { householdId, nome, persone }
 
-// ─── Session persistence ───
+// ─── Session (sessionStorage = clears when app/tab is closed) ───
 function saveSession(data) {
-  try { localStorage.setItem("finanza-session", JSON.stringify(data)); } catch {}
+  try { sessionStorage.setItem("finanza-session", JSON.stringify(data)); } catch {}
 }
 function loadSession() {
-  try { const raw = localStorage.getItem("finanza-session"); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  try { const raw = sessionStorage.getItem("finanza-session"); return raw ? JSON.parse(raw) : null; } catch { return null; }
 }
 function clearSession() {
-  try { localStorage.removeItem("finanza-session"); } catch {}
+  try { sessionStorage.removeItem("finanza-session"); } catch {}
   currentHousehold = null;
 }
 
-// ─── Init: restore session ───
+// ─── Init: restore session (only within same browser session) ───
 const saved = loadSession();
 if (saved) currentHousehold = saved;
 
