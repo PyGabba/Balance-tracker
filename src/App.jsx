@@ -185,14 +185,17 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone }) {
   const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 16, padding: "5px 12px", cursor: "pointer" };
 
   return (
-    <div style={{ padding: "20px 16px" }}>
-      {/* Month selector */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <button onClick={() => setMeseOffset(o => o + 1)} style={navBtn}>◂</button>
-        <div style={{ fontSize: 17, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{nomeMese}</div>
-        <button onClick={() => setMeseOffset(o => Math.max(0, o - 1))} style={{ ...navBtn, opacity: meseOffset === 0 ? 0.3 : 1 }} disabled={meseOffset === 0}>▸</button>
+    <div>
+      {/* Sticky month selector */}
+      <div style={{ position: "sticky", top: 0, zIndex: 4, background: "#111119", padding: "12px 16px", borderBottom: "1px solid #1e1e2e" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button onClick={() => setMeseOffset(o => o + 1)} style={navBtn}>◂</button>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{nomeMese}</div>
+          <button onClick={() => setMeseOffset(o => Math.max(0, o - 1))} style={{ ...navBtn, opacity: meseOffset === 0 ? 0.3 : 1 }} disabled={meseOffset === 0}>▸</button>
+        </div>
       </div>
 
+      <div style={{ padding: "14px 16px 20px" }}>
       {/* Saldo card */}
       <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "24px 20px", marginBottom: 12, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
         <div style={{ fontSize: 12, color: "#999", letterSpacing: 1, textTransform: "uppercase" }}>Saldo di {MESI[meseVis.getMonth()]}</div>
@@ -287,6 +290,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone }) {
 
       {/* Edit overlay backdrop */}
       {editId && <div onClick={() => setEditId(null)} style={{ position: "fixed", inset: 0, background: "#0006", zIndex: 5 }} />}
+      </div>
     </div>
   );
 }
@@ -662,12 +666,17 @@ function StatsView({ transazioni, persone }) {
   const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 18, padding: "6px 14px", cursor: "pointer" };
 
   return (
-    <div style={{ padding: "20px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <button onClick={()=>setMeseOffset(o=>o+1)} style={navBtn}>◂</button>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#eee" }}>{nomeMese}</div>
-        <button onClick={()=>setMeseOffset(o=>Math.max(0,o-1))} style={{...navBtn,opacity:meseOffset===0?0.3:1}} disabled={meseOffset===0}>▸</button>
+    <div>
+      {/* Sticky month selector */}
+      <div style={{ position: "sticky", top: 0, zIndex: 4, background: "#111119", padding: "12px 16px", borderBottom: "1px solid #1e1e2e" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button onClick={()=>setMeseOffset(o=>o+1)} style={navBtn}>◂</button>
+          <div style={{ fontSize: 17, fontWeight: 700, color: "#eee" }}>{nomeMese}</div>
+          <button onClick={()=>setMeseOffset(o=>Math.max(0,o-1))} style={{...navBtn,opacity:meseOffset===0?0.3:1}} disabled={meseOffset===0}>▸</button>
+        </div>
       </div>
+
+      <div style={{ padding: "14px 16px 20px" }}>
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
         <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "16px 14px", border: "1px solid #252538" }}>
           <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5, textTransform: "uppercase" }}>Entrate</div>
@@ -910,6 +919,7 @@ function StatsView({ transazioni, persone }) {
       )}
 
       {perCategoria.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>Nessun dato per questo mese.</div>}
+      </div>
     </div>
   );
 }
