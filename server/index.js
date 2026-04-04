@@ -236,8 +236,9 @@ app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// Proxy for Alpha Vantage quotes — cached once per day in MongoDB
-const AV_KEY = process.env.ALPHAVANTAGE_KEY || "72RT9P0G9T1IKC1Z";
+// Proxy for FMP (Financial Modeling Prep) quotes — cached once per day in MongoDB
+// Free tier: 250 requests/day, supports batch quotes (multiple tickers in one call)
+const FMP_KEY = process.env.FMP_KEY || "";
 
 app.get("/api/quotes", async (req, res) => {
   try {
@@ -246,7 +247,7 @@ app.get("/api/quotes", async (req, res) => {
     const forceRefresh = req.query.refresh === "true";
     const tickers = symbols.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
     const quotesCol = db.collection("quotes_cache");
-    const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const today = new Date().toISOString().slice(0, 10);
     const quotes = {};
 
     // Check cache first
@@ -259,38 +260,52 @@ app.get("/api/quotes", async (req, res) => {
       toFetch.push(sym);
     }
 
-    // Fetch only missing/stale tickers from Alpha Vantage
-    for (const sym of toFetch) {
+    // Fetch all missing tickers in ONE batch call to FMP
+    if (toFetch.length > 0 && FMP_KEY) {
       try {
-        const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sym)}&apikey=${AV_KEY}`;
+        const url = `https://financialmodelingprep.com/api/v3/quote/${toFetch.join(",")}?apikey=${FMP_KEY}`;
         const response = await fetch(url);
-        if (!response.ok) continue;
-        const data = await response.json();
-        const gq = data["Global Quote"];
-        if (gq && gq["05. price"]) {
-          const quote = {
-            prezzo: parseFloat(gq["05. price"]) || 0,
-            cambio: parseFloat(gq["09. change"]) || 0,
-            cambioPct: parseFloat((gq["10. change percent"] || "0").replace("%", "")) || 0,
-            valuta: "USD",
-            nome: sym,
-            apertura: parseFloat(gq["02. open"]) || 0,
-            massimo: parseFloat(gq["03. high"]) || 0,
-            minimo: parseFloat(gq["04. low"]) || 0,
-            volume: parseInt(gq["06. volume"]) || 0,
-            chiusuraPrec: parseFloat(gq["08. previous close"]) || 0,
-          };
-          quotes[sym] = quote;
-          // Save to cache
-          await quotesCol.updateOne(
-            { ticker: sym },
-            { $set: { ticker: sym, quote, dataCache: today, updatedAt: new Date() } },
-            { upsert: true }
-          );
+        if (response.ok) {
+          const data = await response.json();
+          for (const q of (Array.isArray(data) ? data : [])) {
+            const quote = {
+              prezzo: q.price || 0,
+              cambio: q.change || 0,
+              cambioPct: q.changesPercentage || 0,
+              valuta: q.currency || "USD",
+              nome: q.name || q.symbol,
+              apertura: q.open || 0,
+              massimo: q.dayHigh || 0,
+              minimo: q.dayLow || 0,
+              volume: q.volume || 0,
+              chiusuraPrec: q.previousClose || 0,
+              marketCap: q.marketCap || 0,
+              pe: q.pe || 0,
+              eps: q.eps || 0,
+              maxAnno: q.yearHigh || 0,
+              minAnno: q.yearLow || 0,
+              exchange: q.exchange || "",
+            };
+            quotes[q.symbol] = quote;
+            // Save to daily cache
+            await quotesCol.updateOne(
+              { ticker: q.symbol },
+              { $set: { ticker: q.symbol, quote, dataCache: today, updatedAt: new Date() } },
+              { upsert: true }
+            );
+          }
         }
       } catch (err) {
-        console.error(`Quote error for ${sym}:`, err.message);
-        // Try to return stale cache if fresh fetch fails
+        console.error("FMP batch error:", err.message);
+        // Fallback: return stale cache for missing tickers
+        for (const sym of toFetch) {
+          const stale = await quotesCol.findOne({ ticker: sym });
+          if (stale) quotes[sym] = stale.quote;
+        }
+      }
+    } else if (toFetch.length > 0 && !FMP_KEY) {
+      // No API key — return stale cache if available
+      for (const sym of toFetch) {
         const stale = await quotesCol.findOne({ ticker: sym });
         if (stale) quotes[sym] = stale.quote;
       }
