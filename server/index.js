@@ -188,6 +188,125 @@ app.get("/api/stats/summary", requireHousehold, async (req, res) => {
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
 
+// ─── Stock Positions ───
+// Collection: positions { householdId, ticker, nome, quantita, prezzoAcquisto, dataAcquisto, valuta, note, createdAt }
+
+// Only laura-gabriele can access portfolio
+function requirePortfolioAccess(req, res, next) {
+  if (req.householdId !== "laura-gabriele") return res.status(403).json({ error: "Portfolio non disponibile per questo account" });
+  next();
+}
+
+app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, res) => {
+  try {
+    const col = db.collection("positions");
+    const docs = await col.find({ householdId: req.householdId }).sort({ dataAcquisto: -1 }).toArray();
+    res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/positions", requireHousehold, requirePortfolioAccess, async (req, res) => {
+  try {
+    const b = req.body;
+    if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return res.status(400).json({ error: "Campi obbligatori: ticker, quantita, prezzoAcquisto" });
+    const doc = {
+      householdId: req.householdId,
+      ticker: b.ticker.toUpperCase().trim(),
+      nome: b.nome || b.ticker.toUpperCase().trim(),
+      quantita: parseFloat(b.quantita),
+      prezzoAcquisto: parseFloat(b.prezzoAcquisto),
+      dataAcquisto: b.dataAcquisto || new Date().toISOString().slice(0, 10),
+      valuta: b.valuta || "EUR",
+      note: b.note || "",
+      tipo: b.tipo || "buy", // buy or sell
+      createdAt: new Date(),
+    };
+    const result = await db.collection("positions").insertOne(doc);
+    const id = result.insertedId.toString(); delete doc.householdId;
+    res.status(201).json({ id, ...doc });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const r = await db.collection("positions").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata" });
+    res.json({ deleted: true, id: req.params.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// Stock quotes via yahoo-finance2 library (handles cookies/crumb automatically)
+// Supports all exchanges: .MI (Milano), .DE (Frankfurt), .L (London), US, etc.
+// Cached once per day in MongoDB
+import yahooFinance from "yahoo-finance2";
+
+app.get("/api/quotes", async (req, res) => {
+  try {
+    const symbols = req.query.symbols;
+    if (!symbols) return res.status(400).json({ error: "symbols required" });
+    const forceRefresh = req.query.refresh === "true";
+    const tickers = symbols.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    const quotesCol = db.collection("quotes_cache");
+    const today = new Date().toISOString().slice(0, 10);
+    const quotes = {};
+
+    // Check cache first
+    const toFetch = [];
+    for (const sym of tickers) {
+      if (!forceRefresh) {
+        const cached = await quotesCol.findOne({ ticker: sym, dataCache: today });
+        if (cached) { quotes[sym] = cached.quote; continue; }
+      }
+      toFetch.push(sym);
+    }
+
+    // Fetch missing tickers via yahoo-finance2
+    if (toFetch.length > 0) {
+      for (const sym of toFetch) {
+        try {
+          const q = await yahooFinance.quote(sym);
+          if (q && q.regularMarketPrice) {
+            const quote = {
+              prezzo: q.regularMarketPrice || 0,
+              cambio: q.regularMarketChange || 0,
+              cambioPct: q.regularMarketChangePercent ? q.regularMarketChangePercent * 100 : 0,
+              valuta: q.currency || "EUR",
+              nome: q.shortName || q.longName || q.symbol || sym,
+              apertura: q.regularMarketOpen || 0,
+              massimo: q.regularMarketDayHigh || 0,
+              minimo: q.regularMarketDayLow || 0,
+              volume: q.regularMarketVolume || 0,
+              chiusuraPrec: q.regularMarketPreviousClose || 0,
+              marketCap: q.marketCap || 0,
+              maxAnno: q.fiftyTwoWeekHigh || 0,
+              minAnno: q.fiftyTwoWeekLow || 0,
+              exchange: q.exchange || "",
+            };
+            quotes[sym] = quote;
+            await quotesCol.updateOne(
+              { ticker: sym },
+              { $set: { ticker: sym, quote, dataCache: today, updatedAt: new Date() } },
+              { upsert: true }
+            );
+          }
+        } catch (err) {
+          console.error(`Quote error for ${sym}:`, err.message);
+          // Fallback to stale cache
+          const stale = await quotesCol.findOne({ ticker: sym });
+          if (stale) quotes[sym] = stale.quote;
+        }
+      }
+    }
+
+    const cached = toFetch.length === 0;
+    res.json({ quotes, cached, aggiornamento: today });
+  } catch (e) {
+    console.error("Quotes error:", e.message);
+    res.status(502).json({ error: "Impossibile recuperare le quotazioni" });
+  }
+});
+
 async function start() {
   try {
     await connectDB();
