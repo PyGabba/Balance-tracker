@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -301,13 +301,17 @@ function MonthBar({ meseOffset, setMeseOffset }) {
 }
 
 // ─── Tab bar ───
-function TabBar({ tab, setTab }) {
-  const tabs = [
+function TabBar({ tab, setTab, householdId }) {
+  const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
+  // Portfolio only for laura-gabriele
+  const tabs = householdId === "laura-gabriele"
+    ? [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]]
+    : baseTabs;
   return (
     <div style={{ display: "flex", justifyContent: "space-around", background: "#161620", borderTop: "1px solid #2a2a3a", padding: "8px 0 max(12px, env(safe-area-inset-bottom))", position: "sticky", bottom: 0 }}>
       {tabs.map(t => (
@@ -637,15 +641,7 @@ function AggiungiView({ onAggiungi, persone }) {
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
   const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
-  const base = Math.floor(100 / persone.length);
-  const [splits, setSplits] = useState(
-    persone.map((p, i) => ({
-      personaId: p.id,
-      quota: i === persone.length - 1
-        ? 100 - base * (persone.length - 1)
-        : base
-    }))
-  );
+  const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === 0 ? 50 : 50 })));
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
 
@@ -1087,6 +1083,298 @@ function StatsView({ transazioni, persone, meseOffset }) {
   );
 }
 
+// ─── Portfolio View ───
+function PortfolioView() {
+  const [positions, setPositions] = useState([]);
+  const [quotesData, setQuotesData] = useState({ quotes: {}, cached: false, aggiornamento: "" });
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [ticker, setTicker] = useState("");
+  const [nome, setNome] = useState("");
+  const [quantita, setQuantita] = useState("");
+  const [prezzoAcquisto, setPrezzoAcquisto] = useState("");
+  const [dataAcquisto, setDataAcquisto] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const quotes = quotesData.quotes || {};
+
+  // Load positions
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fetchPositions();
+        setPositions(data);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  // Aggregate: group by ticker, sum quantities
+  const holdings = [];
+  const tickerMap = {};
+  for (const p of positions) {
+    if (!tickerMap[p.ticker]) {
+      tickerMap[p.ticker] = { ticker: p.ticker, nome: p.nome || p.ticker, quantita: 0, costoTotale: 0, trades: [] };
+    }
+    const h = tickerMap[p.ticker];
+    if (p.tipo === "sell") {
+      h.quantita -= p.quantita;
+      h.costoTotale -= p.quantita * p.prezzoAcquisto;
+    } else {
+      h.quantita += p.quantita;
+      h.costoTotale += p.quantita * p.prezzoAcquisto;
+    }
+    h.trades.push(p);
+  }
+  for (const k of Object.keys(tickerMap)) {
+    const h = tickerMap[k];
+    if (h.quantita > 0.0001) {
+      h.prezzoMedio = h.costoTotale / h.quantita;
+      holdings.push(h);
+    }
+  }
+
+  // Fetch quotes when holdings change (uses daily cache)
+  useEffect(() => {
+    if (holdings.length === 0) return;
+    fetchQuotes(holdings.map(h => h.ticker)).then(r => setQuotesData(r));
+  }, [positions.length]);
+
+  // Force refresh bypasses daily cache
+  async function refreshQuotes() {
+    if (holdings.length === 0) return;
+    setRefreshing(true);
+    const r = await fetchQuotes(holdings.map(h => h.ticker), true);
+    setQuotesData(r);
+    setRefreshing(false);
+  }
+
+  async function handleAdd() {
+    if (!ticker.trim() || !quantita || !prezzoAcquisto) return;
+    setAdding(true);
+    try {
+      const pos = await addPosition({
+        ticker: ticker.trim().toUpperCase(), nome: nome.trim() || ticker.trim().toUpperCase(),
+        quantita: parseFloat(quantita), prezzoAcquisto: parseFloat(prezzoAcquisto),
+        dataAcquisto, note: note.trim(), tipo: "buy",
+      });
+      setPositions(prev => [...prev, pos]);
+      setTicker(""); setNome(""); setQuantita(""); setPrezzoAcquisto(""); setNote("");
+      setShowAdd(false);
+    } catch (e) { console.error(e); }
+    setAdding(false);
+  }
+
+  async function handleDelete(id) {
+    if (!confirm("Eliminare questa posizione?")) return;
+    await deletePosition(id);
+    setPositions(prev => prev.filter(p => p.id !== id));
+  }
+
+  // Portfolio totals
+  let totalInvestito = 0, totalValore = 0;
+  for (const h of holdings) {
+    const q = quotes[h.ticker];
+    totalInvestito += h.costoTotale;
+    totalValore += q ? h.quantita * q.prezzo : h.costoTotale;
+  }
+  const totalPL = totalValore - totalInvestito;
+  const totalPLPct = totalInvestito > 0 ? (totalPL / totalInvestito * 100) : 0;
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Caricamento portfolio...</div>;
+
+  return (
+    <div style={{ padding: "20px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>Portfolio</div>
+          <div style={{ fontSize: 12, color: "#888" }}>{holdings.length} titoli</div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={refreshQuotes} disabled={refreshing} title="Aggiorna prezzi (forza)" style={{
+            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+            color: "#888", fontSize: 13, padding: "6px 10px", opacity: refreshing ? 0.5 : 1,
+          }}>{refreshing ? "..." : "↻"}</button>
+          <button onClick={() => setShowAdd(!showAdd)} style={{
+            background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538",
+            borderRadius: 8, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 16, padding: "4px 10px",
+          }}>{showAdd ? "✕" : "+"}</button>
+        </div>
+      </div>
+      {/* Cache info */}
+      {quotesData.aggiornamento && (
+        <div style={{ fontSize: 11, color: "#555", marginBottom: 14 }}>
+          Prezzi aggiornati al {quotesData.aggiornamento}{quotesData.cached ? " (cache)" : " (live)"} — ↻ per forzare aggiornamento
+        </div>
+      )}
+
+      {/* Summary card */}
+      {holdings.length > 0 && (
+        <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "20px", marginBottom: 16, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
+          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Valore portafoglio</div>
+          <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: "#eee", marginTop: 4 }}>
+            {formattaValuta(totalValore)}
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, color: "#888" }}>Investito</div>
+              <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "'Space Mono',monospace", color: "#aaa" }}>{formattaValuta(totalInvestito)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: "#888" }}>P&L</div>
+              <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totalPL >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+                {totalPL >= 0 ? "+" : ""}{formattaValuta(totalPL)} ({totalPLPct >= 0 ? "+" : ""}{totalPLPct.toFixed(1)}%)
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add form */}
+      {showAdd && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "2px solid #6C5CE7" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12 }}>Aggiungi posizione</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Ticker</label>
+              <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} placeholder="AAPL"
+                style={{ ...inputStyle, fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", textTransform: "uppercase", background: "#111119" }} />
+            </div>
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>Nome (opzionale)</label>
+              <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Apple Inc."
+                style={{ ...inputStyle, background: "#111119" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Quantità</label>
+              <input type="number" inputMode="decimal" value={quantita} onChange={e => setQuantita(e.target.value)} placeholder="10"
+                style={{ ...inputStyle, fontFamily: "'Space Mono',monospace", background: "#111119" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Prezzo acquisto (€)</label>
+              <input type="number" inputMode="decimal" value={prezzoAcquisto} onChange={e => setPrezzoAcquisto(e.target.value)} placeholder="150.00"
+                style={{ ...inputStyle, fontFamily: "'Space Mono',monospace", background: "#111119" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Data acquisto</label>
+              <input type="date" value={dataAcquisto} onChange={e => setDataAcquisto(e.target.value)}
+                style={{ ...inputStyle, background: "#111119", colorScheme: "dark" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Note</label>
+              <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="..."
+                style={{ ...inputStyle, background: "#111119" }} />
+            </div>
+          </div>
+          <button onClick={handleAdd} disabled={adding || !ticker || !quantita || !prezzoAcquisto} style={{
+            width: "100%", padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
+            fontSize: 14, fontWeight: 700, color: "#fff",
+            background: ticker && quantita && prezzoAcquisto ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+            opacity: adding ? 0.6 : 1,
+          }}>{adding ? "Salvataggio..." : "Aggiungi al portfolio"}</button>
+        </div>
+      )}
+
+      {/* Holdings list */}
+      {holdings.length === 0 ? (
+        <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>
+          Nessuna posizione ancora.<br/>Tocca + per aggiungere un titolo.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {holdings.map(h => {
+            const q = quotes[h.ticker];
+            const prezzoCorrente = q?.prezzo || 0;
+            const valoreCorrente = prezzoCorrente > 0 ? h.quantita * prezzoCorrente : h.costoTotale;
+            const pl = prezzoCorrente > 0 ? valoreCorrente - h.costoTotale : 0;
+            const plPct = h.costoTotale > 0 && prezzoCorrente > 0 ? (pl / h.costoTotale * 100) : 0;
+            const dailyPct = q?.cambioPct || 0;
+
+            return (
+              <div key={h.ticker} style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", border: "1px solid #252538" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{h.ticker}</span>
+                      <span style={{ fontSize: 11, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.nome}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                      {h.quantita.toFixed(h.quantita % 1 === 0 ? 0 : 2)} pz × {formattaValuta(h.prezzoMedio)} medio
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#eee" }}>
+                      {prezzoCorrente > 0 ? formattaValuta(valoreCorrente) : "—"}
+                    </div>
+                    {prezzoCorrente > 0 && (
+                      <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: pl >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+                        {pl >= 0 ? "+" : ""}{formattaValuta(pl)} ({plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%)
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Price bar */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  {prezzoCorrente > 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(prezzoCorrente)}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                        background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
+                        color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
+                        fontFamily: "'Space Mono',monospace",
+                      }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
+                  )}
+                  <button onClick={() => {
+                    // Delete all trades for this ticker
+                    for (const t of h.trades) handleDelete(t.id);
+                  }} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>×</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Allocation chart */}
+      {holdings.length >= 2 && Object.keys(quotes).length > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Allocazione</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {holdings.map(h => {
+              const q = quotes[h.ticker];
+              const val = q ? h.quantita * q.prezzo : h.costoTotale;
+              const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
+              const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];
+              const color = colors[holdings.indexOf(h) % colors.length];
+              return (
+                <div key={h.ticker}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 12, color: "#ccc", fontWeight: 600 }}>{h.ticker}</span>
+                    <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{pct.toFixed(1)}%</span>
+                  </div>
+                  <div style={{ height: 8, background: "#252538", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, transition: "width 0.5s" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Export View ───
 const ALL_COLUMNS = [
   { id: "data", label: "Data" },
@@ -1441,8 +1729,9 @@ export default function FinanzaApp() {
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
+        {tab === "portfolio" && <PortfolioView />}
       </div>
-      <TabBar tab={tab} setTab={setTab} />
+      <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} />
     </div>
   );
 }
