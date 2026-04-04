@@ -236,8 +236,9 @@ app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// Proxy for FMP (Financial Modeling Prep) quotes — cached once per day in MongoDB
-// Free tier: 250 requests/day, supports batch quotes (multiple tickers in one call)
+// Proxy for FMP (Financial Modeling Prep) — new stable API, cached once per day
+// Docs: https://site.financialmodelingprep.com/developer/docs
+// Free tier: 250 requests/day
 const FMP_KEY = process.env.FMP_KEY || "";
 
 app.get("/api/quotes", async (req, res) => {
@@ -260,14 +261,19 @@ app.get("/api/quotes", async (req, res) => {
       toFetch.push(sym);
     }
 
-    // Fetch all missing tickers in ONE batch call to FMP
+    // Fetch missing tickers from FMP stable API
     if (toFetch.length > 0 && FMP_KEY) {
       try {
-        const url = `https://financialmodelingprep.com/api/v3/quote/${toFetch.join(",")}?apikey=${FMP_KEY}`;
+        // Use batch-quote for multiple, single quote for one
+        const url = toFetch.length === 1
+          ? `https://financialmodelingprep.com/stable/quote?symbol=${toFetch[0]}&apikey=${FMP_KEY}`
+          : `https://financialmodelingprep.com/stable/batch-quote?symbols=${toFetch.join(",")}&apikey=${FMP_KEY}`;
         const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
-          for (const q of (Array.isArray(data) ? data : [])) {
+          const items = Array.isArray(data) ? data : [data];
+          for (const q of items) {
+            if (!q || !q.symbol) continue;
             const quote = {
               prezzo: q.price || 0,
               cambio: q.change || 0,
@@ -287,24 +293,27 @@ app.get("/api/quotes", async (req, res) => {
               exchange: q.exchange || "",
             };
             quotes[q.symbol] = quote;
-            // Save to daily cache
             await quotesCol.updateOne(
               { ticker: q.symbol },
               { $set: { ticker: q.symbol, quote, dataCache: today, updatedAt: new Date() } },
               { upsert: true }
             );
           }
+        } else {
+          const errBody = await response.text();
+          console.error("FMP API error:", response.status, errBody);
         }
       } catch (err) {
-        console.error("FMP batch error:", err.message);
-        // Fallback: return stale cache for missing tickers
-        for (const sym of toFetch) {
+        console.error("FMP fetch error:", err.message);
+      }
+      // Fallback to stale cache for any still-missing tickers
+      for (const sym of toFetch) {
+        if (!quotes[sym]) {
           const stale = await quotesCol.findOne({ ticker: sym });
           if (stale) quotes[sym] = stale.quote;
         }
       }
     } else if (toFetch.length > 0 && !FMP_KEY) {
-      // No API key — return stale cache if available
       for (const sym of toFetch) {
         const stale = await quotesCol.findOne({ ticker: sym });
         if (stale) quotes[sym] = stale.quote;
