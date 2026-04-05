@@ -312,21 +312,60 @@ function TabBar({ tab, setTab, householdId }) {
   const tabs = householdId === "laura-gabriele"
     ? [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]]
     : baseTabs;
+
   return (
-    <div style={{ display: "flex", justifyContent: "space-around", background: "#161620", borderTop: "1px solid #2a2a3a", padding: "8px 0 max(12px, env(safe-area-inset-bottom))", position: "sticky", bottom: 0 }}>
-      {tabs.map(t => (
-        <button key={t.id} onClick={() => setTab(t.id)} style={{
-          background: "none", border: "none", cursor: "pointer",
-          display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
-          color: tab === t.id ? "#6C5CE7" : "#666", transition: "color 0.2s",
-        }}>
-          <span style={{ fontSize: t.id==="aggiungi"?28:22, lineHeight: 1,
-            fontWeight: t.id==="aggiungi"?300:400,
-            ...(t.id==="aggiungi"&&tab!=="aggiungi"?{background:"linear-gradient(135deg,#6C5CE7,#a855f7)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}:{}),
-          }}>{t.icon}</span>
-          <span style={{ fontSize: 10, fontFamily: "'DM Sans',sans-serif", letterSpacing: 0.3 }}>{t.label}</span>
-        </button>
-      ))}
+    <div style={{
+      display: "flex",
+      justifyContent: "space-around",
+      background: "#0E0E16",            // darker background
+      borderTop: "1px solid #2A2A3E",
+      padding: "12px 0 max(12px, env(safe-area-inset-bottom))",
+      position: "sticky",
+      bottom: 0,
+      boxShadow: "0 -2px 12px rgba(0,0,0,0.4)",  // subtle top shadow
+    }}>
+      {tabs.map(t => {
+        const isActive = tab === t.id;
+        return (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 4,
+              padding: "6px 12px",
+              borderRadius: 30,
+              transition: "all 0.2s ease",
+              color: isActive ? "#FFFFFF" : "#AAAAAA",   // brighter inactive
+              backgroundColor: isActive ? "rgba(108, 92, 231, 0.25)" : "transparent",
+            }}
+          >
+            <span style={{
+              fontSize: t.id === "aggiungi" ? 28 : 22,
+              lineHeight: 1,
+              fontWeight: isActive ? 700 : 400,
+              textShadow: isActive ? "0 0 6px rgba(108,92,231,0.6)" : "none",
+              transition: "inherit",
+            }}>
+              {t.icon}
+            </span>
+            <span style={{
+              fontSize: 11,
+              fontFamily: "'DM Sans',sans-serif",
+              letterSpacing: 0.5,
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? "#FFFFFF" : "#AAAAAA",
+            }}>
+              {t.label}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
