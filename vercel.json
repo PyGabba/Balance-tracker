@@ -1,4 +1,11 @@
 {
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
