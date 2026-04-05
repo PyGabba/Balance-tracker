@@ -319,8 +319,8 @@ function TabBar({ tab, setTab, householdId }) {
       justifyContent: "space-around",
       background: "#0E0E16",            // darker background
       borderTop: "1px solid #2A2A3E",
-      // padding: "2px 0 max(2px)",
-      // position: "sticky",
+      padding: "12px 0 max(12px, env(safe-area-inset-bottom, constant(safe-area-inset-bottom)))",
+      position: "sticky",
       bottom: 0,
       boxShadow: "0 -2px 12px rgba(0,0,0,0.4)",  // subtle top shadow
     }}>
@@ -1738,7 +1738,7 @@ export default function FinanzaApp() {
   const showMonthBar = tab === "home" || tab === "stats";
 
   return (
-    <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ maxWidth: 430, margin: "0 auto", height: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Fixed header */}
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
