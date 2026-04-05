@@ -1,6 +1,6 @@
 // api/quotes.js - SENZA dipendenze esterne (funziona su Vercel)
 export default async function handler(req, res) {
-  // ✅ CORS headers per permettere chiamate dal frontend
+  // ✅ CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-household-id');
@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   }
 
   const { symbols, refresh } = req.query;
-  const symbolList = (symbols || '').split(',').filter(s => s.trim());
+  const symbolList = (symbols || '').split(',').map(s => s.trim()).filter(Boolean);
 
   if (symbolList.length === 0) {
     return res.status(400).json({ error: 'Nessun simbolo fornito' });
@@ -30,8 +30,7 @@ export default async function handler(req, res) {
             headers: { 
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
             },
-            // Timeout di 5 secondi per evitare hanging
-            signal: AbortSignal.timeout(5000)
+            signal: AbortSignal.timeout(5000) // 5s timeout
           });
           
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -57,9 +56,9 @@ export default async function handler(req, res) {
       })
     );
 
-    // Costruisci l'oggetto quotes solo per i risultati validi
+    // Costruisci quotes solo per risultati validi
     results.forEach((r) => {
-      if (r.status === 'fulfilled' && r.value.data) {
+      if (r.status === 'fulfilled' && r.value?.data) {
         quotes[r.value.symbol] = r.value.data;
       }
     });
