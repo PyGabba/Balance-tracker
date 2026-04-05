@@ -209,6 +209,9 @@ export async function fetchQuotes(symbols, forceRefresh = false) {
     const url = `${API_BASE}/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}${forceRefresh ? "&refresh=true" : ""}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(res.status);
-    return await res.json(); // { quotes: {...}, cached: bool, aggiornamento: "YYYY-MM-DD" }
-  } catch (err) { console.error("fetchQuotes:", err); return { quotes: {}, cached: false, aggiornamento: "" }; }
+    return await res.json(); // { quotes: { TICKER: { prezzo, cambioPct } }, cached, aggiornamento }
+  } catch (err) {
+    console.error("fetchQuotes:", err);
+    return { quotes: {}, cached: false, aggiornamento: " " };
+  }
 }
