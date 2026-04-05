@@ -204,7 +204,7 @@ export async function deletePosition(id) {
 }
 
 export async function fetchQuotes(symbols, forceRefresh = false) {
-  if (!symbols || symbols.length === 0) return { quotes: {}, cached: false, aggiornamento: "" };
+  if (!symbols || symbols.length === 0) return { quotes: {}, cached: false, aggiornamento: " " };
   try {
     const url = `${API_BASE}/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}${forceRefresh ? "&refresh=true" : ""}`;
     const res = await fetch(url);
