@@ -319,8 +319,8 @@ function TabBar({ tab, setTab, householdId }) {
       justifyContent: "space-around",
       background: "#0E0E16",            // darker background
       borderTop: "1px solid #2A2A3E",
-      padding:  "8px 0 max(12px, env(safe-area-inset-bottom)) ",
-      // position: "sticky",
+      padding:  "5px 0 max(6px, env(safe-area-inset-bottom)) ",
+      position: "sticky",
       bottom: 0,
       boxShadow: "0 -2px 12px rgba(0,0,0,0.4)",  // subtle top shadow
       flexShrink: 0,
@@ -338,8 +338,8 @@ function TabBar({ tab, setTab, householdId }) {
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              gap: 4,
-              padding: "6px 12px",
+              gap: 1,
+              padding: 0,
               borderRadius: 30,
               transition: "all 0.2s ease",
               color: isActive ? "#FFFFFF" : "#AAAAAA",   // brighter inactive
