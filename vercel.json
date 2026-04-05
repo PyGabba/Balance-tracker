@@ -1,9 +1,16 @@
 {
-  "buildCommand": "npm run build",
+  "framework": "vite",
+  "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "env": {
+    "CI": "false"
+  },
   "functions": {
     "api/**/*.js": {
-      "runtime": "nodejs20.x"
+      "runtime": "nodejs18.x"
     }
-  }
+  },
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
 }
