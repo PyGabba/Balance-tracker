@@ -320,7 +320,7 @@ function TabBar({ tab, setTab, householdId }) {
       background: "#0E0E16",            // darker background
       borderTop: "1px solid #2A2A3E",
       padding: "2px 0 max(2px)",
-      position: "sticky",
+      // position: "sticky",
       bottom: 0,
       boxShadow: "0 -2px 12px rgba(0,0,0,0.4)",  // subtle top shadow
     }}>
