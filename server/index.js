@@ -2,7 +2,10 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
+import YahooFinance from "yahoo-finance2";
 dotenv.config();
+
+const yf = new YahooFinance();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -239,7 +242,6 @@ app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async
 // Stock quotes via yahoo-finance2 library (handles cookies/crumb automatically)
 // Supports all exchanges: .MI (Milano), .DE (Frankfurt), .L (London), US, etc.
 // Cached once per day in MongoDB
-import yahooFinance from "yahoo-finance2";
 
 app.get("/api/quotes", async (req, res) => {
   try {
@@ -265,7 +267,7 @@ app.get("/api/quotes", async (req, res) => {
     if (toFetch.length > 0) {
       for (const sym of toFetch) {
         try {
-          const q = await yahooFinance.quote(sym);
+          const q = await yf.quote(sym);
           if (q && q.regularMarketPrice) {
             const quote = {
               prezzo: q.regularMarketPrice || 0,
