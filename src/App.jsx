@@ -1180,7 +1180,7 @@ function PortfolioView() {
   useEffect(() => {
     if (holdings.length === 0) return;
     fetchQuotes(holdings.map(h => h.ticker)).then(r => setQuotesData(r));
-  }, [positions.length]);
+  }, [positions]);
 
   // Force refresh bypasses daily cache
   async function refreshQuotes() {
@@ -1207,10 +1207,11 @@ function PortfolioView() {
     setAdding(false);
   }
 
-  async function handleDelete(id) {
-    if (!confirm("Eliminare questa posizione?")) return;
-    await deletePosition(id);
-    setPositions(prev => prev.filter(p => p.id !== id));
+  async function handleDeleteHolding(trades) {
+    if (!confirm(`Eliminare tutte le ${trades.length > 1 ? trades.length + " operazioni" : "operazione"} per questo titolo?`)) return;
+    await Promise.all(trades.map(t => deletePosition(t.id)));
+    const ids = new Set(trades.map(t => t.id));
+    setPositions(prev => prev.filter(p => !ids.has(p.id)));
   }
 
   // Portfolio totals
@@ -1374,10 +1375,7 @@ function PortfolioView() {
                   ) : (
                     <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
                   )}
-                  <button onClick={() => {
-                    // Delete all trades for this ticker
-                    for (const t of h.trades) handleDelete(t.id);
-                  }} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>×</button>
+                  <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>×</button>
                 </div>
               </div>
             );

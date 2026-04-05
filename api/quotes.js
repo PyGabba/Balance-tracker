@@ -27,7 +27,7 @@ export default async function handler(req, res) {
           const data = await r.json();
           const meta = data.chart?.result?.[0]?.meta;
           if (meta?.regularMarketPrice != null) {
-            return { symbol, data: { prezzo: meta.regularMarketPrice, cambioPct: meta.regularMarketChangePercent, currency: meta.currency || 'USD' } };
+            return { symbol, data: { prezzo: meta.regularMarketPrice, cambioPct: (meta.regularMarketChangePercent || 0) * 100, currency: meta.currency || 'USD' } };
           }
           throw new Error('Dati non disponibili');
         } catch (err) {

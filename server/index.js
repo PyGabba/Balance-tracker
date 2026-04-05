@@ -272,7 +272,7 @@ app.get("/api/quotes", async (req, res) => {
             const quote = {
               prezzo: q.regularMarketPrice || 0,
               cambio: q.regularMarketChange || 0,
-              cambioPct: q.regularMarketChangePercent ? q.regularMarketChangePercent * 100 : 0,
+              cambioPct: q.regularMarketChangePercent || 0,
               valuta: q.currency || "EUR",
               nome: q.shortName || q.longName || q.symbol || sym,
               apertura: q.regularMarketOpen || 0,
