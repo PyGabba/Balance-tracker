@@ -33,7 +33,6 @@ Finanza Tracker is a full-stack personal finance app built for couples who share
 | **Debt balance** | Real-time balance showing who owes whom, with one-tap settle |
 | **Income owner** | Assign income to a specific person |
 | **Edit in place** | Tap any transaction to edit all fields inline |
-| **Receipt scanner** | AI-powered (Claude API) or OCR (Tesseract.js) receipt reading |
 | **Statistics** | Donut chart, trend bars, heatmap, histogram, frequency analysis |
 | **Trends & Insights** | Month-over-month comparison, saving rate gauge, smart tips |
 | **Export to XLSX** | Custom date range, column picker, sort order |

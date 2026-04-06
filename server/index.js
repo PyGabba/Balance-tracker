@@ -21,27 +21,90 @@ const HOUSEHOLDS = [
     persone: [{ id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#00B894" },{ id: "laura", nome: "Laura", emoji: "👩", colore: "#FD79A8" },{ id: "marco", nome: "Marco", emoji: "👨", colore: "#0984E3" },{ id: "roberta", nome: "Roberta", emoji: "👩", colore: "#E84393" }] },
 ];
 
-let db, transactionsCol;
+let db, transactionsCol, householdsCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
-  db = client.db(DB_NAME); transactionsCol = db.collection("transactions");
+  db = client.db(DB_NAME);
+  transactionsCol = db.collection("transactions");
+  householdsCol = db.collection("households");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
+  await householdsCol.createIndex({ pin: 1 }, { unique: true });
+  await householdsCol.createIndex({ householdId: 1 }, { unique: true });
   console.log("Connected: " + DB_NAME); return client;
 }
 
-function requireHousehold(req, res, next) {
+// Look up a household from static list OR database
+async function findHousehold(hid) {
+  const staticH = HOUSEHOLDS.find(h => h.id === hid);
+  if (staticH) return { id: staticH.id, nome: staticH.nome, persone: staticH.persone };
+  const dbH = await householdsCol.findOne({ householdId: hid });
+  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone };
+  return null;
+}
+
+async function findHouseholdByPin(pin) {
+  const staticH = HOUSEHOLDS.find(h => h.pin === pin);
+  if (staticH) return { householdId: staticH.id, nome: staticH.nome, persone: staticH.persone };
+  const dbH = await householdsCol.findOne({ pin });
+  if (dbH) return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone };
+  return null;
+}
+
+async function requireHousehold(req, res, next) {
   const hid = req.headers["x-household-id"];
-  const household = HOUSEHOLDS.find(h => h.id === hid);
-  if (!household) return res.status(401).json({ error: "Household non valido" });
-  req.household = household; req.householdId = hid; next();
+  if (!hid) return res.status(401).json({ error: "Household non valido" });
+  try {
+    const household = await findHousehold(hid);
+    if (!household) return res.status(401).json({ error: "Household non valido" });
+    req.household = household; req.householdId = hid; next();
+  } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
 }
 
 // ─── Auth ───
-app.post("/api/auth/login", (req, res) => {
-  const household = HOUSEHOLDS.find(h => h.pin === (req.body && req.body.pin));
-  if (!household) return res.status(401).json({ error: "PIN non valido" });
-  res.json({ householdId: household.id, nome: household.nome, persone: household.persone });
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const household = await findHouseholdByPin(req.body?.pin);
+    if (!household) return res.status(401).json({ error: "PIN non valido" });
+    res.json(household);
+  } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { nome, persone, pin } = req.body || {};
+    if (!nome || !pin || !Array.isArray(persone) || persone.length === 0)
+      return res.status(400).json({ error: "Campi obbligatori: nome, persone, pin" });
+    if (!/^\d{4,8}$/.test(pin))
+      return res.status(400).json({ error: "Il PIN deve essere di 4-8 cifre" });
+
+    // Check static households for PIN collision
+    if (HOUSEHOLDS.find(h => h.pin === pin))
+      return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
+
+    // Build householdId: slug from nome + random suffix
+    const slug = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const suffix = Math.random().toString(36).slice(2, 7);
+    const householdId = `${slug}-${suffix}`;
+
+    const EMOJIS = ["👤", "👩", "👨", "🧑", "👧", "👦"];
+    const COLORS = ["#6C5CE7", "#E84393", "#0984E3", "#00B894", "#FD79A8", "#FDCB6E"];
+    const personeFormatted = persone.map((p, i) => ({
+      id: (typeof p === "string" ? p : p.nome).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ""),
+      nome: typeof p === "string" ? p : p.nome,
+      emoji: EMOJIS[i % EMOJIS.length],
+      colore: COLORS[i % COLORS.length],
+    }));
+
+    const doc = { householdId, nome, persone: personeFormatted, pin, createdAt: new Date() };
+    await householdsCol.insertOne(doc);
+    res.status(201).json({ householdId, nome, persone: personeFormatted });
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
+    console.error("Register error:", e);
+    res.status(500).json({ error: "Errore durante la registrazione" });
+  }
+});
+
 app.get("/api/auth/households", (req, res) => res.json(HOUSEHOLDS.map(h => ({ id: h.id, nome: h.nome, persone: h.persone }))));
 
 // ─── GET transactions ───
@@ -194,9 +257,8 @@ app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
 // ─── Stock Positions ───
 // Collection: positions { householdId, ticker, nome, quantita, prezzoAcquisto, dataAcquisto, valuta, note, createdAt }
 
-// Only laura-gabriele can access portfolio
+// Portfolio is available to all authenticated households
 function requirePortfolioAccess(req, res, next) {
-  if (req.householdId !== "laura-gabriele") return res.status(403).json({ error: "Portfolio non disponibile per questo account" });
   next();
 }
 

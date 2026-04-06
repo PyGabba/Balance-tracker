@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -308,10 +308,8 @@ function TabBar({ tab, setTab, householdId }) {
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
-  // Portfolio only for laura-gabriele
-  const tabs = householdId === "laura-gabriele"
-    ? [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]]
-    : baseTabs;
+  // Portfolio available to all households
+  const tabs = [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]];
 
   return (
     <div style={{
@@ -1214,12 +1212,47 @@ function PortfolioView() {
     setPositions(prev => prev.filter(p => !ids.has(p.id)));
   }
 
-  // Portfolio totals
+  // ── Manual price overrides (localStorage) ──
+  const [manualPrices, setManualPrices] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("portfolio-manual-prices") || "{}"); } catch { return {}; }
+  });
+  const [editingTicker, setEditingTicker] = useState(null); // ticker being edited
+  const [editPriceVal, setEditPriceVal] = useState("");
+
+  function saveManualPrices(updated) {
+    setManualPrices(updated);
+    try { localStorage.setItem("portfolio-manual-prices", JSON.stringify(updated)); } catch {}
+  }
+
+  function startEditPrice(ticker, currentManual) {
+    setEditingTicker(ticker);
+    setEditPriceVal(currentManual != null ? String(currentManual) : "");
+  }
+
+  function handleSaveManualPrice(ticker) {
+    const val = parseFloat(editPriceVal.replace(",", "."));
+    if (!isNaN(val) && val > 0) {
+      saveManualPrices({ ...manualPrices, [ticker]: val });
+    }
+    setEditingTicker(null);
+    setEditPriceVal("");
+  }
+
+  function handleClearManualPrice(ticker) {
+    const updated = { ...manualPrices };
+    delete updated[ticker];
+    saveManualPrices(updated);
+    setEditingTicker(null);
+  }
+
+  // Portfolio totals — prefer API price, fall back to manual override, then cost
   let totalInvestito = 0, totalValore = 0;
   for (const h of holdings) {
     const q = quotes[h.ticker];
+    const manuale = manualPrices[h.ticker];
+    const prezzo = q?.prezzo || manuale || 0;
     totalInvestito += h.costoTotale;
-    totalValore += q ? h.quantita * q.prezzo : h.costoTotale;
+    totalValore += prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
   }
   const totalPL = totalValore - totalInvestito;
   const totalPLPct = totalInvestito > 0 ? (totalPL / totalInvestito * 100) : 0;
@@ -1331,19 +1364,25 @@ function PortfolioView() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {holdings.map(h => {
             const q = quotes[h.ticker];
-            const prezzoCorrente = q?.prezzo || 0;
+            const manuale = manualPrices[h.ticker];
+            const isManuale = !q?.prezzo && manuale > 0;
+            const prezzoCorrente = q?.prezzo || manuale || 0;
             const valoreCorrente = prezzoCorrente > 0 ? h.quantita * prezzoCorrente : h.costoTotale;
             const pl = prezzoCorrente > 0 ? valoreCorrente - h.costoTotale : 0;
             const plPct = h.costoTotale > 0 && prezzoCorrente > 0 ? (pl / h.costoTotale * 100) : 0;
             const dailyPct = q?.cambioPct || 0;
+            const isEditing = editingTicker === h.ticker;
 
             return (
-              <div key={h.ticker} style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", border: "1px solid #252538" }}>
+              <div key={h.ticker} style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", border: isEditing ? "1px solid #6C5CE7" : "1px solid #252538", transition: "border-color 0.2s" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 15, fontWeight: 800, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{h.ticker}</span>
                       <span style={{ fontSize: 11, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.nome}</span>
+                      {isManuale && (
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: "#F0A50022", color: "#F0A500", letterSpacing: 0.3 }}>MANUALE</span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
                       {h.quantita.toFixed(h.quantita % 1 === 0 ? 0 : 2)} pz × {formattaValuta(h.prezzoMedio)} medio
@@ -1360,23 +1399,77 @@ function PortfolioView() {
                     )}
                   </div>
                 </div>
+
                 {/* Price bar */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  {prezzoCorrente > 0 ? (
+                  {prezzoCorrente > 0 && !isEditing ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(prezzoCorrente)}</span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
-                        background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
-                        color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
-                        fontFamily: "'Space Mono',monospace",
-                      }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
+                      {q?.prezzo ? (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                          background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
+                          color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
+                          fontFamily: "'Space Mono',monospace",
+                        }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
+                      ) : null}
                     </div>
-                  ) : (
+                  ) : !isEditing ? (
                     <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
-                  )}
-                  <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>×</button>
+                  ) : null}
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+                    {/* Edit price button — always visible, prominent when no price */}
+                    {!isEditing && (
+                      <button onClick={() => startEditPrice(h.ticker, manuale)} title="Aggiorna prezzo manualmente" style={{
+                        background: prezzoCorrente === 0 ? "#6C5CE722" : "none",
+                        border: prezzoCorrente === 0 ? "1px solid #6C5CE755" : "none",
+                        borderRadius: 7, color: prezzoCorrente === 0 ? "#a78bfa" : "#444",
+                        cursor: "pointer", fontSize: 12, padding: "3px 7px",
+                        fontFamily: "'DM Sans',sans-serif", fontWeight: prezzoCorrente === 0 ? 700 : 400,
+                      }}>
+                        {prezzoCorrente === 0 ? "✏ Inserisci prezzo" : "✏"}
+                      </button>
+                    )}
+                    <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>×</button>
+                  </div>
                 </div>
+
+                {/* Inline manual price editor */}
+                {isEditing && (
+                  <div style={{ marginTop: 12, padding: "12px 14px", background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
+                    <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>
+                      Prezzo manuale per {h.ticker}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        type="number" inputMode="decimal" autoFocus
+                        value={editPriceVal}
+                        onChange={e => setEditPriceVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleSaveManualPrice(h.ticker); if (e.key === "Escape") setEditingTicker(null); }}
+                        placeholder="Es: 42.50"
+                        style={{ flex: 1, padding: "10px 12px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 10, color: "#eee", fontSize: 15, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box" }}
+                      />
+                      <button onClick={() => handleSaveManualPrice(h.ticker)} style={{
+                        padding: "10px 16px", background: "linear-gradient(135deg, #6C5CE7, #a855f7)", border: "none",
+                        borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                      }}>Salva</button>
+                      <button onClick={() => setEditingTicker(null)} style={{
+                        padding: "10px 12px", background: "none", border: "1px solid #333", borderRadius: 10,
+                        color: "#888", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                      }}>✕</button>
+                    </div>
+                    {manuale && (
+                      <button onClick={() => handleClearManualPrice(h.ticker)} style={{
+                        marginTop: 8, background: "none", border: "none", color: "#FF6B6B88", cursor: "pointer",
+                        fontSize: 11, fontFamily: "'DM Sans',sans-serif", padding: 0,
+                      }}>Rimuovi prezzo manuale</button>
+                    )}
+                    <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
+                      Il prezzo API verrà usato automaticamente se disponibile.
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1390,7 +1483,8 @@ function PortfolioView() {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {holdings.map(h => {
               const q = quotes[h.ticker];
-              const val = q ? h.quantita * q.prezzo : h.costoTotale;
+              const prezzo = q?.prezzo || manualPrices[h.ticker] || 0;
+              const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
               const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
               const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];
               const color = colors[holdings.indexOf(h) % colors.length];
@@ -1619,63 +1713,148 @@ function ExportView({ transazioni, persone }) {
 
 // ─── Login Screen ───
 function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+
+  // Login state
   const [pin, setPin] = useState("");
-  const [errore, setErrore] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loginErrore, setLoginErrore] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Register state
+  const [regNome, setRegNome] = useState("");
+  const [regPersone, setRegPersone] = useState(["", ""]);
+  const [regPin, setRegPin] = useState("");
+  const [regPinConferma, setRegPinConferma] = useState("");
+  const [regErrore, setRegErrore] = useState("");
+  const [regLoading, setRegLoading] = useState(false);
+  const [regSuccesso, setRegSuccesso] = useState(false);
 
   async function handleLogin() {
     if (pin.length < 4) return;
-    setLoading(true);
-    setErrore("");
-    try {
-      await login(pin);
-      onLogin();
-    } catch (err) {
-      setErrore(err.message || "PIN non valido");
-    } finally {
-      setLoading(false);
-    }
+    setLoginLoading(true); setLoginErrore("");
+    try { await login(pin); onLogin(); }
+    catch (err) { setLoginErrore(err.message || "PIN non valido"); }
+    finally { setLoginLoading(false); }
   }
+
+  async function handleRegister() {
+    setRegErrore("");
+    const personeValide = regPersone.map(p => p.trim()).filter(Boolean);
+    if (!regNome.trim()) return setRegErrore("Inserisci il nome del gruppo");
+    if (personeValide.length === 0) return setRegErrore("Aggiungi almeno una persona");
+    if (regPin.length < 4) return setRegErrore("Il PIN deve essere di almeno 4 cifre");
+    if (regPin !== regPinConferma) return setRegErrore("I PIN non coincidono");
+    setRegLoading(true);
+    try {
+      await register({ nome: regNome.trim(), persone: personeValide, pin: regPin });
+      setRegSuccesso(true);
+      setTimeout(() => onLogin(), 1200);
+    } catch (err) {
+      setRegErrore(err.message || "Errore durante la registrazione");
+    } finally { setRegLoading(false); }
+  }
+
+  function addPersona() { if (regPersone.length < 6) setRegPersone(p => [...p, ""]); }
+  function removePersona(i) { setRegPersone(p => p.filter((_, idx) => idx !== i)); }
+  function updatePersona(i, val) { setRegPersone(p => p.map((x, idx) => idx === i ? val : x)); }
+
+  const sBtn = { width: "100%", padding: "16px", border: "none", borderRadius: 16, fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginTop: 16, transition: "all 0.3s", cursor: "pointer" };
+  const smallInput = { ...inputStyle, padding: "12px 14px", fontSize: 14, background: "#111119" };
 
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ fontSize: 36, fontWeight: 800, marginBottom: 4 }}>
         <span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span>
       </div>
-      <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 40 }}>TRACKER</div>
+      <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 32 }}>TRACKER</div>
+
+      {/* Mode toggle */}
+      <div style={{ display: "flex", background: "#1a1a28", borderRadius: 12, padding: 4, marginBottom: 28, width: "100%", maxWidth: 300 }}>
+        {[["login", "Accedi"], ["register", "Crea account"]].map(([m, label]) => (
+          <button key={m} onClick={() => { setMode(m); setLoginErrore(""); setRegErrore(""); }} style={{
+            flex: 1, padding: "10px", border: "none", borderRadius: 9, cursor: "pointer",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
+            background: mode === m ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "transparent",
+            color: mode === m ? "#fff" : "#666", transition: "all 0.2s",
+          }}>{label}</button>
+        ))}
+      </div>
 
       <div style={{ width: "100%", maxWidth: 300 }}>
-        <label style={{ ...labelStyle, textAlign: "center", display: "block" }}>Inserisci il PIN</label>
-        <input
-          type="password"
-          inputMode="numeric"
-          maxLength={8}
-          value={pin}
-          onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setErrore(""); }}
-          onKeyDown={e => e.key === "Enter" && handleLogin()}
-          placeholder="••••"
-          style={{
-            ...inputStyle,
-            fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace",
-            textAlign: "center", letterSpacing: 12,
-          }}
-          autoFocus
-        />
 
-        {errore && (
-          <div style={{ marginTop: 12, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{errore}</div>
+        {mode === "login" ? (
+          <>
+            <label style={{ ...labelStyle, textAlign: "center", display: "block" }}>Inserisci il PIN</label>
+            <input
+              type="password" inputMode="numeric" maxLength={8} value={pin} autoFocus
+              onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setLoginErrore(""); }}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              placeholder="••••"
+              style={{ ...inputStyle, fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", letterSpacing: 12 }}
+            />
+            {loginErrore && <div style={{ marginTop: 12, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{loginErrore}</div>}
+            <button onClick={handleLogin} disabled={loginLoading || pin.length < 4} style={{
+              ...sBtn, background: pin.length >= 4 ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+              color: pin.length >= 4 ? "#fff" : "#666", cursor: pin.length >= 4 ? "pointer" : "default", opacity: loginLoading ? 0.6 : 1,
+            }}>{loginLoading ? "Accesso..." : "Accedi"}</button>
+          </>
+        ) : regSuccesso ? (
+          <div style={{ textAlign: "center", padding: 20 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🎉</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#4ECDC4" }}>Account creato!</div>
+            <div style={{ fontSize: 13, color: "#888", marginTop: 6 }}>Accesso in corso...</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Nome del gruppo</label>
+              <input type="text" value={regNome} onChange={e => setRegNome(e.target.value)} placeholder="Es: Laura & Marco"
+                style={smallInput} autoFocus />
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Persone</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {regPersone.map((p, i) => (
+                  <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input type="text" value={p} onChange={e => updatePersona(i, e.target.value)}
+                      placeholder={`Persona ${i + 1}`} style={{ ...smallInput, flex: 1 }} />
+                    {regPersone.length > 1 && (
+                      <button onClick={() => removePersona(i)} style={{ background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", cursor: "pointer", padding: "8px 10px", fontSize: 14 }}>×</button>
+                    )}
+                  </div>
+                ))}
+                {regPersone.length < 6 && (
+                  <button onClick={addPersona} style={{ background: "none", border: "1px dashed #333", borderRadius: 10, color: "#666", cursor: "pointer", padding: "10px", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>+ Aggiungi persona</button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={labelStyle}>PIN (4-8 cifre)</label>
+              <input type="password" inputMode="numeric" maxLength={8} value={regPin}
+                onChange={e => setRegPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="••••" style={{ ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 8, textAlign: "center" }} />
+            </div>
+
+            <div style={{ marginBottom: 6 }}>
+              <label style={labelStyle}>Conferma PIN</label>
+              <input type="password" inputMode="numeric" maxLength={8} value={regPinConferma}
+                onChange={e => setRegPinConferma(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={e => e.key === "Enter" && handleRegister()}
+                placeholder="••••" style={{
+                  ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 8, textAlign: "center",
+                  borderColor: regPinConferma && regPin !== regPinConferma ? "#FF6B6B" : "#252538",
+                }} />
+            </div>
+
+            {regErrore && <div style={{ marginTop: 10, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{regErrore}</div>}
+
+            <button onClick={handleRegister} disabled={regLoading} style={{
+              ...sBtn, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: regLoading ? 0.6 : 1,
+            }}>{regLoading ? "Creazione..." : "Crea account"}</button>
+          </>
         )}
-
-        <button onClick={handleLogin} disabled={loading || pin.length < 4} style={{
-          width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: pin.length >= 4 ? "pointer" : "default",
-          fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginTop: 20,
-          background: pin.length >= 4 ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
-          color: pin.length >= 4 ? "#fff" : "#666",
-          opacity: loading ? 0.6 : 1,
-          transition: "all 0.3s",
-        }}>
-          {loading ? "Accesso..." : "Accedi"}
-        </button>
       </div>
     </div>
   );

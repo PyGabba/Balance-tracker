@@ -66,6 +66,23 @@ export async function login(pin) {
   return data;
 }
 
+export async function register({ nome, persone, pin }) {
+  const res = await fetch(`${API_BASE}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome, persone, pin }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Registrazione fallita");
+  }
+  const data = await res.json();
+  currentHousehold = data;
+  saveSession(data);
+  apiAvailable = true;
+  return data;
+}
+
 export function logout() {
   clearSession();
   apiAvailable = null;
