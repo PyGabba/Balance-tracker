@@ -679,15 +679,7 @@ function AggiungiView({ onAggiungi, persone }) {
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
   const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
-  const base = Math.floor(100 / persone.length);
-  const [splits, setSplits] = useState(
-    persone.map((p, i) => ({
-      personaId: p.id,
-      quota: i === persone.length - 1
-        ? 100 - base * (persone.length - 1)
-        : base
-    }))
-  );
+  const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === 0 ? 50 : 50 })));
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
 
@@ -1383,42 +1375,43 @@ function PortfolioView() {
 
             return (
               <div key={h.ticker} style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", border: isEditing ? "1px solid #6C5CE7" : "1px solid #252538", transition: "border-color 0.2s" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 15, fontWeight: 800, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{h.ticker}</span>
-                      <span style={{ fontSize: 11, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.nome}</span>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: "#eee", fontFamily: "'Space Mono',monospace", flexShrink: 0 }}>{h.ticker}</span>
+                      <span style={{ fontSize: 11, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{h.nome}</span>
                       {isManuale && (
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: "#F0A50022", color: "#F0A500", letterSpacing: 0.3 }}>MANUALE</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: "#F0A50022", color: "#F0A500", letterSpacing: 0.3, flexShrink: 0 }}>MANUALE</span>
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {h.quantita.toFixed(h.quantita % 1 === 0 ? 0 : 2)} pz × {formattaValuta(h.prezzoMedio)} medio
                     </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#eee" }}>
+                  <div style={{ textAlign: "right", flexShrink: 0, maxWidth: "48%" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#eee", wordBreak: "break-all" }}>
                       {prezzoCorrente > 0 ? formattaValuta(valoreCorrente) : "—"}
                     </div>
                     {prezzoCorrente > 0 && (
-                      <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: pl >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
-                        {pl >= 0 ? "+" : ""}{formattaValuta(pl)} ({plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%)
+                      <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: pl >= 0 ? "#4ECDC4" : "#FF6B6B", wordBreak: "break-all" }}>
+                        {pl >= 0 ? "+" : ""}{formattaValuta(pl)}<br/>
+                        <span style={{ fontSize: 10 }}>({plPct >= 0 ? "+" : ""}{plPct.toFixed(1)}%)</span>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Price bar */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                   {prezzoCorrente > 0 && !isEditing ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(prezzoCorrente)}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
+                      <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap" }}>{formattaValuta(prezzoCorrente)}</span>
                       {q?.prezzo ? (
                         <span style={{
-                          fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                          fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6, flexShrink: 0,
                           background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
                           color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
-                          fontFamily: "'Space Mono',monospace",
+                          fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap",
                         }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
                       ) : null}
                     </div>
@@ -1426,7 +1419,7 @@ function PortfolioView() {
                     <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
                   ) : null}
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, marginLeft: "auto" }}>
                     {/* Edit price button — always visible, prominent when no price */}
                     {!isEditing && (
                       <button onClick={() => startEditPrice(h.ticker, manuale)} title="Aggiorna prezzo manualmente" style={{
@@ -1435,11 +1428,12 @@ function PortfolioView() {
                         borderRadius: 7, color: prezzoCorrente === 0 ? "#a78bfa" : "#444",
                         cursor: "pointer", fontSize: 12, padding: "3px 7px",
                         fontFamily: "'DM Sans',sans-serif", fontWeight: prezzoCorrente === 0 ? 700 : 400,
+                        whiteSpace: "nowrap",
                       }}>
                         {prezzoCorrente === 0 ? "✏ Inserisci prezzo" : "✏"}
                       </button>
                     )}
-                    <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>×</button>
+                    <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px", flexShrink: 0 }}>×</button>
                   </div>
                 </div>
 
