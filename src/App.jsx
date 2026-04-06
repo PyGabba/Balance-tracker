@@ -1403,62 +1403,73 @@ function PortfolioView() {
 
                 {/* Price bar */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                  {prezzoCorrente > 0 && !isEditing ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
-                      <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap" }}>{formattaValuta(prezzoCorrente)}</span>
-                      {q?.prezzo ? (
-                        <span style={{
-                          fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6, flexShrink: 0,
-                          background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
-                          color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
-                          fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap",
-                        }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
-                      ) : null}
-                    </div>
-                  ) : !isEditing ? (
-                    <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
-                  ) : null}
+                  <div style={{ minWidth: 0, overflow: "hidden" }}>
+                    {prezzoCorrente > 0 && !isEditing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap" }}>{formattaValuta(prezzoCorrente)}</span>
+                        {q?.prezzo ? (
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                            background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
+                            color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
+                            fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap",
+                          }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
+                        ) : null}
+                      </div>
+                    ) : !isEditing ? (
+                      <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
+                    ) : null}
+                  </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, marginLeft: "auto" }}>
-                    {/* Edit price button — always visible, prominent when no price */}
-                    {!isEditing && (
+                  {/* Edit ✏ + Delete × — always on right, never wrap */}
+                  {!isEditing && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
                       <button onClick={() => startEditPrice(h.ticker, manuale)} title="Aggiorna prezzo manualmente" style={{
                         background: prezzoCorrente === 0 ? "#6C5CE722" : "none",
                         border: prezzoCorrente === 0 ? "1px solid #6C5CE755" : "none",
-                        borderRadius: 7, color: prezzoCorrente === 0 ? "#a78bfa" : "#444",
-                        cursor: "pointer", fontSize: 12, padding: "3px 7px",
-                        fontFamily: "'DM Sans',sans-serif", fontWeight: prezzoCorrente === 0 ? 700 : 400,
-                        whiteSpace: "nowrap",
-                      }}>
-                        {prezzoCorrente === 0 ? "✏ Inserisci prezzo" : "✏"}
-                      </button>
-                    )}
-                    <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 6px", flexShrink: 0 }}>×</button>
-                  </div>
+                        borderRadius: 7, color: prezzoCorrente === 0 ? "#a78bfa" : "#555",
+                        cursor: "pointer", fontSize: 13, lineHeight: 1,
+                        padding: prezzoCorrente === 0 ? "4px 8px" : "4px 6px",
+                        fontFamily: "'DM Sans',sans-serif",
+                      }}>✏</button>
+                      <button onClick={() => handleDeleteHolding(h.trades)} style={{
+                        background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "4px 6px",
+                      }}>×</button>
+                    </div>
+                  )}
                 </div>
+
+                {/* "Inserisci prezzo" call-to-action when no price and not editing */}
+                {prezzoCorrente === 0 && !isEditing && (
+                  <button onClick={() => startEditPrice(h.ticker, manuale)} style={{
+                    marginTop: 8, width: "100%", padding: "8px", background: "#6C5CE711",
+                    border: "1px dashed #6C5CE755", borderRadius: 10, color: "#a78bfa",
+                    cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
+                  }}>✏ Inserisci prezzo manuale</button>
+                )}
 
                 {/* Inline manual price editor */}
                 {isEditing && (
-                  <div style={{ marginTop: 12, padding: "12px 14px", background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
+                  <div style={{ marginTop: 10, padding: "12px", background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
                     <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>
-                      Prezzo manuale per {h.ticker}
+                      Prezzo manuale — {h.ticker}
                     </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input
-                        type="number" inputMode="decimal" autoFocus
-                        value={editPriceVal}
-                        onChange={e => setEditPriceVal(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleSaveManualPrice(h.ticker); if (e.key === "Escape") setEditingTicker(null); }}
-                        placeholder="Es: 42.50"
-                        style={{ flex: 1, padding: "10px 12px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 10, color: "#eee", fontSize: 15, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box" }}
-                      />
+                    <input
+                      type="number" inputMode="decimal" autoFocus
+                      value={editPriceVal}
+                      onChange={e => setEditPriceVal(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") handleSaveManualPrice(h.ticker); if (e.key === "Escape") setEditingTicker(null); }}
+                      placeholder="Es: 42.50"
+                      style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 10, color: "#eee", fontSize: 16, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                    />
+                    <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => handleSaveManualPrice(h.ticker)} style={{
-                        padding: "10px 16px", background: "linear-gradient(135deg, #6C5CE7, #a855f7)", border: "none",
-                        borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                        flex: 1, padding: "10px", background: "linear-gradient(135deg, #6C5CE7, #a855f7)", border: "none",
+                        borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
                       }}>Salva</button>
                       <button onClick={() => setEditingTicker(null)} style={{
-                        padding: "10px 12px", background: "none", border: "1px solid #333", borderRadius: 10,
-                        color: "#888", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                        padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10,
+                        color: "#888", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
                       }}>✕</button>
                     </div>
                     {manuale && (
