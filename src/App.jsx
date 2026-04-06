@@ -559,9 +559,30 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || cat.nome}</div>
-          <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(t.data)}
-            {persona && t.tipo === "uscita" && <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{persona.emoji} {t.splits && t.splits.length > 2 ? `÷${t.splits.length}` : t.splits ? "" : t.splitPagante != null && t.splitPagante !== 100 ? `${t.splitPagante}%` : ""}</span>}
+            {persona && t.tipo === "uscita" && (() => {
+              // Build split label
+              let splitLabel = null;
+              if (t.splits && t.splits.length > 0) {
+                if (t.splits.length > 2) {
+                  splitLabel = `÷${t.splits.length}`;
+                } else {
+                  splitLabel = t.splits.map(s => {
+                    const p = persone.find(x => x.id === s.personaId);
+                    return p ? `${p.emoji} ${s.quota}%` : `${s.quota}%`;
+                  }).join(" · ");
+                }
+              } else if (t.splitPagante != null && t.splitPagante !== 100) {
+                const other = persone.find(p => p.id !== t.pagatoDa);
+                splitLabel = `${persona.emoji} ${t.splitPagante}%${other ? ` · ${other.emoji} ${100 - t.splitPagante}%` : ""}`;
+              }
+              return (
+                <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 6px", fontSize: 10, fontWeight: 600 }}>
+                  {persona.emoji} {persona.nome}{splitLabel ? ` · ${splitLabel}` : ""}
+                </span>
+              );
+            })()}
             {personaIntestata && t.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
           </div>
         </div>
