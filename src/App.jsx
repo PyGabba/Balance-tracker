@@ -562,24 +562,57 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
           <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(t.data)}
             {persona && t.tipo === "uscita" && (() => {
-              // Build split label
-              let splitLabel = null;
-              if (t.splits && t.splits.length > 0) {
-                if (t.splits.length > 2) {
-                  splitLabel = `÷${t.splits.length}`;
-                } else {
-                  splitLabel = t.splits.map(s => {
-                    const p = persone.find(x => x.id === s.personaId);
-                    return p ? `${p.emoji} ${s.quota}%` : `${s.quota}%`;
-                  }).join(" · ");
-                }
+              // Ottieni lista partecipanti con quote
+              let participants = [];
+              if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
+                participants = t.splits.map(s => ({
+                  id: s.personaId,
+                  quota: s.quota,
+                  persona: persone.find(p => p.id === s.personaId) || { id: s.personaId, nome: s.personaId, emoji: "👤", colore: "#888" }
+                }));
               } else if (t.splitPagante != null && t.splitPagante !== 100) {
-                const other = persone.find(p => p.id !== t.pagatoDa);
-                splitLabel = `${persona.emoji} ${t.splitPagante}%${other ? ` · ${other.emoji} ${100 - t.splitPagante}%` : ""}`;
+                // Vecchio formato a 2 persone
+                const otherId = persone.find(p => p.id !== t.pagatoDa)?.id;
+                if (otherId) {
+                  participants = [
+                    { id: t.pagatoDa, quota: t.splitPagante, persona },
+                    { id: otherId, quota: 100 - t.splitPagante, persona: persone.find(p => p.id === otherId) }
+                  ];
+                }
               }
+            
+              const totalParticipants = participants.length;
+              const payerIndex = participants.findIndex(p => p.id === t.pagatoDa);
+              const isEqualSplit = totalParticipants === 2 && participants[0]?.quota === 50 && participants[1]?.quota === 50;
+            
+              // Costruisci label concisa
+              let splitLabel = "";
+              if (totalParticipants === 2 && isEqualSplit) {
+                // 50/50: mostra solo l'altra persona
+                const other = participants.find(p => p.id !== t.pagatoDa);
+                splitLabel = ` · ${other?.persona.emoji}`;
+              } else if (totalParticipants === 2 && !isEqualSplit) {
+                // Due persone con quote diverse: mostra entrambe le percentuali
+                const [p1, p2] = participants;
+                splitLabel = ` · ${p1.quota}% / ${p2.quota}%`;
+              } else if (totalParticipants > 2) {
+                // Più di 2: mostra solo il numero di partecipanti
+                splitLabel = ` · 👥 ${totalParticipants}`;
+              }
+            
               return (
-                <span style={{ background: persona.colore + "33", color: persona.colore, borderRadius: 6, padding: "1px 6px", fontSize: 10, fontWeight: 600 }}>
-                  {persona.emoji} {persona.nome}{splitLabel ? ` · ${splitLabel}` : ""}
+                <span style={{
+                  background: persona.colore + "33",
+                  color: persona.colore,
+                  borderRadius: 6,
+                  padding: "1px 6px",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}>
+                  {persona.emoji} {persona.nome}{splitLabel}
                 </span>
               );
             })()}
