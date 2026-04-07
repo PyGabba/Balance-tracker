@@ -783,7 +783,8 @@ function AggiungiView({ onAggiungi, persone }) {
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
   const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
-  const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === 0 ? 50 : 50 })));
+  const base = Math.floor(100 / persone.length);
+  const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === persone.length - 1 ? 100 - base * (persone.length - 1) : base})));
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
 
