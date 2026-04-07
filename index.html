@@ -18,6 +18,29 @@
       html, body, #root { height: 100%; }
       body { background: #111119; font-family: 'DM Sans', sans-serif; overflow: hidden; }
       #root { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+      /* TabBar floating pill — fixed at bottom, above safe area */
+      .tabbar-fixed {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        padding-top: 6px;
+        background: transparent;
+      }
+
+      /* Solid block that fills the home indicator zone below the pill */
+      .tabbar-safe-filler {
+        height: env(safe-area-inset-bottom, 0px);
+        background: #111119;
+      }
+
+      /* Content area: leave room for pill + safe area */
+      .scroll-content {
+        padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+      }
       .tabbar-wrapper { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
     </style>
   </head>
