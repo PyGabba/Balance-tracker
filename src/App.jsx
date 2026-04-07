@@ -349,7 +349,7 @@ function TabBar({ tab, setTab, householdId }) {
       bottom: 0,
       left: 0,
       right: 0,
-      padding: "0 8px env(safe-area-inset-bottom, 8px)",
+      padding: "0 0px env(safe-area-inset-bottom, 0px)",
       background: "transparent", // Entire container is transparent
       flexShrink: 0,
       zIndex: 1000,               // Ensure it stays on top of content
