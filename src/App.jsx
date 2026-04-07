@@ -363,7 +363,7 @@ function NavBar({ tab, setTab, householdId }) {
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         borderRadius: "20px 20px 0 0",
-        padding: "4px 4px env(safe-area-inset-bottom)",
+        paddingTop: "4px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "env(safe-area-inset-bottom)",
         border: "1px solid #252538",
         borderBottom: "none",
         boxShadow: "0 -4px 24px rgba(0,0,0,0.4)",
