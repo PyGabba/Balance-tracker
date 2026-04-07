@@ -344,62 +344,76 @@ function TabBar({ tab, setTab, householdId }) {
   };
 
   return (
-    <div className="tabbar-fixed" style={{ pointerEvents: "none" }}>
-      <div style={{ maxWidth: 430, margin: "0 auto" }}>
-        {/* Floating pill */}
+    <div style={{
+      position: "fixed",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      background: "#111119",
+      flexShrink: 0,
+      zIndex: 1000,
+      pointerEvents: "none",
+    }}>
+      <div style={{
+        maxWidth: 430,
+        margin: "0 auto",
+      }}>
         <div style={{
-          margin: "0 16px",
           display: "flex",
           justifyContent: "space-around",
           alignItems: "center",
-          background: "rgba(17, 17, 25, 0.95)",
+          background: "rgba(17, 17, 25, 0.92)",
           backdropFilter: "blur(25px) saturate(180%)",
           WebkitBackdropFilter: "blur(25px) saturate(180%)",
-          borderRadius: 24,
-          padding: "4px",
+          borderRadius: "16px 16px 0 0",
+          padding: "4px 0px 4px",
           border: "1px solid rgba(255, 255, 255, 0.08)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          borderBottom: "none",
           pointerEvents: "all",
         }}>
-          {tabs.map(t => {
-            const isActive = tab === t.id;
-            const isAdd = t.id === "aggiungi";
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center",
-                  gap: 2, padding: "2px 8px", flex: 1,
-                }}
-              >
-                <div style={{
-                  width: isAdd ? 34 : 24,
-                  height: isAdd ? 34 : 24,
-                  borderRadius: isAdd ? "50%" : 6,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  background: isAdd
-                    ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                    : isActive ? "rgba(167, 139, 250, 0.15)" : "transparent",
-                  transition: "all 0.2s ease",
-                }}>
-                  {icons[t.id]?.(isActive)}
-                </div>
-                <span style={{
-                  fontSize: 8, fontFamily: "'DM Sans',sans-serif",
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? "#a78bfa" : "#94a3b8",
-                  letterSpacing: 0.2,
-                }}>
-                  {t.label}
-                </span>
-              </button>
-            );
-          })}
+        {tabs.map(t => {
+          const isActive = tab === t.id;
+          const isAdd = t.id === "aggiungi";
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center",
+                gap: 2, padding: "2px 8px", flex: 1,
+              }}
+            >
+              <div style={{
+                width: isAdd ? 34 : 24,
+                height: isAdd ? 34 : 24,
+                borderRadius: isAdd ? "50%" : 6,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: isAdd
+                  ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
+                  : isActive ? "rgba(167, 139, 250, 0.15)" : "transparent",
+                transition: "all 0.2s ease",
+              }}>
+                {icons[t.id]?.(isActive)}
+              </div>
+              <span style={{
+                fontSize: 8, fontFamily: "'DM Sans',sans-serif",
+                fontWeight: isActive ? 600 : 400,
+                color: isActive ? "#a78bfa" : "#94a3b8",
+                letterSpacing: 0.2,
+              }}>
+                {t.label}
+              </span>
+            </button>
+          );
+        })}
         </div>
-        {/* Safe area filler — solid block that fills the home indicator zone */}
-        <div className="tabbar-safe-filler" />
+        {/* Safe area spacer - solid background covers the home indicator area */}
+        <div style={{
+          height: "env(safe-area-inset-bottom, 0px)",
+          background: "#111119",
+          pointerEvents: "all",
+        }} />
       </div>
     </div>
   );
@@ -2021,7 +2035,7 @@ export default function FinanzaApp() {
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Fixed header */}
-      <div style={{ paddingTop: "calc(18px + env(safe-area-inset-top, 0px))", paddingLeft: "16px", paddingRight: "16px", paddingBottom: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
@@ -2044,7 +2058,7 @@ export default function FinanzaApp() {
         <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
       )}
       {/* Scrollable content */}
-      <div className="scroll-content" style={{ flex: 1, overflowY: "auto" }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
