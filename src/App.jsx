@@ -1642,7 +1642,7 @@ const ALL_COLUMNS = [
   { id: "partecipanti", label: "Partecipanti e quote" },
 ];
 
-function ExportView({ transazioni, persone, onImport }) {
+function ExportView({ transazioni, persone, onImport, onImportComplete }) {
   const oggi = new Date();
   const [meseDa, setMeseDa] = useState(`${oggi.getFullYear()}-${String(oggi.getMonth()+1).padStart(2,"0")}`);
   const [meseA, setMeseA] = useState(meseDa);
@@ -1718,6 +1718,8 @@ function ExportView({ transazioni, persone, onImport }) {
     setImportando(false);
     setImportPreview(null);
     setImportFile(null);
+    // Reload all transactions from server so debts are recalculated correctly
+    if (onImportComplete) await onImportComplete();
     alert(`Import completato: ${ok} transazioni importate${fail ? `, ${fail} errori` : ""}.`);
   }
 
@@ -2417,6 +2419,13 @@ export default function FinanzaApp() {
     } catch (err) { console.error("Add error:", err); }
   }
 
+  // Same but without setTab — used by bulk import
+  async function aggiungiTransazioneSilente(t) {
+    const saved = await addTransaction(t);
+    setTransazioni(prev => [...prev, saved]);
+    return saved;
+  }
+
   async function eliminaTransazione(id) {
     try {
       await deleteTransaction(id);
@@ -2465,7 +2474,7 @@ export default function FinanzaApp() {
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
-        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} onImport={aggiungiTransazione} />}
+        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} />}
         {tab === "portfolio" && <PortfolioView />}
         {tab === "impostazioni" && (
           <ImpostazioniView
