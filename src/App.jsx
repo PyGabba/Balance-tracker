@@ -345,29 +345,33 @@ function TabBar({ tab, setTab, householdId }) {
 
   return (
     <div style={{
-      position: "fixed", // Changed to fixed so it floats OVER the scrollable area
+      position: "fixed",
       bottom: 0,
       left: 0,
       right: 0,
-      padding: "0 0px env(safe-area-inset-bottom, 0px)",
-      background: "transparent", // Entire container is transparent
+      background: "transparent",
       flexShrink: 0,
-      zIndex: 1000,               // Ensure it stays on top of content
-      pointerEvents: "none",      // Allows clicks to pass through empty spaces
+      zIndex: 1000,
+      pointerEvents: "none",
     }}>
       <div style={{
-        display: "flex",
-        justifyContent: "space-around",
-        alignItems: "center",
-        background: "rgba(255, 255, 255, 0.02)", // Barely-there tint for the glass effect
-        backdropFilter: "blur(25px) saturate(180%)", // High blur for visibility
-        WebkitBackdropFilter: "blur(25px) saturate(180%)",
-        borderRadius: "20px 20px 0 0",
-        padding: "8px 0px",
-        border: "1px solid rgba(255, 255, 255, 0.08)", // Very subtle border to define the edge
-        borderBottom: "none",
-        pointerEvents: "all",      // Buttons remain clickable
+        maxWidth: 430,
+        margin: "0 auto",
       }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-around",
+          alignItems: "center",
+          background: "rgba(17, 17, 25, 0.85)",
+          backdropFilter: "blur(25px) saturate(180%)",
+          WebkitBackdropFilter: "blur(25px) saturate(180%)",
+          borderRadius: "20px 20px 0 0",
+          padding: "8px 0px",
+          paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          borderBottom: "none",
+          pointerEvents: "all",
+        }}>
         {tabs.map(t => {
           const isActive = tab === t.id;
           const isAdd = t.id === "aggiungi";
@@ -404,6 +408,7 @@ function TabBar({ tab, setTab, householdId }) {
             </button>
           );
         })}
+        </div>
       </div>
     </div>
   );
@@ -2048,7 +2053,7 @@ export default function FinanzaApp() {
         <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
       )}
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 10 }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
