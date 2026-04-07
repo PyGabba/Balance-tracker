@@ -276,6 +276,19 @@ export function resetAPICheck() {
   apiAvailable = null;
 }
 
+export async function deleteHousehold(pin) {
+  const res = await fetch(`${API_BASE}/api/auth/household`, {
+    method: "DELETE",
+    headers: authHeaders(),
+    body: JSON.stringify({ pin }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Eliminazione fallita");
+  }
+  return true;
+}
+
 // ─── Stock Positions ───
 export async function fetchPositions() {
   if (await checkAPI() && currentHousehold) {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer, deleteHousehold } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -308,7 +308,7 @@ function TabBar({ tab, setTab, householdId }) {
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
-  const tabs = [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]];
+  const tabs = [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3], { id: "impostazioni", label: "Account", icon: "⚙" }];
 
   const icons = {
     home: (active) => (
@@ -339,6 +339,12 @@ function TabBar({ tab, setTab, householdId }) {
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
         <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/>
+      </svg>
+    ),
+    impostazioni: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
       </svg>
     ),
   };
@@ -2025,12 +2031,13 @@ function LoginScreen({ onLogin }) {
 
   // Register state
   const [regNome, setRegNome] = useState("");
-  const [regPersone, setRegPersone] = useState(["", ""]);
+  const [regPersone, setRegPersone] = useState([{ nome: "", emoji: "😀" }, { nome: "", emoji: "😊" }]);
   const [regPin, setRegPin] = useState("");
   const [regPinConferma, setRegPinConferma] = useState("");
   const [regErrore, setRegErrore] = useState("");
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccesso, setRegSuccesso] = useState(false);
+  const [emojiPickerIdx, setEmojiPickerIdx] = useState(null); // which persona's picker is open
 
   const [loginFromCache, setLoginFromCache] = useState(false);
 
@@ -2069,14 +2076,14 @@ function LoginScreen({ onLogin }) {
 
   async function handleRegister() {
     setRegErrore("");
-    const personeValide = regPersone.map(p => p.trim()).filter(Boolean);
+    const personeValide = regPersone.filter(p => p.nome.trim());
     if (!regNome.trim()) return setRegErrore("Inserisci il nome del gruppo");
     if (personeValide.length === 0) return setRegErrore("Aggiungi almeno una persona");
     if (regPin.length < 4) return setRegErrore("Il PIN deve essere di almeno 4 cifre");
     if (regPin !== regPinConferma) return setRegErrore("I PIN non coincidono");
     setRegLoading(true);
     try {
-      await register({ nome: regNome.trim(), persone: personeValide, pin: regPin });
+      await register({ nome: regNome.trim(), persone: personeValide.map(p => ({ nome: p.nome.trim(), emoji: p.emoji })), pin: regPin });
       setRegSuccesso(true);
       setTimeout(() => onLogin(), 1200);
     } catch (err) {
@@ -2084,9 +2091,10 @@ function LoginScreen({ onLogin }) {
     } finally { setRegLoading(false); }
   }
 
-  function addPersona() { if (regPersone.length < 6) setRegPersone(p => [...p, ""]); }
-  function removePersona(i) { setRegPersone(p => p.filter((_, idx) => idx !== i)); }
-  function updatePersona(i, val) { setRegPersone(p => p.map((x, idx) => idx === i ? val : x)); }
+  function addPersona() { if (regPersone.length < 6) setRegPersone(p => [...p, { nome: "", emoji: "🙂" }]); }
+  function removePersona(i) { setRegPersone(p => p.filter((_, idx) => idx !== i)); setEmojiPickerIdx(null); }
+  function updatePersonaNome(i, val) { setRegPersone(p => p.map((x, idx) => idx === i ? { ...x, nome: val } : x)); }
+  function updatePersonaEmoji(i, emoji) { setRegPersone(p => p.map((x, idx) => idx === i ? { ...x, emoji } : x)); setEmojiPickerIdx(null); }
 
   const sBtn = { width: "100%", padding: "16px", border: "none", borderRadius: 16, fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginTop: 16, transition: "all 0.3s", cursor: "pointer" };
   const smallInput = { ...inputStyle, padding: "12px 14px", fontSize: 14, background: "#111119" };
@@ -2167,11 +2175,43 @@ function LoginScreen({ onLogin }) {
               <label style={labelStyle}>Persone</label>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {regPersone.map((p, i) => (
-                  <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <input type="text" value={p} onChange={e => updatePersona(i, e.target.value)}
-                      placeholder={`Persona ${i + 1}`} style={{ ...smallInput, flex: 1 }} />
-                    {regPersone.length > 1 && (
-                      <button onClick={() => removePersona(i)} style={{ background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", cursor: "pointer", padding: "8px 10px", fontSize: 14 }}>×</button>
+                  <div key={i}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {/* Emoji button */}
+                      <button
+                        onClick={() => setEmojiPickerIdx(emojiPickerIdx === i ? null : i)}
+                        style={{
+                          flexShrink: 0, width: 44, height: 44, border: "1px solid #252538",
+                          borderRadius: 10, background: emojiPickerIdx === i ? "#252538" : "#1a1a28",
+                          cursor: "pointer", fontSize: 22, display: "flex", alignItems: "center", justifyContent: "center",
+                          transition: "background 0.15s",
+                        }}
+                      >{p.emoji}</button>
+                      <input type="text" value={p.nome} onChange={e => updatePersonaNome(i, e.target.value)}
+                        placeholder={`Persona ${i + 1}`} style={{ ...smallInput, flex: 1 }} />
+                      {regPersone.length > 1 && (
+                        <button onClick={() => removePersona(i)} style={{ background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", cursor: "pointer", padding: "8px 10px", fontSize: 14, flexShrink: 0 }}>×</button>
+                      )}
+                    </div>
+                    {/* Emoji picker panel */}
+                    {emojiPickerIdx === i && (
+                      <div style={{
+                        marginTop: 6, padding: "10px 8px", background: "#1a1a28", borderRadius: 12,
+                        border: "1px solid #252538", display: "flex", flexWrap: "wrap", gap: 4,
+                      }}>
+                        {["😀","😊","😎","🥰","🤩","😄","😁","🥳","😇","🤓","😏","😌","🧐","🤗","😜",
+                          "👩","👨","🧑","👧","👦","👩‍💻","👨‍💻","👩‍🍳","👨‍🍳","👩‍🎨","👨‍🎨","👩‍🎤","👨‍🎤",
+                          "🐶","🐱","🐼","🦊","🐨","🐯","🦁","🐻","🐸","🐙","🦋","🌸","⭐","🔥","💎",
+                          "🚀","🎸","🎮","⚽","🏀","🎾","🏄","🧗","🎯","🎲","🏆","🎪"
+                        ].map(e => (
+                          <button key={e} onClick={() => updatePersonaEmoji(i, e)} style={{
+                            background: p.emoji === e ? "#6C5CE722" : "none",
+                            border: p.emoji === e ? "1px solid #6C5CE7" : "1px solid transparent",
+                            borderRadius: 8, cursor: "pointer", fontSize: 20, padding: "4px 6px",
+                            transition: "all 0.1s",
+                          }}>{e}</button>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -2205,6 +2245,131 @@ function LoginScreen({ onLogin }) {
               ...sBtn, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: regLoading ? 0.6 : 1,
             }}>{regLoading ? "Creazione..." : "Crea account"}</button>
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ImpostazioniView({ householdName, persone, onDeleted }) {
+  const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
+  const [pin, setPin] = useState("");
+  const [errore, setErrore] = useState("");
+
+  async function eseguiElimina() {
+    if (!pin) return;
+    setFase("deleting");
+    setErrore("");
+    try {
+      await deleteHousehold(pin);
+      setFase("done");
+      setTimeout(() => onDeleted(), 1500);
+    } catch (err) {
+      setErrore(err.message || "Errore durante l'eliminazione");
+      setFase("pin");
+    }
+  }
+
+  return (
+    <div style={{ padding: "20px 16px" }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 4 }}>Account</div>
+      <div style={{ fontSize: 13, color: "#888", marginBottom: 24 }}>Gestisci il tuo gruppo</div>
+
+      {/* Household info card */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Gruppo attivo</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#eee", marginBottom: 12 }}>{householdName}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {persone.map(p => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#252538", borderRadius: 20, padding: "6px 12px" }}>
+              <span style={{ fontSize: 18 }}>{p.emoji}</span>
+              <span style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{p.nome}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Delete section */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #2a1a1a" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#FF6B6B", marginBottom: 6 }}>Zona pericolosa</div>
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 16, lineHeight: 1.5 }}>
+          Elimina definitivamente l'account e tutte le transazioni. Questa azione non può essere annullata.
+        </div>
+
+        {fase === "idle" && (
+          <button onClick={() => setFase("confirm")} style={{
+            width: "100%", padding: "13px", border: "1px solid #FF6B6B33", borderRadius: 12,
+            background: "transparent", color: "#FF6B6B", fontFamily: "'DM Sans',sans-serif",
+            fontSize: 14, fontWeight: 700, cursor: "pointer",
+          }}>
+            Elimina account
+          </button>
+        )}
+
+        {fase === "confirm" && (
+          <div>
+            <div style={{ fontSize: 13, color: "#FFD93D", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>
+              ⚠️ Sicuro? Verranno eliminate tutte le transazioni e i dati del gruppo <strong style={{ color: "#eee" }}>{householdName}</strong>.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setFase("idle")} style={{
+                flex: 1, padding: "12px", border: "1px solid #252538", borderRadius: 12,
+                background: "transparent", color: "#888", fontFamily: "'DM Sans',sans-serif",
+                fontSize: 14, fontWeight: 600, cursor: "pointer",
+              }}>Annulla</button>
+              <button onClick={() => setFase("pin")} style={{
+                flex: 1, padding: "12px", border: "none", borderRadius: 12,
+                background: "#FF6B6B22", color: "#FF6B6B", fontFamily: "'DM Sans',sans-serif",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
+              }}>Continua</button>
+            </div>
+          </div>
+        )}
+
+        {(fase === "pin" || fase === "deleting") && (
+          <div>
+            <div style={{ fontSize: 13, color: "#aaa", marginBottom: 10, textAlign: "center" }}>
+              Inserisci il PIN per confermare l'eliminazione
+            </div>
+            <input
+              type="password" inputMode="numeric" maxLength={8}
+              value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setErrore(""); }}
+              onKeyDown={e => e.key === "Enter" && eseguiElimina()}
+              placeholder="••••"
+              autoFocus
+              style={{
+                ...inputStyle, fontSize: 28, fontWeight: 800,
+                fontFamily: "'Space Mono',monospace", textAlign: "center",
+                letterSpacing: 10, marginBottom: 10,
+                borderColor: errore ? "#FF6B6B" : "#252538",
+              }}
+            />
+            {errore && <div style={{ color: "#FF6B6B", fontSize: 12, textAlign: "center", marginBottom: 10 }}>{errore}</div>}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setFase("idle"); setPin(""); setErrore(""); }} style={{
+                flex: 1, padding: "12px", border: "1px solid #252538", borderRadius: 12,
+                background: "transparent", color: "#888", fontFamily: "'DM Sans',sans-serif",
+                fontSize: 14, fontWeight: 600, cursor: "pointer",
+              }}>Annulla</button>
+              <button onClick={eseguiElimina} disabled={pin.length < 4 || fase === "deleting"} style={{
+                flex: 1, padding: "12px", border: "none", borderRadius: 12,
+                background: pin.length >= 4 ? "#FF6B6B" : "#2a1a1a",
+                color: pin.length >= 4 ? "#fff" : "#555",
+                fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 700,
+                cursor: pin.length >= 4 ? "pointer" : "default",
+                opacity: fase === "deleting" ? 0.6 : 1,
+              }}>
+                {fase === "deleting" ? "Eliminazione..." : "Elimina"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {fase === "done" && (
+          <div style={{ textAlign: "center", padding: "10px 0" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🗑️</div>
+            <div style={{ color: "#4ECDC4", fontWeight: 700 }}>Account eliminato</div>
+          </div>
         )}
       </div>
     </div>
@@ -2302,6 +2467,13 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} onImport={aggiungiTransazione} />}
         {tab === "portfolio" && <PortfolioView />}
+        {tab === "impostazioni" && (
+          <ImpostazioniView
+            householdName={householdName}
+            persone={persone}
+            onDeleted={() => { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }}
+          />
+        )}
       </div>
       <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} />
     </div>

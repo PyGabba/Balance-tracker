@@ -86,12 +86,12 @@ app.post("/api/auth/register", async (req, res) => {
     const suffix = Math.random().toString(36).slice(2, 7);
     const householdId = `${slug}-${suffix}`;
 
-    const EMOJIS = ["👤", "👩", "👨", "🧑", "👧", "👦"];
+    const DEFAULT_EMOJIS = ["👤", "👩", "👨", "🧑", "👧", "👦"];
     const COLORS = ["#6C5CE7", "#E84393", "#0984E3", "#00B894", "#FD79A8", "#FDCB6E"];
     const personeFormatted = persone.map((p, i) => ({
       id: (typeof p === "string" ? p : p.nome).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ""),
       nome: typeof p === "string" ? p : p.nome,
-      emoji: EMOJIS[i % EMOJIS.length],
+      emoji: (typeof p === "object" && p.emoji) ? p.emoji : DEFAULT_EMOJIS[i % DEFAULT_EMOJIS.length],
       colore: COLORS[i % COLORS.length],
     }));
 
@@ -106,6 +106,30 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 app.get("/api/auth/households", (req, res) => res.json(HOUSEHOLDS.map(h => ({ id: h.id, nome: h.nome, persone: h.persone }))));
+
+// ─── DELETE household ───
+app.delete("/api/auth/household", requireHousehold, async (req, res) => {
+  try {
+    const { pin } = req.body || {};
+    if (!pin) return res.status(400).json({ error: "PIN obbligatorio per confermare" });
+
+    // Prevent deletion of static/hardcoded households
+    if (HOUSEHOLDS.find(h => h.id === req.householdId))
+      return res.status(403).json({ error: "Questo account non può essere eliminato" });
+
+    // Verify PIN matches
+    const household = await householdsCol.findOne({ householdId: req.householdId });
+    if (!household) return res.status(404).json({ error: "Account non trovato" });
+    if (household.pin !== pin) return res.status(401).json({ error: "PIN non corretto" });
+
+    // Delete all data for this household
+    await transactionsCol.deleteMany({ householdId: req.householdId });
+    await db.collection("positions").deleteMany({ householdId: req.householdId });
+    await householdsCol.deleteOne({ householdId: req.householdId });
+
+    res.json({ ok: true });
+  } catch (e) { console.error("Delete household error:", e); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
+});
 
 // ─── GET transactions ───
 app.get("/api/transactions", requireHousehold, async (req, res) => {
