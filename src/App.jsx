@@ -349,8 +349,9 @@ function TabBar({ tab, setTab, householdId }) {
       bottom: 0,
       left: 0,
       right: 0,
-      padding: "0 16px max(12px, env(safe-area-inset-bottom))",
+      padding: "0 8px env(safe-area-inset-bottom, 8px)",
       background: "transparent", // Entire container is transparent
+      flexShrink: 0,
       zIndex: 1000,               // Ensure it stays on top of content
       pointerEvents: "none",      // Allows clicks to pass through empty spaces
     }}>
@@ -361,9 +362,10 @@ function TabBar({ tab, setTab, householdId }) {
         background: "rgba(255, 255, 255, 0.02)", // Barely-there tint for the glass effect
         backdropFilter: "blur(25px) saturate(180%)", // High blur for visibility
         WebkitBackdropFilter: "blur(25px) saturate(180%)",
-        borderRadius: 28,
+        borderRadius: "20px 20px 0 0",
         padding: "8px 6px",
         border: "1px solid rgba(255, 255, 255, 0.08)", // Very subtle border to define the edge
+        borderBottom: "none",
         pointerEvents: "all",      // Buttons remain clickable
       }}>
         {tabs.map(t => {
@@ -380,9 +382,9 @@ function TabBar({ tab, setTab, householdId }) {
               }}
             >
               <div style={{
-                width: isAdd ? 42 : 32,
-                height: isAdd ? 42 : 32,
-                borderRadius: isAdd ? "50%" : 12,
+                width: isAdd ? 40 : 28,
+                height: isAdd ? 40 : 28,
+                borderRadius: isAdd ? "50%" : 8,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
@@ -392,7 +394,7 @@ function TabBar({ tab, setTab, householdId }) {
                 {icons[t.id]?.(isActive)}
               </div>
               <span style={{
-                fontSize: 10, fontFamily: "'DM Sans',sans-serif",
+                fontSize: 9, fontFamily: "'DM Sans',sans-serif",
                 fontWeight: isActive ? 600 : 400,
                 color: isActive ? "#a78bfa" : "#94a3b8",
                 letterSpacing: 0.2,
