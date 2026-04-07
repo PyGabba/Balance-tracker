@@ -365,9 +365,9 @@ function TabBar({ tab, setTab, householdId }) {
           background: "rgba(17, 17, 25, 0.85)",
           backdropFilter: "blur(25px) saturate(180%)",
           WebkitBackdropFilter: "blur(25px) saturate(180%)",
-          borderRadius: "20px 20px 0 0",
-          padding: "8px 0px",
-          paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
+          borderRadius: "16px 16px 0 0",
+          padding: "4px 0px",
+          paddingBottom: "calc(4px + env(safe-area-inset-bottom, 0px))",
           border: "1px solid rgba(255, 255, 255, 0.08)",
           borderBottom: "none",
           pointerEvents: "all",
@@ -382,13 +382,13 @@ function TabBar({ tab, setTab, householdId }) {
               style={{
                 background: "none", border: "none", cursor: "pointer",
                 display: "flex", flexDirection: "column", alignItems: "center",
-                gap: 4, padding: "4px 8px", flex: 1,
+                gap: 2, padding: "2px 8px", flex: 1,
               }}
             >
               <div style={{
-                width: isAdd ? 40 : 28,
-                height: isAdd ? 40 : 28,
-                borderRadius: isAdd ? "50%" : 8,
+                width: isAdd ? 34 : 24,
+                height: isAdd ? 34 : 24,
+                borderRadius: isAdd ? "50%" : 6,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
@@ -398,7 +398,7 @@ function TabBar({ tab, setTab, householdId }) {
                 {icons[t.id]?.(isActive)}
               </div>
               <span style={{
-                fontSize: 9, fontFamily: "'DM Sans',sans-serif",
+                fontSize: 8, fontFamily: "'DM Sans',sans-serif",
                 fontWeight: isActive ? 600 : 400,
                 color: isActive ? "#a78bfa" : "#94a3b8",
                 letterSpacing: 0.2,
@@ -2053,7 +2053,7 @@ export default function FinanzaApp() {
         <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
       )}
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
