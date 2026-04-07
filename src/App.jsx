@@ -300,7 +300,7 @@ function MonthBar({ meseOffset, setMeseOffset }) {
   );
 }
 
-// ─── Tab bar (Background Removed) ───
+// ─── Tab bar (Transparent Blur) ───
 function TabBar({ tab, setTab, householdId }) {
   const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
@@ -312,7 +312,7 @@ function TabBar({ tab, setTab, householdId }) {
 
   const icons = {
     home: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/>
         <path d="M9 21V12h6v9"/>
       </svg>
@@ -323,20 +323,20 @@ function TabBar({ tab, setTab, householdId }) {
       </svg>
     ),
     stats: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="12" width="4" height="9" rx="1"/>
         <rect x="10" y="7" width="4" height="14" rx="1"/>
         <rect x="17" y="3" width="4" height="18" rx="1"/>
       </svg>
     ),
     portfolio: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
         <polyline points="16 7 22 7 22 13"/>
       </svg>
     ),
     export: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
         <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/>
       </svg>
@@ -348,7 +348,7 @@ function TabBar({ tab, setTab, householdId }) {
       position: "sticky",
       bottom: 0,
       padding: "0 16px max(12px, env(safe-area-inset-bottom))",
-      background: "transparent", // Container remains transparent
+      background: "transparent",
       flexShrink: 0,
       pointerEvents: "none",
     }}>
@@ -356,13 +356,14 @@ function TabBar({ tab, setTab, householdId }) {
         display: "flex",
         justifyContent: "space-around",
         alignItems: "center",
-        background: "transparent", // REMOVED background color
-        backdropFilter: "none",     // REMOVED blur
-        WebkitBackdropFilter: "none",
+        // Semi-transparent background to allow the blur to show through
+        background: "rgba(255, 255, 255, 0.03)", 
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
         borderRadius: 24,
-        padding: "4px 6px",
-        border: "none",             // REMOVED border
-        boxShadow: "none",           // REMOVED shadow
+        padding: "8px 6px",
+        border: "none",
+        boxShadow: "none",
         pointerEvents: "all",
       }}>
         {tabs.map(t => {
@@ -375,26 +376,26 @@ function TabBar({ tab, setTab, householdId }) {
               style={{
                 background: "none", border: "none", cursor: "pointer",
                 display: "flex", flexDirection: "column", alignItems: "center",
-                gap: 2, padding: "3px 8px", flex: 1,
+                gap: 4, padding: "4px 8px", flex: 1,
               }}
             >
               <div style={{
-                width: isAdd ? 38 : 32,
-                height: isAdd ? 38 : 30,
-                borderRadius: isAdd ? "50%" : 10,
+                width: isAdd ? 42 : 32,
+                height: isAdd ? 42 : 32,
+                borderRadius: isAdd ? "50%" : 12,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                  : isActive ? "#6C5CE718" : "transparent",
-                boxShadow: isAdd ? "0 4px 14px #6C5CE766" : "none",
+                  : isActive ? "rgba(167, 139, 250, 0.1)" : "transparent",
+                boxShadow: isAdd ? "0 4px 15px rgba(108, 92, 231, 0.4)" : "none",
                 transition: "all 0.2s ease",
               }}>
                 {icons[t.id]?.(isActive)}
               </div>
               <span style={{
-                fontSize: 9, fontFamily: "'DM Sans',sans-serif",
-                fontWeight: isActive ? 700 : 400,
-                color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#888", // Brightened inactive color slightly for visibility
+                fontSize: 10, fontFamily: "'DM Sans',sans-serif",
+                fontWeight: isActive ? 600 : 400,
+                color: isActive ? "#a78bfa" : "#94a3b8",
                 letterSpacing: 0.2, transition: "color 0.2s",
               }}>
                 {t.label}
