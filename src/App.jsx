@@ -315,16 +315,17 @@ function TabBar({ tab, setTab, householdId }) {
     <div style={{
       display: "flex",
       justifyContent: "space-around",
-      background: "#0E0E16",            // darker background
-      borderTop: "1px solid #2A2A3E",
-      padding:  "5px 0 max(6px, env(safe-area-inset-bottom)) ",
+      alignItems: "center",
+      background: "#0E0E16",
+      borderTop: "1px solid #1e1e2e",
+      padding: "8px 8px max(10px, env(safe-area-inset-bottom))",
       position: "sticky",
       bottom: 0,
-      boxShadow: "0 -2px 12px rgba(0,0,0,0.4)",  // subtle top shadow
       flexShrink: 0,
     }}>
       {tabs.map(t => {
         const isActive = tab === t.id;
+        const isAdd = t.id === "aggiungi";
         return (
           <button
             key={t.id}
@@ -336,32 +337,62 @@ function TabBar({ tab, setTab, householdId }) {
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              gap: 1,
-              padding: 0,
-              borderRadius: 30,
-              transition: "all 0.2s ease",
-              color: isActive ? "#FFFFFF" : "#AAAAAA",   // brighter inactive
-              backgroundColor: isActive ? "rgba(108, 92, 231, 0.25)" : "transparent",
+              gap: 3,
+              padding: "0 4px",
+              flex: 1,
+              position: "relative",
             }}
           >
-            <span style={{
-              fontSize: t.id === "aggiungi" ? 28 : 22,
-              lineHeight: 1,
-              fontWeight: isActive ? 700 : 400,
-              textShadow: isActive ? "0 0 6px rgba(108,92,231,0.6)" : "none",
-              transition: "inherit",
+            {/* Icon container */}
+            <div style={{
+              width: isAdd ? 44 : 40,
+              height: isAdd ? 44 : 32,
+              borderRadius: isAdd ? 14 : 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: isAdd
+                ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
+                : isActive
+                  ? "#6C5CE722"
+                  : "transparent",
+              boxShadow: isAdd ? "0 4px 14px #6C5CE755" : "none",
+              transition: "all 0.2s ease",
+              marginBottom: isAdd ? -4 : 0,
             }}>
-              {t.icon}
-            </span>
+              <span style={{
+                fontSize: isAdd ? 24 : 18,
+                lineHeight: 1,
+                filter: isActive && !isAdd ? "drop-shadow(0 0 4px #6C5CE799)" : "none",
+                transition: "all 0.2s ease",
+              }}>
+                {t.icon}
+              </span>
+            </div>
+
+            {/* Label */}
             <span style={{
-              fontSize: 11,
+              fontSize: 10,
               fontFamily: "'DM Sans',sans-serif",
-              letterSpacing: 0.5,
               fontWeight: isActive ? 700 : 500,
-              color: isActive ? "#FFFFFF" : "#AAAAAA",
+              color: isAdd ? "#a78bfa" : isActive ? "#c4b5fd" : "#555",
+              letterSpacing: 0.3,
+              transition: "color 0.2s",
             }}>
               {t.label}
             </span>
+
+            {/* Active dot indicator */}
+            {isActive && !isAdd && (
+              <div style={{
+                position: "absolute",
+                bottom: -2,
+                width: 4,
+                height: 4,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #6C5CE7, #a855f7)",
+              }} />
+            )}
           </button>
         );
       })}
