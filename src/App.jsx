@@ -300,7 +300,7 @@ function MonthBar({ meseOffset, setMeseOffset }) {
   );
 }
 
-// ─── Tab bar ───
+// ─── Tab bar (Background Removed) ───
 function TabBar({ tab, setTab, householdId }) {
   const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
@@ -308,10 +308,8 @@ function TabBar({ tab, setTab, householdId }) {
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
-  // Portfolio available to all households
   const tabs = [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]];
 
-  // SVG icons matching the photo style — clean strokes, no emoji
   const icons = {
     home: (active) => (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -350,22 +348,21 @@ function TabBar({ tab, setTab, householdId }) {
       position: "sticky",
       bottom: 0,
       padding: "0 16px max(12px, env(safe-area-inset-bottom))",
-      background: "transparent",
+      background: "transparent", // Container remains transparent
       flexShrink: 0,
       pointerEvents: "none",
     }}>
-      {/* Floating pill */}
       <div style={{
         display: "flex",
         justifyContent: "space-around",
         alignItems: "center",
-        background: "#16161fee",
-        backdropFilter: "blur(16px)",
-        WebkitBackdropFilter: "blur(16px)",
+        background: "transparent", // REMOVED background color
+        backdropFilter: "none",     // REMOVED blur
+        WebkitBackdropFilter: "none",
         borderRadius: 24,
         padding: "4px 6px",
-        border: "1px solid #252538",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3)",
+        border: "none",             // REMOVED border
+        boxShadow: "none",           // REMOVED shadow
         pointerEvents: "all",
       }}>
         {tabs.map(t => {
@@ -397,7 +394,7 @@ function TabBar({ tab, setTab, householdId }) {
               <span style={{
                 fontSize: 9, fontFamily: "'DM Sans',sans-serif",
                 fontWeight: isActive ? 700 : 400,
-                color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#444",
+                color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#888", // Brightened inactive color slightly for visibility
                 letterSpacing: 0.2, transition: "color 0.2s",
               }}>
                 {t.label}
