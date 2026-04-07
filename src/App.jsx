@@ -346,10 +346,10 @@ function NavBar({ tab, setTab, householdId }) {
   };
 
   return (
-    <div style={{
+    <div className="tabbar-wrapper" style={{
       position: "sticky",
       bottom: 0,
-      padding: "0 16px 12px",
+      paddingTop: "0", paddingLeft: "16px", paddingRight: "16px",
       background: "transparent",
       flexShrink: 0,
       pointerEvents: "none",
