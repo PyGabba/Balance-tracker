@@ -1695,17 +1695,19 @@ const ALL_COLUMNS = [
   { id: "partecipanti", label: "Partecipanti e quote" },
 ];
 
-function ExportView({ transazioni, persone, onImport, onImportComplete }) {
+function ExportView({ transazioni, persone, positions, onImport, onImportComplete, onImportPosition, onImportPositionComplete }) {
   const oggi = new Date();
   const [meseDa, setMeseDa] = useState(`${oggi.getFullYear()}-${String(oggi.getMonth()+1).padStart(2,"0")}`);
   const [meseA, setMeseA] = useState(meseDa);
   const [colonne, setColonne] = useState(ALL_COLUMNS.map(c => c.id));
   const [ordinamento, setOrdinamento] = useState("data-asc");
   const [esportando, setEsportando] = useState(false);
+  const [includiPortfolio, setIncludiPortfolio] = useState(false);
 
   // Import state
   const [importando, setImportando] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
+  const [importPortfolioPreview, setImportPortfolioPreview] = useState(null);
   const [importFile, setImportFile] = useState(null);
 
   function toggleColonna(id) {
@@ -1718,11 +1720,15 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
   async function parseImportFile(file) {
     setImportando(true);
     setImportPreview(null);
+    setImportPortfolioPreview(null);
     try {
       const XLSX = await import("xlsx");
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(buffer, { type: "array" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
+
+      // ── Parse transactions (first non-Portfolio sheet) ──
+      const txSheetName = wb.SheetNames.find(n => n !== "Portfolio") || wb.SheetNames[0];
+      const ws = wb.Sheets[txSheetName];
       const rawRows = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
       const righe = [];
@@ -1750,15 +1756,9 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
         const persona = persone.find(p => p.nome.toLowerCase() === pagatoDaNome.toLowerCase());
         const pagatoDa = persona?.id || persone[0]?.id || "";
 
-        // Parse "Partecipanti" column — handles all formats from the export:
-        //   "Gabriele 50%, Laura 50%"  → full split
-        //   "Gabriele 50%"             → payer 50%, remaining 50% split among others
-        //   "Gabriele 100%"            → payer pays all, no debt
-        //   "Gabriele 70%"             → payer 70%, remaining 30% to others
         let splits = null;
         const partecipantiRaw = String(row["Partecipanti e quote"] || row["Partecipanti"] || "").trim();
         if (tipo === "uscita" && partecipantiRaw) {
-          // Parse whatever entries are present
           const parsed = partecipantiRaw.split(",").map(s => s.trim()).map(s => {
             const m = s.match(/^(.+?)\s+(\d+(?:\.\d+)?)%$/);
             if (!m) return null;
@@ -1772,9 +1772,7 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
             const assignedTotal = parsed.reduce((s, x) => s + x.quota, 0);
             const remaining = Math.round((100 - assignedTotal) * 100) / 100;
             const unassigned = persone.filter(p => !parsed.find(x => x.personaId === p.id));
-
             if (remaining > 0.5 && unassigned.length > 0) {
-              // Distribute remaining quota equally among unmentioned people
               const share = Math.floor(remaining / unassigned.length);
               let leftover = remaining - share * unassigned.length;
               unassigned.forEach((p, i) => {
@@ -1784,8 +1782,6 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
             splits = parsed;
           }
         }
-
-        // Fallback: equal split among all household members
         if (tipo === "uscita" && !splits) {
           splits = persone.map((p, i) => ({
             personaId: p.id,
@@ -1799,6 +1795,37 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
       });
 
       setImportPreview({ righe, errori });
+
+      // ── Parse Portfolio sheet (if present) ──
+      if (wb.SheetNames.includes("Portfolio")) {
+        const wsP = wb.Sheets["Portfolio"];
+        const rawP = XLSX.utils.sheet_to_json(wsP, { defval: "" });
+        const posizioni = [];
+        const erroriP = [];
+
+        rawP.forEach((row, i) => {
+          const num = i + 2;
+          const ticker = String(row["Ticker"] || "").trim().toUpperCase();
+          const nome = String(row["Nome"] || ticker).trim();
+          const tipoRaw = String(row["Tipo"] || "").toLowerCase().trim();
+          const tipo = tipoRaw === "vendita" ? "sell" : "buy";
+          const quantita = parseFloat(String(row["Quantità"] ?? row["Quantita"] ?? "").replace(",", "."));
+          const prezzoAcquisto = parseFloat(String(row["Prezzo (€)"] ?? row["Prezzo"] ?? "").replace(",", "."));
+          const dataAcquisto = String(row["Data"] || "").trim();
+          const note = String(row["Note"] || "").trim();
+
+          if (!ticker) { erroriP.push(`Riga ${num}: ticker mancante`); return; }
+          if (isNaN(quantita) || quantita <= 0) { erroriP.push(`Riga ${num}: quantità non valida`); return; }
+          if (isNaN(prezzoAcquisto) || prezzoAcquisto < 0) { erroriP.push(`Riga ${num}: prezzo non valido`); return; }
+
+          posizioni.push({ ticker, nome, tipo, quantita, prezzoAcquisto, dataAcquisto, note });
+        });
+
+        if (posizioni.length > 0 || erroriP.length > 0) {
+          setImportPortfolioPreview({ posizioni, errori: erroriP });
+        }
+      }
+
     } catch (err) {
       alert("Errore nel parsing del file: " + err.message);
     } finally {
@@ -1807,19 +1834,36 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
   }
 
   async function confermaImport() {
-    if (!importPreview?.righe?.length) return;
+    if (!importPreview?.righe?.length && !importPortfolioPreview?.posizioni?.length) return;
     setImportando(true);
-    let ok = 0, fail = 0;
-    for (const tx of importPreview.righe) {
-      try { await onImport(tx); ok++; }
-      catch { fail++; }
+    let okTx = 0, failTx = 0, okPos = 0, failPos = 0;
+
+    // Import transactions
+    for (const tx of (importPreview?.righe || [])) {
+      try { await onImport(tx); okTx++; }
+      catch { failTx++; }
     }
+    if (okTx > 0 && onImportComplete) await onImportComplete();
+
+    // Import portfolio positions
+    for (const pos of (importPortfolioPreview?.posizioni || [])) {
+      try { await onImportPosition(pos); okPos++; }
+      catch { failPos++; }
+    }
+    if (okPos > 0 && onImportPositionComplete) await onImportPositionComplete();
+
     setImportando(false);
     setImportPreview(null);
+    setImportPortfolioPreview(null);
     setImportFile(null);
-    // Reload all transactions from server so debts are recalculated correctly
-    if (onImportComplete) await onImportComplete();
-    alert(`Import completato: ${ok} transazioni importate${fail ? `, ${fail} errori` : ""}.`);
+
+    const parts = [];
+    if (okTx > 0) parts.push(`${okTx} transazioni`);
+    if (okPos > 0) parts.push(`${okPos} posizioni portfolio`);
+    const errParts = [];
+    if (failTx > 0) errParts.push(`${failTx} transazioni`);
+    if (failPos > 0) errParts.push(`${failPos} posizioni`);
+    alert(`Import completato: ${parts.join(" e ")} importate${errParts.length ? `, errori: ${errParts.join(", ")}` : ""}.`);
   }
 
   // Filter transactions by month range
@@ -1873,8 +1917,6 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
       });
 
       const ws = XLSX.utils.json_to_sheet(rows);
-
-      // Auto-width columns
       const colWidths = Object.keys(rows[0] || {}).map(key => ({
         wch: Math.max(key.length, ...rows.map(r => String(r[key] ?? "").length)) + 2,
       }));
@@ -1883,6 +1925,26 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
       const wb = XLSX.utils.book_new();
       const sheetName = meseDa === meseA ? meseDa : `${meseDa}_${meseA}`;
       XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+
+      // Optional portfolio sheet
+      if (includiPortfolio && positions && positions.length > 0) {
+        const pRows = positions.map(p => ({
+          "Ticker": p.ticker || "",
+          "Nome": p.nome || p.ticker || "",
+          "Tipo": p.tipo === "sell" ? "Vendita" : "Acquisto",
+          "Quantità": p.quantita,
+          "Prezzo (€)": p.prezzoAcquisto,
+          "Data": p.dataAcquisto || "",
+          "Note": p.note || "",
+        }));
+        const wsP = XLSX.utils.json_to_sheet(pRows);
+        const colWidthsP = Object.keys(pRows[0] || {}).map(key => ({
+          wch: Math.max(key.length, ...pRows.map(r => String(r[key] ?? "").length)) + 2,
+        }));
+        wsP["!cols"] = colWidthsP;
+        XLSX.utils.book_append_sheet(wb, wsP, "Portfolio");
+      }
+
       XLSX.writeFile(wb, `finanza_${sheetName}.xlsx`);
     } catch (err) {
       console.error("Export error:", err);
@@ -1973,10 +2035,36 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
                 background: "linear-gradient(135deg, #4ECDC4, #26a69a)",
                 color: "#fff", boxShadow: "0 4px 20px #4ECDC433",
               }}>
-                Importa {importPreview.righe.length} transazioni
+                Importa {(importPreview?.righe?.length || 0) + (importPortfolioPreview?.posizioni?.length || 0)} elementi
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Portfolio sheet preview */}
+      {importPortfolioPreview && !importando && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
+          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 8, fontSize: 14 }}>📈 Portfolio trovato</div>
+          <div style={{ fontSize: 13, color: "#4ECDC4", marginBottom: importPortfolioPreview.errori.length ? 8 : 0 }}>
+            ✓ {importPortfolioPreview.posizioni.length} posizioni valide
+          </div>
+          {importPortfolioPreview.errori.length > 0 && (
+            <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8, lineHeight: 1.6 }}>
+              {importPortfolioPreview.errori.map((e, i) => <div key={i}>⚠ {e}</div>)}
+            </div>
+          )}
+          <div style={{ borderTop: "1px solid #252538", marginTop: 6, paddingTop: 6 }}>
+            {importPortfolioPreview.posizioni.slice(0, 3).map((p, i) => (
+              <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontFamily: "'Space Mono',monospace", color: "#ccc" }}>{p.ticker}</span>
+                <span>{p.tipo === "sell" ? "Vendita" : "Acquisto"} {p.quantita} pz × €{p.prezzoAcquisto}</span>
+              </div>
+            ))}
+            {importPortfolioPreview.posizioni.length > 3 && (
+              <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ altre {importPortfolioPreview.posizioni.length - 3}...</div>
+            )}
+          </div>
         </div>
       )}
 
@@ -2054,6 +2142,23 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
           </div>
         </div>
       </div>
+
+      {/* Portfolio include toggle */}
+      {positions?.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px", background: "#1a1a28", borderRadius: 12, border: "1px solid #252538", cursor: "pointer" }}
+          onClick={() => setIncludiPortfolio(v => !v)}>
+          <div style={{
+            width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+            border: includiPortfolio ? "2px solid #6C5CE7" : "2px solid #333",
+            background: includiPortfolio ? "#6C5CE7" : "transparent",
+            display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s",
+          }}>{includiPortfolio && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1 }}>✓</span>}</div>
+          <div>
+            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>Includi portfolio</div>
+            <div style={{ fontSize: 11, color: "#555" }}>{positions.length} posizioni → sheet "Portfolio"</div>
+          </div>
+        </div>
+      )}
 
       {/* Export button */}
       <button onClick={esporta} disabled={ordinate.length === 0 || esportando} style={{
@@ -2482,6 +2587,7 @@ export default function FinanzaApp() {
   const [authed, setAuthed] = useState(isLoggedIn());
   const [tab, setTab] = useState("home");
   const [transazioni, setTransazioni] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
 
   // Warm up Render server on app open (fire and forget)
@@ -2502,13 +2608,21 @@ export default function FinanzaApp() {
     }
   }, []);
 
-  useEffect(() => { if (authed) loadAll(); }, [authed, loadAll]);
+  const loadPositions = useCallback(async () => {
+    try {
+      const data = await fetchPositions();
+      setPositions(data);
+    } catch (e) { console.error("loadPositions:", e); }
+  }, []);
+
+  useEffect(() => { if (authed) { loadAll(); loadPositions(); } }, [authed, loadAll, loadPositions]);
 
   function handleLogin() {
     setAuthed(true);
     loadAll();
+    loadPositions();
   }
-  function handleLogout() { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }
+  function handleLogout() { logout(); setAuthed(false); setTransazioni([]); setPositions([]); setTab("home"); }
 
   async function aggiungiTransazione(t) {
     try {
@@ -2522,6 +2636,12 @@ export default function FinanzaApp() {
   async function aggiungiTransazioneSilente(t) {
     const saved = await addTransaction(t);
     setTransazioni(prev => [...prev, saved]);
+    return saved;
+  }
+
+  async function aggiungiPositioneSilente(pos) {
+    const saved = await addPosition(pos);
+    setPositions(prev => [...prev, saved]);
     return saved;
   }
 
@@ -2573,7 +2693,7 @@ export default function FinanzaApp() {
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
-        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} />}
+        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
         {tab === "impostazioni" && (
           <ImpostazioniView
