@@ -300,8 +300,8 @@ function MonthBar({ meseOffset, setMeseOffset }) {
   );
 }
 
-// ─── Nav bar (top) ───
-function NavBar({ tab, setTab, householdId }) {
+// ─── Tab bar ───
+function TabBar({ tab, setTab, householdId }) {
   const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
@@ -346,10 +346,10 @@ function NavBar({ tab, setTab, householdId }) {
   };
 
   return (
-    <div className="tabbar-wrapper" style={{
+    <div style={{
       position: "sticky",
       bottom: 0,
-      paddingTop: "0", paddingLeft: "16px", paddingRight: "16px",
+      padding: "0 16px max(12px, env(safe-area-inset-bottom))",
       background: "transparent",
       flexShrink: 0,
       pointerEvents: "none",
@@ -360,12 +360,12 @@ function NavBar({ tab, setTab, householdId }) {
         justifyContent: "space-around",
         alignItems: "center",
         background: "#16161fee",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
         borderRadius: 24,
-        paddingTop: "4px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "4px",
+        padding: "4px 6px",
         border: "1px solid #252538",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3)",
         pointerEvents: "all",
       }}>
         {tabs.map(t => {
@@ -377,23 +377,31 @@ function NavBar({ tab, setTab, householdId }) {
               onClick={() => setTab(t.id)}
               style={{
                 background: "none", border: "none", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                padding: "2px", flex: 1,
+                display: "flex", flexDirection: "column", alignItems: "center",
+                gap: 2, padding: "3px 8px", flex: 1,
               }}
             >
               <div style={{
-                width: isAdd ? 36 : 34,
-                height: isAdd ? 36 : 34,
-                borderRadius: isAdd ? "50%" : 11,
+                width: isAdd ? 38 : 32,
+                height: isAdd ? 38 : 30,
+                borderRadius: isAdd ? "50%" : 10,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                  : isActive ? "#6C5CE71a" : "transparent",
-                boxShadow: isAdd ? "0 4px 12px #6C5CE766" : "none",
+                  : isActive ? "#6C5CE718" : "transparent",
+                boxShadow: isAdd ? "0 4px 14px #6C5CE766" : "none",
                 transition: "all 0.2s ease",
               }}>
                 {icons[t.id]?.(isActive)}
               </div>
+              <span style={{
+                fontSize: 9, fontFamily: "'DM Sans',sans-serif",
+                fontWeight: isActive ? 700 : 400,
+                color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#444",
+                letterSpacing: 0.2, transition: "color 0.2s",
+              }}>
+                {t.label}
+              </span>
             </button>
           );
         })}
@@ -2018,7 +2026,7 @@ export default function FinanzaApp() {
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Fixed header */}
-      <div style={{ paddingTop: "calc(18px + env(safe-area-inset-top, 0px))", paddingLeft: "16px", paddingRight: "16px", paddingBottom: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
