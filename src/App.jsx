@@ -1246,6 +1246,7 @@ function PortfolioView() {
   const [note, setNote] = useState("");
   const [adding, setAdding] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [sortPortfolio, setSortPortfolio] = useState("valore-desc");
 
   const quotes = quotesData.quotes || {};
 
@@ -1368,6 +1369,35 @@ function PortfolioView() {
   const totalPL = totalValore - totalInvestito;
   const totalPLPct = totalInvestito > 0 ? (totalPL / totalInvestito * 100) : 0;
 
+  // Sort holdings
+  const holdingsOrdinate = [...holdings].sort((a, b) => {
+    const qa = quotes[a.ticker]; const qb = quotes[b.ticker];
+    const ma = manualPrices[a.ticker]; const mb = manualPrices[b.ticker];
+    const pa = qa?.prezzo || ma || 0; const pb = qb?.prezzo || mb || 0;
+    const va = pa > 0 ? a.quantita * pa : a.costoTotale;
+    const vb = pb > 0 ? b.quantita * pb : b.costoTotale;
+    const pla = pa > 0 ? va - a.costoTotale : 0;
+    const plb = pb > 0 ? vb - b.costoTotale : 0;
+    const plpca = a.costoTotale > 0 && pa > 0 ? pla / a.costoTotale * 100 : 0;
+    const plpcb = b.costoTotale > 0 && pb > 0 ? plb / b.costoTotale * 100 : 0;
+    const dpca = qa?.cambioPct || 0; const dpcb = qb?.cambioPct || 0;
+    switch (sortPortfolio) {
+      case "valore-desc": return vb - va;
+      case "valore-asc":  return va - vb;
+      case "pl-desc":     return plb - pla;
+      case "pl-asc":      return pla - plb;
+      case "plpct-desc":  return plpcb - plpca;
+      case "plpct-asc":   return plpca - plpcb;
+      case "oggi-desc":   return dpcb - dpca;
+      case "oggi-asc":    return dpca - dpcb;
+      case "ticker-asc":  return a.ticker.localeCompare(b.ticker);
+      case "ticker-desc": return b.ticker.localeCompare(a.ticker);
+      case "investito-desc": return b.costoTotale - a.costoTotale;
+      case "investito-asc":  return a.costoTotale - b.costoTotale;
+      default: return 0;
+    }
+  });
+
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Caricamento portfolio...</div>;
 
   return (
@@ -1473,7 +1503,30 @@ function PortfolioView() {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {holdings.map(h => {
+          {/* Sort selector */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>Ordina per</span>
+            <select value={sortPortfolio} onChange={e => setSortPortfolio(e.target.value)} style={{
+              flex: 1, background: "#1a1a28", border: "1px solid #252538", borderRadius: 8,
+              color: "#aaa", fontSize: 12, padding: "6px 8px", fontFamily: "'DM Sans',sans-serif",
+              colorScheme: "dark", cursor: "pointer",
+            }}>
+              <option value="valore-desc">Valore ↓ (più alto)</option>
+              <option value="valore-asc">Valore ↑ (più basso)</option>
+              <option value="pl-desc">P&L € ↓ (migliore)</option>
+              <option value="pl-asc">P&L € ↑ (peggiore)</option>
+              <option value="plpct-desc">P&L % ↓ (migliore)</option>
+              <option value="plpct-asc">P&L % ↑ (peggiore)</option>
+              <option value="oggi-desc">Variazione oggi ↓</option>
+              <option value="oggi-asc">Variazione oggi ↑</option>
+              <option value="investito-desc">Investito ↓</option>
+              <option value="investito-asc">Investito ↑</option>
+              <option value="ticker-asc">Ticker A→Z</option>
+              <option value="ticker-desc">Ticker Z→A</option>
+            </select>
+          </div>
+
+          {holdingsOrdinate.map(h => {
             const q = quotes[h.ticker];
             const manuale = manualPrices[h.ticker];
             const isManuale = !q?.prezzo && manuale > 0;
