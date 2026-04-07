@@ -468,8 +468,8 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                   });
                 }} style={{
                   width: "100%", padding: "10px", border: "none", borderRadius: 10, cursor: "pointer",
-                  background: "linear-gradient(135deg, #4ECDC4, #3ab8b0)", color: "#fff",
-                  fontSize: 12, fontWeight: 700, boxShadow: "0 2px 10px #4ECDC433",
+                  background: "#1e2a2a", color: "#4ECDC4", border: "1px solid #4ECDC433",
+                  fontSize: 12, fontWeight: 600,
                 }}>
                   Salda {pDa.nome} → {pA.nome} ({formattaValuta(d.importo)})
                 </button>
