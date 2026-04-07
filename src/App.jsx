@@ -349,7 +349,7 @@ function NavBar({ tab, setTab, householdId }) {
     <div style={{
       position: "sticky",
       bottom: 0,
-      padding: "0 16px 0",
+      padding: "0 16px 12px",
       background: "transparent",
       flexShrink: 0,
       pointerEvents: "none",
@@ -362,11 +362,10 @@ function NavBar({ tab, setTab, householdId }) {
         background: "#16161fee",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
-        borderRadius: "20px 20px 0 0",
-        paddingTop: "4px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "20px",
+        borderRadius: 24,
+        paddingTop: "4px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "4px",
         border: "1px solid #252538",
-        borderBottom: "none",
-        boxShadow: "0 -4px 24px rgba(0,0,0,0.4)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
         pointerEvents: "all",
       }}>
         {tabs.map(t => {
