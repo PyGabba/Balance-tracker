@@ -363,7 +363,7 @@ function TabBar({ tab, setTab, householdId }) {
         backdropFilter: "blur(25px) saturate(180%)", // High blur for visibility
         WebkitBackdropFilter: "blur(25px) saturate(180%)",
         borderRadius: "20px 20px 0 0",
-        padding: "8px 6px",
+        padding: "8px 0px",
         border: "1px solid rgba(255, 255, 255, 0.08)", // Very subtle border to define the edge
         borderBottom: "none",
         pointerEvents: "all",      // Buttons remain clickable
