@@ -300,8 +300,8 @@ function MonthBar({ meseOffset, setMeseOffset }) {
   );
 }
 
-// ─── Tab bar ───
-function TabBar({ tab, setTab, householdId }) {
+// ─── Nav bar (top) ───
+function NavBar({ tab, setTab, householdId }) {
   const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
@@ -349,7 +349,7 @@ function TabBar({ tab, setTab, householdId }) {
     <div style={{
       position: "sticky",
       bottom: 0,
-      padding: "0 16px max(12px, env(safe-area-inset-bottom))",
+      padding: "0 16px 0",
       background: "transparent",
       flexShrink: 0,
       pointerEvents: "none",
@@ -360,12 +360,13 @@ function TabBar({ tab, setTab, householdId }) {
         justifyContent: "space-around",
         alignItems: "center",
         background: "#16161fee",
-        backdropFilter: "blur(16px)",
-        WebkitBackdropFilter: "blur(16px)",
-        borderRadius: 24,
-        padding: "4px 6px",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        borderRadius: "20px 20px 0 0",
+        padding: "4px 4px env(safe-area-inset-bottom)",
         border: "1px solid #252538",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3)",
+        borderBottom: "none",
+        boxShadow: "0 -4px 24px rgba(0,0,0,0.4)",
         pointerEvents: "all",
       }}>
         {tabs.map(t => {
@@ -377,31 +378,23 @@ function TabBar({ tab, setTab, householdId }) {
               onClick={() => setTab(t.id)}
               style={{
                 background: "none", border: "none", cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center",
-                gap: 2, padding: "3px 8px", flex: 1,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: "2px", flex: 1,
               }}
             >
               <div style={{
-                width: isAdd ? 38 : 32,
-                height: isAdd ? 38 : 30,
-                borderRadius: isAdd ? "50%" : 10,
+                width: isAdd ? 36 : 34,
+                height: isAdd ? 36 : 34,
+                borderRadius: isAdd ? "50%" : 11,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                  : isActive ? "#6C5CE718" : "transparent",
-                boxShadow: isAdd ? "0 4px 14px #6C5CE766" : "none",
+                  : isActive ? "#6C5CE71a" : "transparent",
+                boxShadow: isAdd ? "0 4px 12px #6C5CE766" : "none",
                 transition: "all 0.2s ease",
               }}>
                 {icons[t.id]?.(isActive)}
               </div>
-              <span style={{
-                fontSize: 9, fontFamily: "'DM Sans',sans-serif",
-                fontWeight: isActive ? 700 : 400,
-                color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#444",
-                letterSpacing: 0.2, transition: "color 0.2s",
-              }}>
-                {t.label}
-              </span>
             </button>
           );
         })}
