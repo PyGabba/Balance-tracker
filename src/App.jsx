@@ -1696,7 +1696,53 @@ function ExportView({ transazioni, persone, onImport, onImportComplete }) {
         }
         const persona = persone.find(p => p.nome.toLowerCase() === pagatoDaNome.toLowerCase());
         const pagatoDa = persona?.id || persone[0]?.id || "";
-        righe.push({ data, tipo, importo, categoria, descrizione, pagatoDa });
+
+        // Parse "Partecipanti" column — handles all formats from the export:
+        //   "Gabriele 50%, Laura 50%"  → full split
+        //   "Gabriele 50%"             → payer 50%, remaining 50% split among others
+        //   "Gabriele 100%"            → payer pays all, no debt
+        //   "Gabriele 70%"             → payer 70%, remaining 30% to others
+        let splits = null;
+        const partecipantiRaw = String(row["Partecipanti e quote"] || row["Partecipanti"] || "").trim();
+        if (tipo === "uscita" && partecipantiRaw) {
+          // Parse whatever entries are present
+          const parsed = partecipantiRaw.split(",").map(s => s.trim()).map(s => {
+            const m = s.match(/^(.+?)\s+(\d+(?:\.\d+)?)%$/);
+            if (!m) return null;
+            const nome = m[1].trim();
+            const quota = parseFloat(m[2]);
+            const p = persone.find(x => x.nome.toLowerCase() === nome.toLowerCase());
+            return p ? { personaId: p.id, quota } : null;
+          }).filter(Boolean);
+
+          if (parsed.length > 0) {
+            const assignedTotal = parsed.reduce((s, x) => s + x.quota, 0);
+            const remaining = Math.round((100 - assignedTotal) * 100) / 100;
+            const unassigned = persone.filter(p => !parsed.find(x => x.personaId === p.id));
+
+            if (remaining > 0.5 && unassigned.length > 0) {
+              // Distribute remaining quota equally among unmentioned people
+              const share = Math.floor(remaining / unassigned.length);
+              let leftover = remaining - share * unassigned.length;
+              unassigned.forEach((p, i) => {
+                parsed.push({ personaId: p.id, quota: share + (i === 0 ? Math.round(leftover) : 0) });
+              });
+            }
+            splits = parsed;
+          }
+        }
+
+        // Fallback: equal split among all household members
+        if (tipo === "uscita" && !splits) {
+          splits = persone.map((p, i) => ({
+            personaId: p.id,
+            quota: i === persone.length - 1
+              ? 100 - Math.floor(100 / persone.length) * (persone.length - 1)
+              : Math.floor(100 / persone.length),
+          }));
+        }
+
+        righe.push({ data, tipo, importo, categoria, descrizione, pagatoDa, splits });
       });
 
       setImportPreview({ righe, errori });
