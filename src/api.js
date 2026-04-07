@@ -67,23 +67,6 @@ function lsSave(txs) {
   try { localStorage.setItem(lsKey(), JSON.stringify(txs)); } catch {}
 }
 
-function authHeaders() {
-  const h = { "Content-Type": "application/json" };
-  if (currentHousehold?.householdId) h["x-household-id"] = currentHousehold.householdId;
-  return h;
-}
-
-// ─── localStorage fallback (scoped by household) ───
-function lsKey() {
-  return `finanza-tx-${currentHousehold?.householdId || "default"}`;
-}
-function lsLoad() {
-  try { const raw = localStorage.getItem(lsKey()); return raw ? JSON.parse(raw) : []; } catch { return []; }
-}
-function lsSave(txs) {
-  try { localStorage.setItem(lsKey(), JSON.stringify(txs)); } catch {}
-}
-
 // ─── Auth ───
 
 // Fast login: tries server with 6s timeout. If server is slow/down but a
