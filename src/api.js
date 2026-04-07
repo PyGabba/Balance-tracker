@@ -17,18 +17,54 @@ function clearSession() {
   currentHousehold = null;
 }
 
-// ─── Init: restore session (only within same browser session) ───
-const saved = loadSession();
+// ─── Persistent session cache (survives tab close, for fast re-login) ───
+const LS_SESSION_KEY = "finanza-persistent-session";
+function savePersistentSession(data) {
+  try { localStorage.setItem(LS_SESSION_KEY, JSON.stringify(data)); } catch {}
+}
+function loadPersistentSession() {
+  try { const raw = localStorage.getItem(LS_SESSION_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+function clearPersistentSession() {
+  try { localStorage.removeItem(LS_SESSION_KEY); } catch {}
+}
+
+// ─── Init: restore session (sessionStorage first, then persistent) ───
+const saved = loadSession() || loadPersistentSession();
 if (saved) currentHousehold = saved;
 
-// ─── API check ───
+// ─── API check (non-blocking: returns cached result immediately if known) ───
 async function checkAPI() {
   if (apiAvailable !== null) return apiAvailable;
   try {
-    const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(4000) });
     apiAvailable = res.ok;
   } catch { apiAvailable = false; }
   return apiAvailable;
+}
+
+// ─── Background API wakeup: fire-and-forget ping to warm up Render ───
+export function wakeupServer() {
+  fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(30000) })
+    .then(r => { if (r.ok) apiAvailable = true; })
+    .catch(() => {});
+}
+
+function authHeaders() {
+  const h = { "Content-Type": "application/json" };
+  if (currentHousehold?.householdId) h["x-household-id"] = currentHousehold.householdId;
+  return h;
+}
+
+// ─── localStorage fallback (scoped by household) ───
+function lsKey() {
+  return `finanza-tx-${currentHousehold?.householdId || "default"}`;
+}
+function lsLoad() {
+  try { const raw = localStorage.getItem(lsKey()); return raw ? JSON.parse(raw) : []; } catch { return []; }
+}
+function lsSave(txs) {
+  try { localStorage.setItem(lsKey(), JSON.stringify(txs)); } catch {}
 }
 
 function authHeaders() {
@@ -49,21 +85,71 @@ function lsSave(txs) {
 }
 
 // ─── Auth ───
+
+// Fast login: tries server with 6s timeout. If server is slow/down but a
+// cached session with matching PIN hash exists, logs in immediately from cache
+// and syncs in background. This eliminates the 10-20s Render cold-start wait.
+const LS_PIN_HASH_KEY = "finanza-pin-hash";
+async function hashPin(pin) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function savePinHash(pin) {
+  hashPin(pin).then(h => { try { localStorage.setItem(LS_PIN_HASH_KEY, h); } catch {} });
+}
+async function checkPinMatchesCache(pin) {
+  try {
+    const stored = localStorage.getItem(LS_PIN_HASH_KEY);
+    if (!stored) return false;
+    return (await hashPin(pin)) === stored;
+  } catch { return false; }
+}
+
 export async function login(pin) {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Login fallito");
+  // Race: server login vs 6s timeout
+  let serverResult = null;
+  let serverError = null;
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (res.ok) {
+      serverResult = await res.json();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      serverError = new Error(err.error || "Login fallito");
+    }
+  } catch (err) {
+    // timeout or network error — will try cache below
+    serverError = err;
   }
-  const data = await res.json();
-  currentHousehold = data;
-  saveSession(data);
-  apiAvailable = true;
-  return data;
+
+  if (serverResult) {
+    // Full server login: save everything
+    currentHousehold = serverResult;
+    saveSession(serverResult);
+    savePersistentSession(serverResult);
+    savePinHash(pin);
+    apiAvailable = true;
+    return serverResult;
+  }
+
+  // Server failed or timed out: try cached session if PIN matches
+  const cached = loadPersistentSession();
+  if (cached && (await checkPinMatchesCache(pin))) {
+    currentHousehold = cached;
+    saveSession(cached);
+    apiAvailable = false; // mark as offline, will retry on next operation
+    // Background: keep trying to reach server to sync
+    wakeupServer();
+    return { ...cached, _fromCache: true };
+  }
+
+  // No cache or wrong PIN
+  throw serverError || new Error("Login fallito");
 }
 
 export async function register({ nome, persone, pin }) {
@@ -79,12 +165,16 @@ export async function register({ nome, persone, pin }) {
   const data = await res.json();
   currentHousehold = data;
   saveSession(data);
+  savePersistentSession(data);
+  savePinHash(pin);
   apiAvailable = true;
   return data;
 }
 
 export function logout() {
   clearSession();
+  clearPersistentSession();
+  try { localStorage.removeItem(LS_PIN_HASH_KEY); } catch {}
   apiAvailable = null;
 }
 
@@ -105,21 +195,40 @@ export function getHouseholdName() {
 }
 
 // ─── Transactions ───
-export async function fetchTransactions() {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/transactions`, { headers: authHeaders() });
-      if (res.status === 401) { clearSession(); throw new Error("Sessione scaduta"); }
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) {
-      if (err.message === "Sessione scaduta") throw err;
-      console.error("fetchTransactions:", err);
-      apiAvailable = false;
-      return lsLoad();
+
+// Returns localStorage data immediately (fast), then syncs from server in background.
+// Pass onSync callback to update UI when background sync completes.
+export async function fetchTransactions(onSync) {
+  const localData = lsLoad();
+
+  // If we know API is up (or unknown), try to sync in background
+  if (currentHousehold) {
+    const syncFromServer = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/transactions`, {
+          headers: authHeaders(),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (res.status === 401) { clearSession(); return; }
+        if (!res.ok) return;
+        const serverData = await res.json();
+        apiAvailable = true;
+        lsSave(serverData);
+        if (onSync) onSync(serverData);
+      } catch {
+        apiAvailable = false;
+      }
+    };
+
+    if (apiAvailable === false) {
+      // Known offline: just return local, no background attempt
+    } else {
+      // Unknown or online: sync in background without blocking
+      syncFromServer();
     }
   }
-  return lsLoad();
+
+  return localData;
 }
 
 export async function addTransaction(tx) {

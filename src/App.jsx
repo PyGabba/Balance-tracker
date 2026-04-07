@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes } from "./api.js";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -1636,7 +1636,7 @@ const ALL_COLUMNS = [
   { id: "partecipanti", label: "Partecipanti e quote" },
 ];
 
-function ExportView({ transazioni, persone }) {
+function ExportView({ transazioni, persone, onImport }) {
   const oggi = new Date();
   const [meseDa, setMeseDa] = useState(`${oggi.getFullYear()}-${String(oggi.getMonth()+1).padStart(2,"0")}`);
   const [meseA, setMeseA] = useState(meseDa);
@@ -1644,12 +1644,76 @@ function ExportView({ transazioni, persone }) {
   const [ordinamento, setOrdinamento] = useState("data-asc");
   const [esportando, setEsportando] = useState(false);
 
+  // Import state
+  const [importando, setImportando] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importFile, setImportFile] = useState(null);
+
   function toggleColonna(id) {
     setColonne(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   }
 
   function selezionaTutte() { setColonne(ALL_COLUMNS.map(c => c.id)); }
   function deselezionaTutte() { setColonne(["data", "importo"]); } // minimo
+
+  async function parseImportFile(file) {
+    setImportando(true);
+    setImportPreview(null);
+    try {
+      const XLSX = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+      const righe = [];
+      const errori = [];
+
+      rawRows.forEach((row, i) => {
+        const num = i + 2;
+        const data = String(row["Data"] || "").trim();
+        const tipoRaw = String(row["Tipo"] || "").toLowerCase().trim();
+        const importoRaw = row["Importo (€)"] ?? row["Importo"] ?? "";
+        const categoria = String(row["Categoria"] || "Altro").trim();
+        const descrizione = String(row["Descrizione"] || "").trim();
+        const pagatoDaNome = String(row["Pagato da"] || "").trim();
+
+        if (!data.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          errori.push(`Riga ${num}: data non valida ("${data}") — formato atteso YYYY-MM-DD`);
+          return;
+        }
+        const tipo = tipoRaw === "entrata" ? "entrata" : "uscita";
+        const importo = parseFloat(String(importoRaw).replace(",", "."));
+        if (isNaN(importo) || importo <= 0) {
+          errori.push(`Riga ${num}: importo non valido ("${importoRaw}")`);
+          return;
+        }
+        const persona = persone.find(p => p.nome.toLowerCase() === pagatoDaNome.toLowerCase());
+        const pagatoDa = persona?.id || persone[0]?.id || "";
+        righe.push({ data, tipo, importo, categoria, descrizione, pagatoDa });
+      });
+
+      setImportPreview({ righe, errori });
+    } catch (err) {
+      alert("Errore nel parsing del file: " + err.message);
+    } finally {
+      setImportando(false);
+    }
+  }
+
+  async function confermaImport() {
+    if (!importPreview?.righe?.length) return;
+    setImportando(true);
+    let ok = 0, fail = 0;
+    for (const tx of importPreview.righe) {
+      try { await onImport(tx); ok++; }
+      catch { fail++; }
+    }
+    setImportando(false);
+    setImportPreview(null);
+    setImportFile(null);
+    alert(`Import completato: ${ok} transazioni importate${fail ? `, ${fail} errori` : ""}.`);
+  }
 
   // Filter transactions by month range
   const filtrate = transazioni.filter(t => {
@@ -1741,6 +1805,77 @@ function ExportView({ transazioni, persone }) {
 
   return (
     <div style={{ padding: "20px 16px" }}>
+      {/* ─── IMPORT SECTION ─── */}
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>Importa dati</div>
+      <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+        Carica un file XLSX o CSV con lo stesso formato dell'export
+      </div>
+
+      <label style={{
+        display: "block", padding: "18px 16px", borderRadius: 16, cursor: "pointer",
+        border: "2px dashed #252538", background: "#1a1a28", textAlign: "center",
+        color: importFile ? "#ccc" : "#555", fontSize: 13, marginBottom: 12, transition: "all 0.2s",
+      }}>
+        <span style={{ fontSize: 22, display: "block", marginBottom: 6 }}>📂</span>
+        {importFile ? importFile.name : "Tocca per scegliere un file XLSX o CSV"}
+        <input type="file" accept=".xlsx,.csv" style={{ display: "none" }}
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) { setImportFile(f); parseImportFile(f); }
+            e.target.value = "";
+          }}
+        />
+      </label>
+
+      {importando && (
+        <div style={{ textAlign: "center", color: "#6C5CE7", marginBottom: 12, fontSize: 13, padding: "10px 0" }}>
+          Analisi in corso...
+        </div>
+      )}
+
+      {importPreview && !importando && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
+          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 10, fontSize: 14 }}>Anteprima import</div>
+          <div style={{ fontSize: 13, color: "#4ECDC4", marginBottom: importPreview.errori.length ? 8 : 0 }}>
+            ✓ {importPreview.righe.length} transazioni valide
+          </div>
+          {importPreview.errori.length > 0 && (
+            <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8, lineHeight: 1.6 }}>
+              {importPreview.errori.map((e, i) => <div key={i}>⚠ {e}</div>)}
+            </div>
+          )}
+          {importPreview.righe.length > 0 && (
+            <>
+              <div style={{ borderTop: "1px solid #252538", marginTop: 8, paddingTop: 8 }}>
+                {importPreview.righe.slice(0, 3).map((r, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
+                    <span>{r.data} · {r.categoria}</span>
+                    <span style={{ color: r.tipo === "uscita" ? "#FF6B6B" : "#4ECDC4", fontFamily: "'Space Mono',monospace" }}>
+                      {r.tipo === "uscita" ? "-" : "+"}€{r.importo.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+                {importPreview.righe.length > 3 && (
+                  <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ altre {importPreview.righe.length - 3} righe...</div>
+                )}
+              </div>
+              <button onClick={confermaImport} disabled={importando} style={{
+                marginTop: 14, width: "100%", padding: "14px", border: "none",
+                borderRadius: 14, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                fontSize: 15, fontWeight: 700,
+                background: "linear-gradient(135deg, #4ECDC4, #26a69a)",
+                color: "#fff", boxShadow: "0 4px 20px #4ECDC433",
+              }}>
+                Importa {importPreview.righe.length} transazioni
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      <div style={{ borderTop: "1px solid #1e1e2e", margin: "24px 0" }} />
+
+      {/* ─── EXPORT SECTION ─── */}
       <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>Esporta dati</div>
       <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>Scarica le transazioni come file Excel</div>
 
@@ -1830,13 +1965,63 @@ function ExportView({ transazioni, persone }) {
 }
 
 // ─── Login Screen ───
+function PinDots({ value, maxLen, shake }) {
+  return (
+    <div style={{ display: "flex", gap: 14, justifyContent: "center", margin: "24px 0 20px",
+      animation: shake ? "pinShake 0.4s ease" : "none" }}>
+      {Array.from({ length: maxLen }).map((_, i) => (
+        <div key={i} style={{
+          width: 14, height: 14, borderRadius: "50%",
+          background: i < value.length ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+          border: i < value.length ? "none" : "2px solid #333",
+          transition: "background 0.15s, transform 0.15s",
+          transform: i === value.length - 1 ? "scale(1.25)" : "scale(1)",
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function NumPad({ onDigit, onDelete, disabled }) {
+  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+  const btnBase = {
+    border: "none", borderRadius: 18, fontFamily: "'DM Sans',sans-serif",
+    fontSize: 24, fontWeight: 700, cursor: "pointer", transition: "all 0.12s",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    height: 68, userSelect: "none", WebkitUserSelect: "none",
+  };
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, width: "100%", maxWidth: 280, margin: "0 auto" }}>
+      {keys.map((k, i) => {
+        if (k === "") return <div key={i} />;
+        const isDel = k === "⌫";
+        return (
+          <button key={i}
+            onPointerDown={e => { e.preventDefault(); if (disabled) return; isDel ? onDelete() : onDigit(k); }}
+            style={{
+              ...btnBase,
+              background: isDel ? "transparent" : "#1a1a28",
+              color: isDel ? "#888" : "#eee",
+              border: isDel ? "none" : "1px solid #252538",
+              fontSize: isDel ? 20 : 24,
+              opacity: disabled ? 0.4 : 1,
+            }}
+          >{k}</button>
+        );
+      })}
+    </div>
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const [mode, setMode] = useState("login"); // "login" | "register"
 
-  // Login state
+  // Login state — numpad
   const [pin, setPin] = useState("");
   const [loginErrore, setLoginErrore] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [pinShake, setPinShake] = useState(false);
+  const PIN_LEN = 4; // assumed fixed length for auto-submit; if user has longer PIN they can use backspace
 
   // Register state
   const [regNome, setRegNome] = useState("");
@@ -1847,12 +2032,39 @@ function LoginScreen({ onLogin }) {
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccesso, setRegSuccesso] = useState(false);
 
-  async function handleLogin() {
-    if (pin.length < 4) return;
-    setLoginLoading(true); setLoginErrore("");
-    try { await login(pin); onLogin(); }
-    catch (err) { setLoginErrore(err.message || "PIN non valido"); }
+  const [loginFromCache, setLoginFromCache] = useState(false);
+
+  // Auto-submit when PIN reaches PIN_LEN digits
+  const submitRef = useRef(null);
+  submitRef.current = async (p) => {
+    setLoginLoading(true); setLoginErrore(""); setLoginFromCache(false);
+    try {
+      const result = await login(p);
+      if (result._fromCache) setLoginFromCache(true);
+      onLogin();
+    }
+    catch (err) {
+      setLoginErrore(err.message || "PIN non valido");
+      setPinShake(true);
+      setTimeout(() => { setPinShake(false); setPin(""); }, 450);
+    }
     finally { setLoginLoading(false); }
+  };
+
+  useEffect(() => {
+    if (pin.length === PIN_LEN && !loginLoading) {
+      submitRef.current(pin);
+    }
+  }, [pin]);
+
+  function onDigit(d) {
+    if (loginLoading) return;
+    setPin(p => p.length < 8 ? p + d : p);
+    setLoginErrore("");
+  }
+  function onDelete() {
+    setPin(p => p.slice(0, -1));
+    setLoginErrore("");
   }
 
   async function handleRegister() {
@@ -1881,6 +2093,16 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <style>{`
+        @keyframes pinShake {
+          0%,100% { transform: translateX(0); }
+          20% { transform: translateX(-8px); }
+          40% { transform: translateX(8px); }
+          60% { transform: translateX(-6px); }
+          80% { transform: translateX(6px); }
+        }
+      `}</style>
+
       <div style={{ fontSize: 36, fontWeight: 800, marginBottom: 4 }}>
         <span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span>
       </div>
@@ -1889,7 +2111,7 @@ function LoginScreen({ onLogin }) {
       {/* Mode toggle */}
       <div style={{ display: "flex", background: "#1a1a28", borderRadius: 12, padding: 4, marginBottom: 28, width: "100%", maxWidth: 300 }}>
         {[["login", "Accedi"], ["register", "Crea account"]].map(([m, label]) => (
-          <button key={m} onClick={() => { setMode(m); setLoginErrore(""); setRegErrore(""); }} style={{
+          <button key={m} onClick={() => { setMode(m); setLoginErrore(""); setRegErrore(""); setPin(""); }} style={{
             flex: 1, padding: "10px", border: "none", borderRadius: 9, cursor: "pointer",
             fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
             background: mode === m ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "transparent",
@@ -1902,19 +2124,30 @@ function LoginScreen({ onLogin }) {
 
         {mode === "login" ? (
           <>
-            <label style={{ ...labelStyle, textAlign: "center", display: "block" }}>Inserisci il PIN</label>
-            <input
-              type="password" inputMode="numeric" maxLength={8} value={pin} autoFocus
-              onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setLoginErrore(""); }}
-              onKeyDown={e => e.key === "Enter" && handleLogin()}
-              placeholder="••••"
-              style={{ ...inputStyle, fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", letterSpacing: 12 }}
-            />
-            {loginErrore && <div style={{ marginTop: 12, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{loginErrore}</div>}
-            <button onClick={handleLogin} disabled={loginLoading || pin.length < 4} style={{
-              ...sBtn, background: pin.length >= 4 ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
-              color: pin.length >= 4 ? "#fff" : "#666", cursor: pin.length >= 4 ? "pointer" : "default", opacity: loginLoading ? 0.6 : 1,
-            }}>{loginLoading ? "Accesso..." : "Accedi"}</button>
+            <div style={{ textAlign: "center", color: "#888", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>
+              {loginLoading ? "Accesso in corso..." : "Inserisci il PIN"}
+            </div>
+
+            <PinDots value={pin} maxLen={PIN_LEN} shake={pinShake} />
+
+            {loginErrore && (
+              <div style={{ textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+                {loginErrore}
+              </div>
+            )}
+
+            <NumPad onDigit={onDigit} onDelete={onDelete} disabled={loginLoading} />
+
+            {/* Fallback: se il PIN è più lungo di 4 cifre, mostra il tasto Accedi */}
+            {pin.length > PIN_LEN && (
+              <button
+                onClick={() => submitRef.current(pin)}
+                disabled={loginLoading}
+                style={{ ...sBtn, marginTop: 20, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: loginLoading ? 0.6 : 1 }}
+              >
+                {loginLoading ? "Accesso..." : "Accedi"}
+              </button>
+            )}
           </>
         ) : regSuccesso ? (
           <div style={{ textAlign: "center", padding: 20 }}>
@@ -1983,27 +2216,32 @@ export default function FinanzaApp() {
   const [authed, setAuthed] = useState(isLoggedIn());
   const [tab, setTab] = useState("home");
   const [transazioni, setTransazioni] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [meseOffset, setMeseOffset] = useState(0);
+
+  // Warm up Render server on app open (fire and forget)
+  useEffect(() => { wakeupServer(); }, []);
 
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();
 
   const loadAll = useCallback(async () => {
     try {
-      const data = await fetchTransactions();
-      setTransazioni(data);
+      const localData = await fetchTransactions((serverData) => {
+        setTransazioni(serverData);
+      });
+      setTransazioni(localData);
     } catch (err) {
       if (err.message === "Sessione scaduta") { setAuthed(false); return; }
       console.error("Load error:", err);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  useEffect(() => { if (authed) loadAll(); else setLoading(false); }, [authed, loadAll]);
+  useEffect(() => { if (authed) loadAll(); }, [authed, loadAll]);
 
-  function handleLogin() { setAuthed(true); setLoading(true); loadAll(); }
+  function handleLogin() {
+    setAuthed(true);
+    loadAll();
+  }
   function handleLogout() { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }
 
   async function aggiungiTransazione(t) {
@@ -2029,7 +2267,6 @@ export default function FinanzaApp() {
   }
 
   if (!authed) return <LoginScreen onLogin={handleLogin} />;
-  if (loading) return <div style={{ minHeight: "100vh", background: "#111119", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: "#6C5CE7", fontSize: 18 }}>Caricamento...</div></div>;
 
   const showMonthBar = tab === "home" || tab === "stats";
 
@@ -2063,7 +2300,7 @@ export default function FinanzaApp() {
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
-        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} />}
+        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} onImport={aggiungiTransazione} />}
         {tab === "portfolio" && <PortfolioView />}
       </div>
       <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} />
