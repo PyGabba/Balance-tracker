@@ -349,7 +349,7 @@ function TabBar({ tab, setTab, householdId }) {
       bottom: 0,
       left: 0,
       right: 0,
-      background: "transparent",
+      background: "#111119",
       flexShrink: 0,
       zIndex: 1000,
       pointerEvents: "none",
@@ -362,12 +362,11 @@ function TabBar({ tab, setTab, householdId }) {
           display: "flex",
           justifyContent: "space-around",
           alignItems: "center",
-          background: "rgba(17, 17, 25, 0.85)",
+          background: "rgba(17, 17, 25, 0.92)",
           backdropFilter: "blur(25px) saturate(180%)",
           WebkitBackdropFilter: "blur(25px) saturate(180%)",
           borderRadius: "16px 16px 0 0",
-          padding: "4px 0px",
-          paddingBottom: "calc(4px + env(safe-area-inset-bottom, 0px))",
+          padding: "4px 0px 4px",
           border: "1px solid rgba(255, 255, 255, 0.08)",
           borderBottom: "none",
           pointerEvents: "all",
@@ -409,6 +408,12 @@ function TabBar({ tab, setTab, householdId }) {
           );
         })}
         </div>
+        {/* Safe area spacer - solid background covers the home indicator area */}
+        <div style={{
+          height: "env(safe-area-inset-bottom, 0px)",
+          background: "#111119",
+          pointerEvents: "all",
+        }} />
       </div>
     </div>
   );
