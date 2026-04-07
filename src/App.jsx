@@ -300,7 +300,7 @@ function MonthBar({ meseOffset, setMeseOffset }) {
   );
 }
 
-// ─── Tab bar (Transparent Blur) ───
+// ─── Floating Glass Tab Bar ───
 function TabBar({ tab, setTab, householdId }) {
   const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
@@ -345,26 +345,26 @@ function TabBar({ tab, setTab, householdId }) {
 
   return (
     <div style={{
-      position: "sticky",
+      position: "fixed", // Changed to fixed so it floats OVER the scrollable area
       bottom: 0,
+      left: 0,
+      right: 0,
       padding: "0 16px max(12px, env(safe-area-inset-bottom))",
-      background: "transparent",
-      flexShrink: 0,
-      pointerEvents: "none",
+      background: "transparent", // Entire container is transparent
+      zIndex: 1000,               // Ensure it stays on top of content
+      pointerEvents: "none",      // Allows clicks to pass through empty spaces
     }}>
       <div style={{
         display: "flex",
         justifyContent: "space-around",
         alignItems: "center",
-        // Semi-transparent background to allow the blur to show through
-        background: "rgba(255, 255, 255, 0.03)", 
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderRadius: 24,
+        background: "rgba(255, 255, 255, 0.02)", // Barely-there tint for the glass effect
+        backdropFilter: "blur(25px) saturate(180%)", // High blur for visibility
+        WebkitBackdropFilter: "blur(25px) saturate(180%)",
+        borderRadius: 28,
         padding: "8px 6px",
-        border: "none",
-        boxShadow: "none",
-        pointerEvents: "all",
+        border: "1px solid rgba(255, 255, 255, 0.08)", // Very subtle border to define the edge
+        pointerEvents: "all",      // Buttons remain clickable
       }}>
         {tabs.map(t => {
           const isActive = tab === t.id;
@@ -386,8 +386,7 @@ function TabBar({ tab, setTab, householdId }) {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                  : isActive ? "rgba(167, 139, 250, 0.1)" : "transparent",
-                boxShadow: isAdd ? "0 4px 15px rgba(108, 92, 231, 0.4)" : "none",
+                  : isActive ? "rgba(167, 139, 250, 0.15)" : "transparent",
                 transition: "all 0.2s ease",
               }}>
                 {icons[t.id]?.(isActive)}
@@ -396,7 +395,7 @@ function TabBar({ tab, setTab, householdId }) {
                 fontSize: 10, fontFamily: "'DM Sans',sans-serif",
                 fontWeight: isActive ? 600 : 400,
                 color: isActive ? "#a78bfa" : "#94a3b8",
-                letterSpacing: 0.2, transition: "color 0.2s",
+                letterSpacing: 0.2,
               }}>
                 {t.label}
               </span>
