@@ -363,7 +363,7 @@ function NavBar({ tab, setTab, householdId }) {
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         borderRadius: "20px 20px 0 0",
-        paddingTop: "4px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "env(safe-area-inset-bottom)",
+        paddingTop: "4px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "20px",
         border: "1px solid #252538",
         borderBottom: "none",
         boxShadow: "0 -4px 24px rgba(0,0,0,0.4)",
@@ -2019,7 +2019,7 @@ export default function FinanzaApp() {
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Fixed header */}
-      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
+      <div style={{ paddingTop: "calc(18px + env(safe-area-inset-top, 0px))", paddingLeft: "16px", paddingRight: "16px", paddingBottom: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
