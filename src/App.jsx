@@ -311,91 +311,97 @@ function TabBar({ tab, setTab, householdId }) {
   // Portfolio available to all households
   const tabs = [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3]];
 
+  // SVG icons matching the photo style — clean strokes, no emoji
+  const icons = {
+    home: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/>
+        <path d="M9 21V12h6v9"/>
+      </svg>
+    ),
+    aggiungi: () => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    ),
+    stats: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="12" width="4" height="9" rx="1"/>
+        <rect x="10" y="7" width="4" height="14" rx="1"/>
+        <rect x="17" y="3" width="4" height="18" rx="1"/>
+      </svg>
+    ),
+    portfolio: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+        <polyline points="16 7 22 7 22 13"/>
+      </svg>
+    ),
+    export: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#555"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+        <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/>
+      </svg>
+    ),
+  };
+
   return (
     <div style={{
-      display: "flex",
-      justifyContent: "space-around",
-      alignItems: "center",
-      background: "#0E0E16",
-      borderTop: "1px solid #1e1e2e",
-      padding: "8px 8px max(10px, env(safe-area-inset-bottom))",
       position: "sticky",
       bottom: 0,
+      padding: "10px 16px max(16px, env(safe-area-inset-bottom))",
+      background: "#0E0E16",
       flexShrink: 0,
     }}>
-      {tabs.map(t => {
-        const isActive = tab === t.id;
-        const isAdd = t.id === "aggiungi";
-        return (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              padding: "0 4px",
-              flex: 1,
-              position: "relative",
-            }}
-          >
-            {/* Icon container */}
-            <div style={{
-              width: isAdd ? 44 : 40,
-              height: isAdd ? 44 : 32,
-              borderRadius: isAdd ? 14 : 10,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: isAdd
-                ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                : isActive
-                  ? "#6C5CE722"
-                  : "transparent",
-              boxShadow: isAdd ? "0 4px 14px #6C5CE755" : "none",
-              transition: "all 0.2s ease",
-              marginBottom: isAdd ? -4 : 0,
-            }}>
-              <span style={{
-                fontSize: isAdd ? 24 : 18,
-                lineHeight: 1,
-                filter: isActive && !isAdd ? "drop-shadow(0 0 4px #6C5CE799)" : "none",
+      {/* Floating pill */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-around",
+        alignItems: "center",
+        background: "#16161f",
+        borderRadius: 28,
+        padding: "6px 8px",
+        border: "1px solid #252538",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+      }}>
+        {tabs.map(t => {
+          const isActive = tab === t.id;
+          const isAdd = t.id === "aggiungi";
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center",
+                gap: 4, padding: "4px 10px", flex: 1,
+              }}
+            >
+              <div style={{
+                width: isAdd ? 46 : 38,
+                height: isAdd ? 46 : 38,
+                borderRadius: isAdd ? "50%" : 12,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: isAdd
+                  ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
+                  : isActive ? "#6C5CE718" : "transparent",
+                boxShadow: isAdd ? "0 4px 16px #6C5CE766" : "none",
                 transition: "all 0.2s ease",
               }}>
-                {t.icon}
+                {icons[t.id]?.(isActive)}
+              </div>
+              <span style={{
+                fontSize: 10, fontFamily: "'DM Sans',sans-serif",
+                fontWeight: isActive ? 700 : 400,
+                color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#444",
+                letterSpacing: 0.2, transition: "color 0.2s",
+              }}>
+                {t.label}
               </span>
-            </div>
-
-            {/* Label */}
-            <span style={{
-              fontSize: 10,
-              fontFamily: "'DM Sans',sans-serif",
-              fontWeight: isActive ? 700 : 500,
-              color: isAdd ? "#a78bfa" : isActive ? "#c4b5fd" : "#555",
-              letterSpacing: 0.3,
-              transition: "color 0.2s",
-            }}>
-              {t.label}
-            </span>
-
-            {/* Active dot indicator */}
-            {isActive && !isAdd && (
-              <div style={{
-                position: "absolute",
-                bottom: -2,
-                width: 4,
-                height: 4,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #6C5CE7, #a855f7)",
-              }} />
-            )}
-          </button>
-        );
-      })}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
