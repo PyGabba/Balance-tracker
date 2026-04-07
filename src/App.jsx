@@ -349,20 +349,24 @@ function TabBar({ tab, setTab, householdId }) {
     <div style={{
       position: "sticky",
       bottom: 0,
-      padding: "10px 16px max(16px, env(safe-area-inset-bottom))",
-      background: "#0E0E16",
+      padding: "0 16px max(12px, env(safe-area-inset-bottom))",
+      background: "transparent",
       flexShrink: 0,
+      pointerEvents: "none",
     }}>
       {/* Floating pill */}
       <div style={{
         display: "flex",
         justifyContent: "space-around",
         alignItems: "center",
-        background: "#16161f",
-        borderRadius: 28,
-        padding: "6px 8px",
+        background: "#16161fee",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        borderRadius: 24,
+        padding: "4px 6px",
         border: "1px solid #252538",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3)",
+        pointerEvents: "all",
       }}>
         {tabs.map(t => {
           const isActive = tab === t.id;
@@ -374,24 +378,24 @@ function TabBar({ tab, setTab, householdId }) {
               style={{
                 background: "none", border: "none", cursor: "pointer",
                 display: "flex", flexDirection: "column", alignItems: "center",
-                gap: 4, padding: "4px 10px", flex: 1,
+                gap: 2, padding: "3px 8px", flex: 1,
               }}
             >
               <div style={{
-                width: isAdd ? 46 : 38,
-                height: isAdd ? 46 : 38,
-                borderRadius: isAdd ? "50%" : 12,
+                width: isAdd ? 38 : 32,
+                height: isAdd ? 38 : 30,
+                borderRadius: isAdd ? "50%" : 10,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
                   : isActive ? "#6C5CE718" : "transparent",
-                boxShadow: isAdd ? "0 4px 16px #6C5CE766" : "none",
+                boxShadow: isAdd ? "0 4px 14px #6C5CE766" : "none",
                 transition: "all 0.2s ease",
               }}>
                 {icons[t.id]?.(isActive)}
               </div>
               <span style={{
-                fontSize: 10, fontFamily: "'DM Sans',sans-serif",
+                fontSize: 9, fontFamily: "'DM Sans',sans-serif",
                 fontWeight: isActive ? 700 : 400,
                 color: isAdd ? "#a78bfa" : isActive ? "#a78bfa" : "#444",
                 letterSpacing: 0.2, transition: "color 0.2s",
