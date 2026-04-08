@@ -371,7 +371,7 @@ function TabBar({ tab, setTab, householdId }) {
         backdropFilter: "blur(25px) saturate(180%)",
         WebkitBackdropFilter: "blur(25px) saturate(180%)",
         borderRadius: "16px 16px 0 0",
-        padding: "8px 12px 6px",
+        padding: "1px 10px 2px",
         border: "1px solid rgba(255, 255, 255, 0.08)",
         borderBottom: "none",
         pointerEvents: "all",
