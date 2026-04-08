@@ -351,100 +351,94 @@ function TabBar({ tab, setTab, householdId }) {
 
   return (
     <div style={{
-      position: "fixed",
+      position: "absolute",
       bottom: 0,
-      left: "50%",
-      transform: "translateX(-50%)",
+      left: 0,
+      right: 0,
       width: "100%",
-      maxWidth: 480,
-      background: "#fff",
-      borderTop: "1px solid #e8ddd0",
+      background: "#111119",
       display: "flex",
+      flexDirection: "column",
       zIndex: 100,
       flexShrink: 0,
       pointerEvents: "none",
     }}>
       <div style={{
-        width: "100%",
-        margin: "0 auto",
+        display: "flex",
+        justifyContent: "space-around",
+        alignItems: "center",
+        background: "rgba(17, 17, 25, 0.92)",
+        backdropFilter: "blur(25px) saturate(180%)",
+        WebkitBackdropFilter: "blur(25px) saturate(180%)",
+        borderRadius: "16px 16px 0 0",
+        padding: "8px 12px 6px",
+        border: "1px solid rgba(255, 255, 255, 0.08)",
+        borderBottom: "none",
+        pointerEvents: "all",
+        gap: "2px",
       }}>
-        <div style={{
-          display: "flex",
-          justifyContent: "space-around",
-          alignItems: "center",
-          background: "rgba(17, 17, 25, 0.92)",
-          backdropFilter: "blur(25px) saturate(180%)",
-          WebkitBackdropFilter: "blur(25px) saturate(180%)",
-          borderRadius: "16px 16px 0 0",
-          padding: "8px 12px 6px",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderBottom: "none",
-          pointerEvents: "all",
-          gap: "2px",
-        }}>
-        {tabs.map(t => {
-          const isActive = tab === t.id;
-          const isAdd = t.id === "aggiungi";
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              onTouchStart={(e) => e.currentTarget.style.opacity = "0.7"}
-              onTouchEnd={(e) => e.currentTarget.style.opacity = "1"}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "3px",
-                padding: "6px 8px",
-                flex: 1,
-                transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-                opacity: 1,
-              }}
-            >
-              <div style={{
-                width: isAdd ? 36 : 26,
-                height: isAdd ? 36 : 26,
-                borderRadius: isAdd ? "50%" : "8px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: isAdd
-                  ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                  : isActive ? "rgba(167, 139, 250, 0.18)" : "transparent",
-                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                boxShadow: isAdd ? "0 4px 12px rgba(108, 92, 231, 0.3)" : "none",
-              }}>
-                {icons[t.id]?.(isActive)}
-              </div>
-              <span style={{
-                fontSize: "9px",
-                fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
-                fontWeight: isActive ? 600 : 500,
-                color: isActive ? "#a78bfa" : "#94a3b8",
-                letterSpacing: "0.3px",
-                whiteSpace: "nowrap",
-                textOverflow: "ellipsis",
-                overflow: "hidden",
-                maxWidth: "100%",
-                transition: "color 0.3s ease",
-              }}>
-                {t.label}
-              </span>
-            </button>
-          );
-        })}
-        </div>
-        {/* Safe area spacer - solid background covers the home indicator area */}
-        <div style={{
-          height: "env(safe-area-inset-bottom, 0px)",
-          background: "#111119",
-          pointerEvents: "all",
-        }} />
+      {tabs.map(t => {
+        const isActive = tab === t.id;
+        const isAdd = t.id === "aggiungi";
+        return (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            onTouchStart={(e) => e.currentTarget.style.opacity = "0.7"}
+            onTouchEnd={(e) => e.currentTarget.style.opacity = "1"}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "3px",
+              padding: "6px 8px",
+              flex: 1,
+              transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+              opacity: 1,
+            }}
+          >
+            <div style={{
+              width: isAdd ? 36 : 26,
+              height: isAdd ? 36 : 26,
+              borderRadius: isAdd ? "50%" : "8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: isAdd
+                ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
+                : isActive ? "rgba(167, 139, 250, 0.18)" : "transparent",
+              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              boxShadow: isAdd ? "0 4px 12px rgba(108, 92, 231, 0.3)" : "none",
+            }}>
+              {icons[t.id]?.(isActive)}
+            </div>
+            <span style={{
+              fontSize: "9px",
+              fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? "#a78bfa" : "#94a3b8",
+              letterSpacing: "0.3px",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+              overflow: "hidden",
+              maxWidth: "100%",
+              transition: "color 0.3s ease",
+            }}>
+              {t.label}
+            </span>
+          </button>
+        );
+      })}
       </div>
+      {/* Safe area spacer - solid background covers the home indicator area */}
+      <div style={{
+        height: "env(safe-area-inset-bottom, 0px)",
+        background: "#111119",
+        pointerEvents: "all",
+      }} />
     </div>
   );
 }
@@ -2923,7 +2917,7 @@ export default function FinanzaApp() {
   const showMonthBar = tab === "home" || tab === "stats";
 
   return (
-    <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       {/* Fixed header */}
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
