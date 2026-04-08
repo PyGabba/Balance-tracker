@@ -371,7 +371,7 @@ function TabBar({ tab, setTab, householdId }) {
         backdropFilter: "blur(25px) saturate(180%)",
         WebkitBackdropFilter: "blur(25px) saturate(180%)",
         borderRadius: "16px 16px 0 0",
-        padding: "1px 10px 2px",
+        padding: "4px 12px 2px",
         border: "1px solid rgba(255, 255, 255, 0.08)",
         borderBottom: "none",
         pointerEvents: "all",
@@ -393,16 +393,16 @@ function TabBar({ tab, setTab, householdId }) {
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              gap: "3px",
-              padding: "6px 8px",
+              gap: "1px",
+              padding: "3px 6px",
               flex: 1,
               transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
               opacity: 1,
             }}
           >
             <div style={{
-              width: isAdd ? 36 : 26,
-              height: isAdd ? 36 : 26,
+              width: isAdd ? 32 : 22,
+              height: isAdd ? 32 : 22,
               borderRadius: isAdd ? "50%" : "8px",
               display: "flex",
               alignItems: "center",
@@ -416,7 +416,7 @@ function TabBar({ tab, setTab, householdId }) {
               {icons[t.id]?.(isActive)}
             </div>
             <span style={{
-              fontSize: "9px",
+              fontSize: "7px",
               fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
               fontWeight: isActive ? 600 : 500,
               color: isActive ? "#a78bfa" : "#94a3b8",
@@ -433,12 +433,6 @@ function TabBar({ tab, setTab, householdId }) {
         );
       })}
       </div>
-      {/* Safe area spacer - solid background covers the home indicator area */}
-      <div style={{
-        height: "env(safe-area-inset-bottom, 0px)",
-        background: "#111119",
-        pointerEvents: "all",
-      }} />
     </div>
   );
 }
@@ -2942,7 +2936,7 @@ export default function FinanzaApp() {
         <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
       )}
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
         {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
