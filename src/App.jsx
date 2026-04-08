@@ -353,15 +353,19 @@ function TabBar({ tab, setTab, householdId }) {
     <div style={{
       position: "fixed",
       bottom: 0,
-      left: 0,
-      right: 0,
-      background: "#111119",
+      left: "50%",
+      transform: "translateX(-50%)",
+      width: "100%",
+      maxWidth: 480,
+      background: "#fff",
+      borderTop: "1px solid #e8ddd0",
+      display: "flex",
+      zIndex: 100,
       flexShrink: 0,
-      zIndex: 1000,
       pointerEvents: "none",
     }}>
       <div style={{
-        maxWidth: 430,
+        width: "100%",
         margin: "0 auto",
       }}>
         <div style={{
@@ -372,10 +376,11 @@ function TabBar({ tab, setTab, householdId }) {
           backdropFilter: "blur(25px) saturate(180%)",
           WebkitBackdropFilter: "blur(25px) saturate(180%)",
           borderRadius: "16px 16px 0 0",
-          padding: "4px 0px 4px",
+          padding: "8px 12px 6px",
           border: "1px solid rgba(255, 255, 255, 0.08)",
           borderBottom: "none",
           pointerEvents: "all",
+          gap: "2px",
         }}>
         {tabs.map(t => {
           const isActive = tab === t.id;
@@ -384,29 +389,48 @@ function TabBar({ tab, setTab, householdId }) {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
+              onTouchStart={(e) => e.currentTarget.style.opacity = "0.7"}
+              onTouchEnd={(e) => e.currentTarget.style.opacity = "1"}
               style={{
-                background: "none", border: "none", cursor: "pointer",
-                display: "flex", flexDirection: "column", alignItems: "center",
-                gap: 2, padding: "2px 8px", flex: 1,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "3px",
+                padding: "6px 8px",
+                flex: 1,
+                transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+                opacity: 1,
               }}
             >
               <div style={{
-                width: isAdd ? 34 : 24,
-                height: isAdd ? 34 : 24,
-                borderRadius: isAdd ? "50%" : 6,
-                display: "flex", alignItems: "center", justifyContent: "center",
+                width: isAdd ? 36 : 26,
+                height: isAdd ? 36 : 26,
+                borderRadius: isAdd ? "50%" : "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 background: isAdd
                   ? "linear-gradient(135deg, #6C5CE7, #a855f7)"
-                  : isActive ? "rgba(167, 139, 250, 0.15)" : "transparent",
-                transition: "all 0.2s ease",
+                  : isActive ? "rgba(167, 139, 250, 0.18)" : "transparent",
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                boxShadow: isAdd ? "0 4px 12px rgba(108, 92, 231, 0.3)" : "none",
               }}>
                 {icons[t.id]?.(isActive)}
               </div>
               <span style={{
-                fontSize: 8, fontFamily: "'DM Sans',sans-serif",
-                fontWeight: isActive ? 600 : 400,
+                fontSize: "9px",
+                fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+                fontWeight: isActive ? 600 : 500,
                 color: isActive ? "#a78bfa" : "#94a3b8",
-                letterSpacing: 0.2,
+                letterSpacing: "0.3px",
+                whiteSpace: "nowrap",
+                textOverflow: "ellipsis",
+                overflow: "hidden",
+                maxWidth: "100%",
+                transition: "color 0.3s ease",
               }}>
                 {t.label}
               </span>
