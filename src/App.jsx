@@ -2434,11 +2434,18 @@ function LoginScreen({ onLogin }) {
   const [emojiPickerIdx, setEmojiPickerIdx] = useState(null); // which persona's picker is open
 
   const [loginFromCache, setLoginFromCache] = useState(false);
+  const [loginSubtitle, setLoginSubtitle] = useState("");
 
   // Auto-submit when PIN reaches PIN_LEN digits
   const submitRef = useRef(null);
   submitRef.current = async (p) => {
-    setLoginLoading(true); setLoginErrore(""); setLoginFromCache(false);
+    setLoginLoading(true); setLoginErrore(""); setLoginFromCache(false); setLoginSubtitle("");
+
+    // Show "server waking up" hint after 4s if still loading
+    const hintTimer = setTimeout(() => {
+      setLoginSubtitle("Server in avvio, attendere...");
+    }, 4000);
+
     try {
       const result = await login(p);
       if (result._fromCache) setLoginFromCache(true);
@@ -2449,7 +2456,11 @@ function LoginScreen({ onLogin }) {
       setPinShake(true);
       setTimeout(() => { setPinShake(false); setPin(""); }, 450);
     }
-    finally { setLoginLoading(false); }
+    finally {
+      clearTimeout(hintTimer);
+      setLoginSubtitle("");
+      setLoginLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -2529,6 +2540,11 @@ function LoginScreen({ onLogin }) {
             <div style={{ textAlign: "center", color: "#888", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>
               {loginLoading ? "Accesso in corso..." : "Inserisci il PIN"}
             </div>
+            {loginSubtitle && (
+              <div style={{ textAlign: "center", color: "#6C5CE7", fontSize: 11, marginTop: 4, letterSpacing: 0.3 }}>
+                {loginSubtitle}
+              </div>
+            )}
 
             <PinDots value={pin} maxLen={PIN_LEN} shake={pinShake} />
 

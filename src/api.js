@@ -89,7 +89,14 @@ async function checkPinMatchesCache(pin) {
 }
 
 export async function login(pin) {
-  // Race: server login vs 6s timeout
+  // Check if we have a cached session we can fall back to
+  const cached = loadPersistentSession();
+  const hasCacheForFallback = cached && !!(await checkPinMatchesCache(pin).catch(() => false));
+
+  // Use longer timeout when there's no cache fallback (first login / after logout)
+  const timeoutMs = hasCacheForFallback ? 6000 : 20000;
+
+  // Race: server login vs timeout
   let serverResult = null;
   let serverError = null;
   try {
@@ -97,7 +104,7 @@ export async function login(pin) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin }),
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (res.ok) {
       serverResult = await res.json();
@@ -106,12 +113,15 @@ export async function login(pin) {
       serverError = new Error(err.error || "Login fallito");
     }
   } catch (err) {
-    // timeout or network error — will try cache below
-    serverError = err;
+    // Translate AbortError into a readable message
+    if (err.name === "AbortError" || err.name === "TimeoutError") {
+      serverError = new Error("Server in avvio, riprova tra qualche secondo");
+    } else {
+      serverError = err;
+    }
   }
 
   if (serverResult) {
-    // Full server login: save everything
     currentHousehold = serverResult;
     saveSession(serverResult);
     savePersistentSession(serverResult);
@@ -121,12 +131,10 @@ export async function login(pin) {
   }
 
   // Server failed or timed out: try cached session if PIN matches
-  const cached = loadPersistentSession();
-  if (cached && (await checkPinMatchesCache(pin))) {
+  if (hasCacheForFallback) {
     currentHousehold = cached;
     saveSession(cached);
-    apiAvailable = false; // mark as offline, will retry on next operation
-    // Background: keep trying to reach server to sync
+    apiAvailable = false;
     wakeupServer();
     return { ...cached, _fromCache: true };
   }
