@@ -448,6 +448,12 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
 
+  const oggiStr = new Date().toISOString().slice(0, 10);
+  const ricorrentiInScadenza = transazioni.filter(t =>
+    t.ricorrenza?.frequenza && t.ricorrenza?.prossimaData &&
+    t.ricorrenza.prossimaData <= oggiStr
+  );
+
   return (
     <div>
       <div style={{ padding: "14px 16px 20px" }}>
@@ -468,6 +474,21 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           </div>
         </div>
       </div>
+
+      {/* Recurring transactions banner */}
+      {ricorrentiInScadenza.length > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 14, padding: "12px 14px", marginBottom: 12, border: "1px solid #6C5CE744", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 18 }}>🔁</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>
+              {ricorrentiInScadenza.length === 1
+                ? `"${ricorrentiInScadenza[0].descrizione || ricorrentiInScadenza[0].categoria}" è stata rinnovata`
+                : `${ricorrentiInScadenza.length} transazioni ricorrenti rinnovate`}
+            </div>
+            <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>Aggiunte automaticamente oggi</div>
+          </div>
+        </div>
+      )}
 
       {/* Debt card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
@@ -614,7 +635,10 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
           {cat.emoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || cat.nome}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {t.descrizione || cat.nome}
+            {t.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: "#6C5CE7" }}>🔁</span>}
+          </div>
           <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(t.data)}
             {persona && t.tipo === "uscita" && (() => {
@@ -781,6 +805,21 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
 }
 
 // ─── Add ───
+const RICORRENZA_OPTIONS = [
+  { id: "no", label: "Nessuna" },
+  { id: "settimanale", label: "Ogni settimana" },
+  { id: "mensile", label: "Ogni mese" },
+  { id: "annuale", label: "Ogni anno" },
+];
+
+function calcolaProssimaData(data, frequenza) {
+  const d = new Date(data);
+  if (frequenza === "settimanale") d.setDate(d.getDate() + 7);
+  else if (frequenza === "mensile") d.setMonth(d.getMonth() + 1);
+  else if (frequenza === "annuale") d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function AggiungiView({ onAggiungi, persone }) {
   const [tipo, setTipo] = useState("uscita");
   const [importo, setImporto] = useState("");
@@ -793,10 +832,15 @@ function AggiungiView({ onAggiungi, persone }) {
   const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === persone.length - 1 ? 100 - base * (persone.length - 1) : base})));
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
+  const [ricorrenza, setRicorrenza] = useState("no");
 
   function handleSubmit() {
     const val = parseFloat(importo.replace(",", "."));
     if (!val || val <= 0) return;
+    const ricorrenzaData = ricorrenza !== "no" ? {
+      frequenza: ricorrenza,
+      prossimaData: calcolaProssimaData(data, ricorrenza),
+    } : null;
     onAggiungi({
       id: generaId(), tipo, importo: val,
       categoria: tipo === "entrata" ? "entrata" : categoria,
@@ -805,8 +849,9 @@ function AggiungiView({ onAggiungi, persone }) {
       splits: tipo === "uscita" ? splits : null,
       extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
+      ricorrenza: ricorrenzaData,
     });
-    setImporto(""); setDescrizione(""); setSalvato(true);
+    setImporto(""); setDescrizione(""); setRicorrenza("no"); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
 
@@ -873,6 +918,26 @@ function AggiungiView({ onAggiungi, persone }) {
       <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Data</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
+      </div>
+      <div style={{ marginBottom: 24 }}>
+        <label style={labelStyle}>Ripeti</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {RICORRENZA_OPTIONS.map(opt => (
+            <button key={opt.id} onClick={() => setRicorrenza(opt.id)} style={{
+              padding: "8px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600,
+              fontFamily: "'DM Sans',sans-serif",
+              background: ricorrenza === opt.id ? "#6C5CE722" : "#1a1a28",
+              border: ricorrenza === opt.id ? "2px solid #6C5CE7" : "2px solid #252538",
+              color: ricorrenza === opt.id ? "#a78bfa" : "#666",
+              transition: "all 0.15s",
+            }}>{opt.label}</button>
+          ))}
+        </div>
+        {ricorrenza !== "no" && (
+          <div style={{ fontSize: 11, color: "#6C5CE7", marginTop: 8 }}>
+            🔁 Prossima: {calcolaProssimaData(data, ricorrenza)}
+          </div>
+        )}
       </div>
       <button onClick={handleSubmit} style={{
         width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: "pointer",
@@ -1227,6 +1292,129 @@ function StatsView({ transazioni, persone, meseOffset }) {
       )}
 
       {perCategoria.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>Nessun dato per questo mese.</div>}
+
+      {/* ─── Storico saldi 12 mesi ─── */}
+      {(() => {
+        const mesi12 = Array.from({ length: 12 }, (_, i) => {
+          const d = new Date(oggi.getFullYear(), oggi.getMonth() - (11 - i), 1);
+          const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+          const txM = transazioni.filter(t => t.data?.slice(0, 7) === ym);
+          const e = txM.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
+          const u = txM.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
+          return { label: MESI[d.getMonth()], anno: d.getFullYear(), ym, entrate: e, uscite: u, saldo: e - u };
+        });
+
+        const haData = mesi12.some(m => m.entrate > 0 || m.uscite > 0);
+        if (!haData) return null;
+
+        const maxVal = Math.max(...mesi12.flatMap(m => [m.entrate, m.uscite]), 1);
+        const CHART_H = 90;
+        const CHART_W = 300;
+        const barW = 8;
+        const gap = CHART_W / 12;
+
+        // Saldo line points
+        const maxAbs = Math.max(...mesi12.map(m => Math.abs(m.saldo)), 1);
+        const midY = CHART_H / 2;
+        const saldoPoints = mesi12.map((m, i) => {
+          const x = gap * i + gap / 2;
+          const y = midY - (m.saldo / maxAbs) * (midY - 8);
+          return `${x},${y}`;
+        }).join(" ");
+
+        return (
+          <div style={{ background: "#1a1a28", borderRadius: 20, padding: "18px 16px", margin: "0 0 24px", border: "1px solid #252538" }}>
+            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Storico 12 mesi</div>
+
+            {/* Bar chart: entrate + uscite */}
+            <div style={{ overflowX: "auto" }}>
+              <svg viewBox={`0 0 ${CHART_W} ${CHART_H + 28}`} style={{ width: "100%", minWidth: 280 }}>
+                {/* Zero line */}
+                <line x1="0" y1={CHART_H} x2={CHART_W} y2={CHART_H} stroke="#252538" strokeWidth="1" />
+
+                {mesi12.map((m, i) => {
+                  const x = gap * i + gap / 2;
+                  const hE = m.entrate > 0 ? (m.entrate / maxVal) * CHART_H : 0;
+                  const hU = m.uscite > 0 ? (m.uscite / maxVal) * CHART_H : 0;
+                  const isCurrent = m.ym === `${oggi.getFullYear()}-${String(oggi.getMonth() + 1).padStart(2, "0")}`;
+                  return (
+                    <g key={m.ym}>
+                      {/* Entrate bar */}
+                      <rect x={x - barW - 1} y={CHART_H - hE} width={barW} height={Math.max(hE, 1)}
+                        rx="2" fill={isCurrent ? "#4ECDC4" : "#4ECDC433"} />
+                      {/* Uscite bar */}
+                      <rect x={x + 1} y={CHART_H - hU} width={barW} height={Math.max(hU, 1)}
+                        rx="2" fill={isCurrent ? "#FF6B6B" : "#FF6B6B33"} />
+                      {/* Month label */}
+                      <text x={x} y={CHART_H + 12} textAnchor="middle"
+                        fill={isCurrent ? "#a78bfa" : "#555"} fontSize="7"
+                        fontFamily="'DM Sans',sans-serif" fontWeight={isCurrent ? "700" : "400"}>
+                        {m.label}
+                      </text>
+                      <text x={x} y={CHART_H + 21} textAnchor="middle"
+                        fill="#333" fontSize="6" fontFamily="'DM Sans',sans-serif">
+                        {m.anno !== oggi.getFullYear() ? m.anno : ""}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Saldo net line */}
+                <polyline points={saldoPoints} fill="none" stroke="#a78bfa" strokeWidth="1.5"
+                  strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+                {mesi12.map((m, i) => {
+                  const x = gap * i + gap / 2;
+                  const y = midY - (m.saldo / maxAbs) * (midY - 8);
+                  return <circle key={m.ym} cx={x} cy={y} r="2.5" fill="#a78bfa" opacity="0.9" />;
+                })}
+              </svg>
+            </div>
+
+            {/* Legend */}
+            <div style={{ display: "flex", gap: 16, marginTop: 4, justifyContent: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#888" }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: "#4ECDC4" }} /> Entrate
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#888" }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: "#FF6B6B" }} /> Uscite
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#888" }}>
+                <div style={{ width: 16, height: 2, borderRadius: 1, background: "#a78bfa" }} /> Saldo netto
+              </div>
+            </div>
+
+            {/* Summary row: best and worst month */}
+            {(() => {
+              const withData = mesi12.filter(m => m.entrate > 0 || m.uscite > 0);
+              if (withData.length < 2) return null;
+              const best = withData.reduce((a, b) => a.saldo > b.saldo ? a : b);
+              const worst = withData.reduce((a, b) => a.saldo < b.saldo ? a : b);
+              const avgUscite = withData.reduce((s, m) => s + m.uscite, 0) / withData.length;
+              return (
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <div style={{ flex: 1, background: "#111119", borderRadius: 10, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>Mese migliore</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>{best.label}</div>
+                    <div style={{ fontSize: 10, color: "#4ECDC4" }}>{best.saldo >= 0 ? "+" : ""}{formattaValuta(best.saldo)}</div>
+                  </div>
+                  <div style={{ flex: 1, background: "#111119", borderRadius: 10, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>Mese peggiore</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>{worst.label}</div>
+                    <div style={{ fontSize: 10, color: "#FF6B6B" }}>{worst.saldo >= 0 ? "+" : ""}{formattaValuta(worst.saldo)}</div>
+                  </div>
+                  <div style={{ flex: 1, background: "#111119", borderRadius: 10, padding: "8px 10px" }}>
+                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>Media uscite</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#F0A500", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>
+                      {formattaValuta(avgUscite)}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#555" }}>al mese</div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
       </div>
     </div>
   );
@@ -2596,17 +2784,48 @@ export default function FinanzaApp() {
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();
 
+  // ─── Auto-generate due recurring transactions ───
+  const generaRicorrenti = useCallback(async (txList) => {
+    const oggi = new Date().toISOString().slice(0, 10);
+    const dovute = txList.filter(t =>
+      t.ricorrenza?.frequenza && t.ricorrenza?.prossimaData && t.ricorrenza.prossimaData <= oggi
+    );
+    if (dovute.length === 0) return;
+    const nuove = [];
+    for (const t of dovute) {
+      const nuovaTx = {
+        ...t,
+        id: generaId(),
+        data: t.ricorrenza.prossimaData,
+        ricorrenza: {
+          frequenza: t.ricorrenza.frequenza,
+          prossimaData: calcolaProssimaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza),
+        },
+      };
+      delete nuovaTx._id;
+      try {
+        const saved = await addTransaction(nuovaTx);
+        nuove.push(saved);
+      } catch (e) { console.error("Ricorrente error:", e); }
+    }
+    if (nuove.length > 0) {
+      setTransazioni(prev => [...prev, ...nuove]);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     try {
       const localData = await fetchTransactions((serverData) => {
         setTransazioni(serverData);
+        generaRicorrenti(serverData);
       });
       setTransazioni(localData);
+      generaRicorrenti(localData);
     } catch (err) {
       if (err.message === "Sessione scaduta") { setAuthed(false); return; }
       console.error("Load error:", err);
     }
-  }, []);
+  }, [generaRicorrenti]);
 
   const loadPositions = useCallback(async () => {
     try {
