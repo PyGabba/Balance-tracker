@@ -1,5 +1,5 @@
 import axios from 'axios';
-const url = `https://balance-tracker-two.vercel.app/`; // Render URL
+const url = `https://finanza-tracker-api.onrender.com`; // Render URL
 const interval = 300000; // Interval in milliseconds (300 seconds)
 
 //Reloader Function
