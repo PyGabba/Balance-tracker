@@ -11,7 +11,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
 const DB_NAME = process.env.DB_NAME || "finanza_tracker";
-app.use(cors());
+const CORS_OPTIONS = {
+  origin: true,  // reflect request origin (allows all, including Vercel previews)
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "x-household-id"],
+  optionsSuccessStatus: 200,
+};
+app.use(cors(CORS_OPTIONS));
+app.options("*", cors(CORS_OPTIONS));  // explicit OPTIONS preflight handler
 app.use(express.json({ limit: "10mb" }));
 
 const HOUSEHOLDS = [
