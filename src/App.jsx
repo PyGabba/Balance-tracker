@@ -39,13 +39,13 @@ function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day:
 function calcolaDebitiMatrix(transazioni, persone) {
   const balances = {};
   for (const t of transazioni) {
-    // Handle settlement transactions: directly reduce the debt
-    if (t.tipo === "saldo" && t.pagatoDa && t.ricevutoDa) {
-      const key = `${t.pagatoDa}->${t.ricevutoDa}`;
-      balances[key] = (balances[key] || 0) - t.importo;
+    if (t.tipo === "saldo") {
+      if (!t.pagatoDa || !t.ricevutoDa) continue;
+      // Payment reduces debt: add in reverse direction so netting cancels it out
+      const key = `${t.ricevutoDa}->${t.pagatoDa}`;
+      balances[key] = (balances[key] || 0) + t.importo;
       continue;
     }
-
     if (t.tipo !== "uscita" || !t.pagatoDa) continue;
     const payer = t.pagatoDa;
     let shares = [];
@@ -448,6 +448,8 @@ function TabBar({ tab, setTab, householdId }) {
 function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
+  const [settlingKey, setSettlingKey] = useState(null); // "da->a"
+  const [settleAmount, setSettleAmount] = useState("");
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
@@ -457,7 +459,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
     return d.getMonth() === meseVis.getMonth() && d.getFullYear() === meseVis.getFullYear();
   });
   const entrate = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
-  const uscite = txMese.filter(t => t.tipo === "uscita" && t.tipo !== "saldo").reduce((s, t) => s + t.importo, 0);
+  const uscite = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
   const txOrdinate = [...txMese].filter(t => t.tipo !== "saldo").sort((a, b) => new Date(b.data) - new Date(a.data));
 
@@ -550,22 +552,51 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         </div>
         {/* Settle buttons */}
         {debitiGlobale.length > 0 && (
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             {debitiGlobale.map((d, i) => {
-              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da };
-              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a };
+              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤" };
+              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤" };
+              const key = `${d.da}->${d.a}`;
+              if (settlingKey === key) {
+                return (
+                  <div key={i} style={{ background: "#111119", borderRadius: 12, padding: 12, border: "1px solid #4ECDC433" }}>
+                    <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>
+                      {pDa.emoji} {pDa.nome} → {pA.emoji} {pA.nome} <span style={{ color: "#555" }}>(max {formattaValuta(d.importo)})</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                      <input
+                        type="number" inputMode="decimal"
+                        value={settleAmount}
+                        onChange={e => setSettleAmount(e.target.value)}
+                        style={{ flex: 1, padding: "9px 12px", background: "#1a1a28", border: "1px solid #4ECDC455", borderRadius: 10, color: "#eee", fontSize: 15, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box" }}
+                      />
+                      <button onClick={() => setSettleAmount(String(d.importo))} style={{ padding: "9px 10px", border: "1px solid #4ECDC433", borderRadius: 10, background: "#4ECDC411", color: "#4ECDC4", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Max</button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => { setSettlingKey(null); setSettleAmount(""); }} style={{ flex: 1, padding: "9px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Annulla</button>
+                      <button onClick={() => {
+                        const raw = parseFloat(String(settleAmount).replace(",", "."));
+                        const amt = isNaN(raw) || raw <= 0 ? d.importo : Math.min(raw, d.importo);
+                        onSettle({
+                          id: generaId(), tipo: "saldo",
+                          importo: Math.round(amt * 100) / 100,
+                          descrizione: `Saldo debito → ${pA.nome}`,
+                          data: new Date().toISOString().slice(0, 10),
+                          pagatoDa: d.da, ricevutoDa: d.a,
+                        });
+                        setSettlingKey(null); setSettleAmount("");
+                      }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: "#4ECDC4", color: "#111119", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
+                        Conferma saldo
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
               return (
-                <button key={i} onClick={() => {
-                  if (!confirm(`Saldare?\n${pDa.nome} paga ${formattaValuta(d.importo)} a ${pA.nome}`)) return;
-                  onSettle({
-                    id: generaId(), tipo: "saldo", importo: d.importo,
-                    descrizione: `Saldo debito: ${pDa.nome} → ${pA.nome}`, data: new Date().toISOString().slice(0, 10),
-                    pagatoDa: d.da, ricevutoDa: d.a,
-                  });
-                }} style={{
-                  width: "100%", padding: "10px", border: "none", borderRadius: 10, cursor: "pointer",
+                <button key={i} onClick={() => { setSettlingKey(key); setSettleAmount(String(d.importo)); }} style={{
+                  width: "100%", padding: "10px", borderRadius: 10, cursor: "pointer",
                   background: "#1e2a2a", color: "#4ECDC4", border: "1px solid #4ECDC433",
-                  fontSize: 12, fontWeight: 600,
+                  fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
                 }}>
                   Salda {pDa.nome} → {pA.nome} ({formattaValuta(d.importo)})
                 </button>
@@ -573,6 +604,33 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
             })}
           </div>
         )}
+        {/* Settlement history */}
+        {(() => {
+          const saldati = transazioni
+            .filter(t => t.tipo === "saldo")
+            .sort((a, b) => new Date(b.data) - new Date(a.data));
+          if (saldati.length === 0) return null;
+          return (
+            <div style={{ borderTop: "1px solid #252538", paddingTop: 10, marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: "#777", marginBottom: 6, letterSpacing: 0.5, textTransform: "uppercase" }}>Storico saldi</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {saldati.map((t, i) => {
+                  const pDa = allPeople.find(p => p.id === t.pagatoDa) || { nome: t.pagatoDa, emoji: "👤" };
+                  const pA = allPeople.find(p => p.id === t.ricevutoDa) || { nome: t.ricevutoDa, emoji: "👤" };
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "#4ECDC4" }}>✓</span>
+                      <span style={{ fontSize: 11, color: "#666", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
+                      <span style={{ fontSize: 11, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", fontWeight: 600 }}>{formattaValuta(t.importo)}</span>
+                      <span style={{ fontSize: 10, color: "#555", marginLeft: 4 }}>{formattaData(t.data)}</span>
+                      <button onClick={() => onDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title="Elimina saldo">✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Transactions for selected month */}
@@ -979,11 +1037,11 @@ function StatsView({ transazioni, persone, meseOffset }) {
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
   const txMese = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===meseVis.getMonth()&&d.getFullYear()===meseVis.getFullYear(); });
-  const usciteMese = txMese.filter(t => t.tipo === "uscita" && t.tipo !== "saldo");
+  const usciteMese = txMese.filter(t => t.tipo === "uscita");
   const totalUscite = usciteMese.reduce((s,t) => s+t.importo, 0);
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
   const perCategoria = CATEGORIE.filter(c=>c.id!=="entrata").map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
-  const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&t.tipo!=="saldo"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
+  const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
   const p1Speso = usciteMese.filter(t=>t.pagatoDa===p1.id).reduce((s,t)=>s+t.importo,0);
@@ -1008,7 +1066,7 @@ function StatsView({ transazioni, persone, meseOffset }) {
   // ─── Trends & Insights ───
   const mesePrecedente = new Date(meseVis.getFullYear(), meseVis.getMonth() - 1, 1);
   const txMesePrec = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===mesePrecedente.getMonth()&&d.getFullYear()===mesePrecedente.getFullYear(); });
-  const usciteMesePrec = txMesePrec.filter(t => t.tipo === "uscita" && t.tipo !== "saldo");
+  const usciteMesePrec = txMesePrec.filter(t => t.tipo === "uscita");
   const totalUscitePrec = usciteMesePrec.reduce((s,t) => s+t.importo, 0);
   const totalEntratePrec = txMesePrec.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
 
@@ -1319,7 +1377,7 @@ function StatsView({ transazioni, persone, meseOffset }) {
           const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
           const txM = transazioni.filter(t => t.data?.slice(0, 7) === ym);
           const e = txM.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
-          const u = txM.filter(t => t.tipo === "uscita" && t.tipo !== "saldo").reduce((s, t) => s + t.importo, 0);
+          const u = txM.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
           return { label: MESI[d.getMonth()], anno: d.getFullYear(), ym, entrate: e, uscite: u, saldo: e - u };
         });
 
@@ -2076,7 +2134,7 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
   // Filter transactions by month range
   const filtrate = transazioni.filter(t => {
     const mese = t.data?.slice(0, 7); // "YYYY-MM"
-    return mese && mese >= meseDa && mese <= meseA;
+    return mese && mese >= meseDa && mese <= meseA && t.tipo !== "saldo";
   });
 
   // Sort
