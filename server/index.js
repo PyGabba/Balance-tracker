@@ -173,6 +173,7 @@ app.post("/api/transactions", requireHousehold, async (req, res) => {
       descrizione: b.descrizione || "",
       data: b.data,
       pagatoDa: b.pagatoDa || null,
+      ricevutoDa: b.ricevutoDa || null,
       splits: Array.isArray(b.splits) && b.splits.length > 0 ? b.splits : null,
       extraPersone: Array.isArray(b.extraPersone) && b.extraPersone.length > 0 ? b.extraPersone : null,
       splitPagante: b.splitPagante != null ? parseInt(b.splitPagante) : null,
@@ -201,7 +202,7 @@ app.put("/api/transactions/:id", requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const update = {};
-    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","splitPagante","intestataA","splits","extraPersone"];
+    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         if (key === "importo") update[key] = parseFloat(req.body[key]);
