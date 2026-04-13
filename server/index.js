@@ -138,6 +138,11 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
   } catch (e) { console.error("Delete household error:", e); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
 });
 
+// ─── GET household info ───
+app.get("/api/household", requireHousehold, (req, res) => {
+  res.json({ id: req.household.id, nome: req.household.nome, persone: req.household.persone });
+});
+
 // ─── GET transactions ───
 app.get("/api/transactions", requireHousehold, async (req, res) => {
   try {
