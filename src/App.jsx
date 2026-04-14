@@ -466,6 +466,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const [editId, setEditId] = useState(null);
   const [settlingKey, setSettlingKey] = useState(null); // "da->a"
   const [settleAmount, setSettleAmount] = useState("");
+  const [search, setSearch] = useState("");
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
@@ -480,7 +481,16 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const entrate = entrateNormali + entrateExternaSaldi;
   const uscite = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
-  const txOrdinate = [...txMese].filter(t => t.tipo !== "saldo").sort((a, b) => new Date(b.data) - new Date(a.data));
+  const txOrdinate = [...txMese]
+    .filter(t => t.tipo !== "saldo")
+    .filter(t => {
+      if (!search.trim()) return true;
+      const q = search.trim().toLowerCase();
+      const cat = CATEGORIE.find(c => c.id === t.categoria);
+      return (t.descrizione || "").toLowerCase().includes(q)
+        || (cat?.nome || "").toLowerCase().includes(q);
+    })
+    .sort((a, b) => new Date(b.data) - new Date(a.data));
 
   const debitiGlobale = calcolaDebitiMatrix(transazioni, persone);
   const debitiMese = calcolaDebitiMatrix(txMese, persone);
@@ -657,8 +667,23 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         <div style={{ fontSize: 13, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Transazioni di {MESI[meseVis.getMonth()]}</div>
         <div style={{ fontSize: 12, color: "#666", fontFamily: "'Space Mono',monospace" }}>{txOrdinate.length}</div>
       </div>
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#555", pointerEvents: "none" }}>🔍</span>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Cerca transazioni..."
+          style={{ ...inputStyle, paddingLeft: 36, paddingTop: 10, paddingBottom: 10, fontSize: 13 }}
+        />
+        {search && (
+          <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 2 }}>✕</button>
+        )}
+      </div>
       {txOrdinate.length === 0 ? (
-        <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>Nessuna transazione in {nomeMese}.<br/>Premi + per iniziare!</div>
+        <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>
+          {search.trim() ? `Nessun risultato per "${search}"` : <>Nessuna transazione in {nomeMese}.<br/>Premi + per iniziare!</>}
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {txOrdinate.map(t => (
