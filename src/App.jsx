@@ -1107,10 +1107,10 @@ function StatsView({ transazioni, persone, meseOffset }) {
     + txMese.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
   const perCategoria = CATEGORIE.filter(c=>c.id!=="entrata").map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
   const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
-  const p1 = persone[0] || DEFAULT_PERSONE[0];
-  const p2 = persone[1] || DEFAULT_PERSONE[1];
-  const p1Speso = usciteMese.filter(t=>t.pagatoDa===p1.id).reduce((s,t)=>s+t.importo,0);
-  const p2Speso = usciteMese.filter(t=>t.pagatoDa===p2.id).reduce((s,t)=>s+t.importo,0);
+  const spesoPerPersona = persone.map(p => ({
+    ...p,
+    speso: usciteMese.filter(t => t.pagatoDa === p.id).reduce((s, t) => s + t.importo, 0),
+  }));
   const debitiMese = calcolaDebitiMatrix(txMese, persone);
 
   // ─── Frequency analysis (must be before Trends) ───
@@ -1196,18 +1196,19 @@ function StatsView({ transazioni, persone, meseOffset }) {
           <div style={{ fontSize: 18, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(totalUscite)}</div>
         </div>
       </div>
-      {(p1Speso > 0 || p2Speso > 0) && (
+      {spesoPerPersona.some(p => p.speso > 0) && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", marginBottom: 16, border: "1px solid #252538" }}>
           <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Chi ha pagato</div>
-          <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 20 }}>{p1.emoji}</span>
-              <div><div style={{ fontSize: 11, color: p1.colore, fontWeight: 600 }}>{p1.nome}</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(p1Speso)}</div></div>
-            </div>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 20 }}>{p2.emoji}</span>
-              <div><div style={{ fontSize: 11, color: p2.colore, fontWeight: 600 }}>{p2.nome}</div><div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(p2Speso)}</div></div>
-            </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
+            {spesoPerPersona.map(p => (
+              <div key={p.id} style={{ flex: "1 1 120px", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 20 }}>{p.emoji}</span>
+                <div>
+                  <div style={{ fontSize: 11, color: p.colore, fontWeight: 600 }}>{p.nome}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#eee", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(p.speso)}</div>
+                </div>
+              </div>
+            ))}
           </div>
           {debitiMese.length > 0 && (
             <div style={{ borderTop: "1px solid #252538", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
