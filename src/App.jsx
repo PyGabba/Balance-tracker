@@ -900,11 +900,12 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [] }) {
   const [tipo, setTipo] = useState("uscita");
   const [importo, setImporto] = useState("");
   const [categoria, setCategoria] = useState("cibo");
   const [descrizione, setDescrizione] = useState("");
+  const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
   const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
@@ -991,9 +992,53 @@ function AggiungiView({ onAggiungi, persone }) {
           </div>
         </div>
       )}
-      <div style={{ marginBottom: 18 }}>
+      <div style={{ marginBottom: 18, position: "relative" }}>
         <label style={labelStyle}>Descrizione (opzionale)</label>
-        <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Es: Pranzo, Benzina..." style={inputStyle} />
+        <input
+          type="text"
+          value={descrizione}
+          onChange={e => { setDescrizione(e.target.value); setSuggestOpen(true); }}
+          onFocus={() => setSuggestOpen(true)}
+          onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+          placeholder="Es: Pranzo, Benzina..."
+          style={inputStyle}
+          autoComplete="off"
+        />
+        {suggestOpen && (() => {
+          const catKey = tipo === "entrata" ? "entrata" : categoria;
+          const seen = new Set();
+          const suggestions = transazioni
+            .filter(t => t.categoria === catKey && t.descrizione && t.descrizione.trim() !== "")
+            .sort((a, b) => new Date(b.data) - new Date(a.data))
+            .map(t => t.descrizione.trim())
+            .filter(d => {
+              if (seen.has(d)) return false;
+              seen.add(d);
+              return descrizione === "" || d.toLowerCase().includes(descrizione.toLowerCase());
+            })
+            .slice(0, 6);
+          return suggestions.length > 0 ? (
+            <div style={{
+              position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+              background: "#1a1a28", border: "1px solid #252538", borderRadius: 14,
+              marginTop: 4, overflow: "hidden", boxShadow: "0 8px 24px #00000055",
+            }}>
+              {suggestions.map((s, i) => (
+                <div
+                  key={i}
+                  onMouseDown={() => { setDescrizione(s); setSuggestOpen(false); }}
+                  style={{
+                    padding: "12px 16px", cursor: "pointer", fontSize: 14,
+                    color: "#ddd", fontFamily: "'DM Sans',sans-serif",
+                    borderBottom: i < suggestions.length - 1 ? "1px solid #252538" : "none",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#252538"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >{s}</div>
+              ))}
+            </div>
+          ) : null;
+        })()}
       </div>
       <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Data</label>
@@ -3011,7 +3056,7 @@ export default function FinanzaApp() {
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
-        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} />}
+        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
