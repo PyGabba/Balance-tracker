@@ -458,7 +458,10 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
     const d = new Date(t.data);
     return d.getMonth() === meseVis.getMonth() && d.getFullYear() === meseVis.getFullYear();
   });
-  const entrate = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
+  const entrateNormali = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
+  // External payer settling a debt = real money received by household
+  const entrateExternaSaldi = txMese.filter(t => t.tipo === "saldo" && !persone.some(p => p.id === t.pagatoDa)).reduce((s, t) => s + t.importo, 0);
+  const entrate = entrateNormali + entrateExternaSaldi;
   const uscite = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
   const txOrdinate = [...txMese].filter(t => t.tipo !== "saldo").sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -1039,7 +1042,8 @@ function StatsView({ transazioni, persone, meseOffset }) {
   const txMese = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===meseVis.getMonth()&&d.getFullYear()===meseVis.getFullYear(); });
   const usciteMese = txMese.filter(t => t.tipo === "uscita");
   const totalUscite = usciteMese.reduce((s,t) => s+t.importo, 0);
-  const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
+  const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
+    + txMese.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
   const perCategoria = CATEGORIE.filter(c=>c.id!=="entrata").map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
   const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
   const p1 = persone[0] || DEFAULT_PERSONE[0];
@@ -1068,7 +1072,8 @@ function StatsView({ transazioni, persone, meseOffset }) {
   const txMesePrec = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===mesePrecedente.getMonth()&&d.getFullYear()===mesePrecedente.getFullYear(); });
   const usciteMesePrec = txMesePrec.filter(t => t.tipo === "uscita");
   const totalUscitePrec = usciteMesePrec.reduce((s,t) => s+t.importo, 0);
-  const totalEntratePrec = txMesePrec.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
+  const totalEntratePrec = txMesePrec.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
+    + txMesePrec.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
 
   // Month over month change
   const deltaPct = totalUscitePrec > 0 ? ((totalUscite - totalUscitePrec) / totalUscitePrec * 100) : null;
