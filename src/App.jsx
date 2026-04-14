@@ -2743,7 +2743,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function ImpostazioniView({ householdName, persone, onDeleted }) {
+function ImpostazioniView({ householdName, householdId, persone, onDeleted }) {
   const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
@@ -2770,7 +2770,10 @@ function ImpostazioniView({ householdName, persone, onDeleted }) {
       {/* Household info card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Gruppo attivo</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#eee", marginBottom: 12 }}>{householdName}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#eee", marginBottom: 4 }}>{householdName}</div>
+        {householdId && (
+          <div style={{ fontSize: 11, color: "#555", fontFamily: "'Space Mono',monospace", marginBottom: 12 }}>ID: {householdId}</div>
+        )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {persone.map(p => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#252538", borderRadius: 20, padding: "6px 12px" }}>
@@ -3015,6 +3018,7 @@ export default function FinanzaApp() {
         {tab === "impostazioni" && (
           <ImpostazioniView
             householdName={householdName}
+            householdId={getSession()?.householdId}
             persone={persone}
             onDeleted={() => { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }}
           />
