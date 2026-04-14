@@ -67,16 +67,32 @@ function calcolaDebitiMatrix(transazioni, persone) {
       balances[key] = (balances[key] || 0) + owed;
     }
   }
-  // Net out pairs
-  const pairs = new Set(), debiti = [];
-  for (const key of Object.keys(balances)) {
+  // Convert directional pair balances → per-person net balance
+  const netPerPerson = {};
+  for (const [key, amount] of Object.entries(balances)) {
     const [da, a] = key.split("->");
-    const pk = [da, a].sort().join(":");
-    if (pairs.has(pk)) continue; pairs.add(pk);
-    const ab = balances[`${da}->${a}`] || 0;
-    const ba = balances[`${a}->${da}`] || 0;
-    const net = ab - ba;
-    if (Math.abs(net) > 0.01) debiti.push(net > 0 ? { da, a, importo: Math.round(net * 100) / 100 } : { da: a, a: da, importo: Math.round(Math.abs(net) * 100) / 100 });
+    netPerPerson[da] = (netPerPerson[da] || 0) - amount; // owes → negative
+    netPerPerson[a]  = (netPerPerson[a]  || 0) + amount; // owed → positive
+  }
+
+  // Greedy creditor/debtor matching — minimises number of transactions
+  const creditors = [], debtors = [];
+  for (const [id, bal] of Object.entries(netPerPerson)) {
+    if (bal >  0.01) creditors.push({ id, bal });
+    if (bal < -0.01) debtors.push({ id, bal: -bal });
+  }
+  creditors.sort((a, b) => b.bal - a.bal);
+  debtors.sort((a, b) => b.bal - a.bal);
+
+  const debiti = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const pay = Math.min(debtors[i].bal, creditors[j].bal);
+    debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
+    debtors[i].bal   -= pay;
+    creditors[j].bal -= pay;
+    if (debtors[i].bal   < 0.01) i++;
+    if (creditors[j].bal < 0.01) j++;
   }
   return debiti;
 }
