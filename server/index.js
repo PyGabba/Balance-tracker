@@ -230,44 +230,59 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
       householdId: req.householdId, tipo: "uscita", pagatoDa: { $ne: null }
     }).toArray();
 
-    const net = {};
-    function addDebt(creditor, debtor, amount) {
-      if (creditor === debtor || amount <= 0) return;
-      if (!net[creditor]) net[creditor] = {};
-      if (!net[debtor]) net[debtor] = {};
-      net[creditor][debtor] = (net[creditor][debtor] || 0) + amount;
-      net[debtor][creditor] = (net[debtor][creditor] || 0) - amount;
-    }
+    // Also fetch saldo transactions to account for settlements
+    const saldi = await transactionsCol.find({
+      householdId: req.householdId, tipo: "saldo", pagatoDa: { $ne: null }, ricevutoDa: { $ne: null }
+    }).toArray();
+
+    // Per-person net balance
+    const netPerPerson = {};
+    function addAmount(id, delta) { netPerPerson[id] = (netPerPerson[id] || 0) + delta; }
 
     for (const t of txs) {
       const payer = t.pagatoDa;
+      let shares = [];
       if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
-        const totalQ = t.splits.reduce((s, sh) => s + (sh.quota || 0), 0);
-        if (totalQ <= 0) continue;
-        for (const sh of t.splits) {
-          if (sh.personaId === payer) continue;
-          addDebt(payer, sh.personaId, t.importo * (sh.quota / totalQ));
-        }
+        shares = t.splits;
       } else if (t.splitPagante != null) {
         const other = req.household.persone.find(p => p.id !== payer);
-        if (other) addDebt(payer, other.id, t.importo * (100 - t.splitPagante) / 100);
+        if (other) shares = [{ personaId: payer, quota: t.splitPagante }, { personaId: other.id, quota: 100 - t.splitPagante }];
+      }
+      if (!shares.length) continue;
+      const totalQ = shares.reduce((s, sh) => s + (sh.quota || 0), 0);
+      if (totalQ <= 0) continue;
+      for (const sh of shares) {
+        if (sh.personaId === payer) continue;
+        const owed = t.importo * (sh.quota / totalQ);
+        addAmount(payer, +owed);
+        addAmount(sh.personaId, -owed);
       }
     }
 
-    const debiti = [], seen = {};
-    for (const a of Object.keys(net)) {
-      for (const b of Object.keys(net[a] || {})) {
-        const key = [a, b].sort().join("|");
-        if (seen[key]) continue;
-        seen[key] = true;
-        const v = net[a][b] || 0;
-        if (Math.abs(v) > 0.01) {
-          debiti.push(v > 0
-            ? { da: b, a: a, importo: +(v.toFixed(2)) }
-            : { da: a, a: b, importo: +(Math.abs(v).toFixed(2)) }
-          );
-        }
-      }
+    // Settlements reduce balances
+    for (const s of saldi) {
+      addAmount(s.pagatoDa, +s.importo);
+      addAmount(s.ricevutoDa, -s.importo);
+    }
+
+    // Greedy creditor/debtor matching
+    const creditors = [], debtors = [];
+    for (const [id, bal] of Object.entries(netPerPerson)) {
+      if (bal >  0.01) creditors.push({ id, bal });
+      if (bal < -0.01) debtors.push({ id, bal: -bal });
+    }
+    creditors.sort((a, b) => b.bal - a.bal);
+    debtors.sort((a, b) => b.bal - a.bal);
+
+    const debiti = [];
+    let i = 0, j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const pay = Math.min(debtors[i].bal, creditors[j].bal);
+      debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: +(pay.toFixed(2)) });
+      debtors[i].bal   -= pay;
+      creditors[j].bal -= pay;
+      if (debtors[i].bal   < 0.01) i++;
+      if (creditors[j].bal < 0.01) j++;
     }
     res.json({ debiti });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
