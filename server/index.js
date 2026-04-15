@@ -21,13 +21,6 @@ app.use(cors(CORS_OPTIONS));
 app.options("*", cors(CORS_OPTIONS));  // explicit OPTIONS preflight handler
 app.use(express.json({ limit: "10mb" }));
 
-const HOUSEHOLDS = [
-  { id: "laura-gabriele", nome: "Laura & Gabriele", pin: process.env.PIN_LAURA_GABRIELE || "1234",
-    persone: [{ id: "laura", nome: "Laura", emoji: "👩", colore: "#E84393" },{ id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#0984E3" }] },
-  { id: "viaggio-irlanda", nome: "Irlanda", pin: process.env.PIN_IRLANDA || "5678",
-    persone: [{ id: "gabriele", nome: "Gabriele", emoji: "👨", colore: "#00B894" },{ id: "laura", nome: "Laura", emoji: "👩", colore: "#FD79A8" },{ id: "marco", nome: "Marco", emoji: "👨", colore: "#0984E3" },{ id: "roberta", nome: "Roberta", emoji: "👩", colore: "#E84393" }] },
-];
-
 let db, transactionsCol, householdsCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
@@ -40,24 +33,13 @@ async function connectDB() {
   console.log("Connected: " + DB_NAME); return client;
 }
 
-// Look up a household from static list OR database
 async function findHousehold(hid) {
-  const staticH = HOUSEHOLDS.find(h => h.id === hid);
-  if (staticH) {
-    const catDoc = await db.collection("categorie").findOne({ householdId: hid });
-    return { id: staticH.id, nome: staticH.nome, persone: staticH.persone, categorieUscita: catDoc?.categorie || null };
-  }
   const dbH = await householdsCol.findOne({ householdId: hid });
   if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
   return null;
 }
 
 async function findHouseholdByPin(pin) {
-  const staticH = HOUSEHOLDS.find(h => h.pin === pin);
-  if (staticH) {
-    const catDoc = await db.collection("categorie").findOne({ householdId: staticH.id });
-    return { householdId: staticH.id, nome: staticH.nome, persone: staticH.persone, categorieUscita: catDoc?.categorie || null };
-  }
   const dbH = await householdsCol.findOne({ pin });
   if (dbH) return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
   return null;
@@ -90,10 +72,6 @@ app.post("/api/auth/register", async (req, res) => {
     if (!/^\d{4,8}$/.test(pin))
       return res.status(400).json({ error: "Il PIN deve essere di 4-8 cifre" });
 
-    // Check static households for PIN collision
-    if (HOUSEHOLDS.find(h => h.pin === pin))
-      return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
-
     // Build householdId: slug from nome + random suffix
     const slug = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const suffix = Math.random().toString(36).slice(2, 7);
@@ -118,17 +96,11 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
-app.get("/api/auth/households", (req, res) => res.json(HOUSEHOLDS.map(h => ({ id: h.id, nome: h.nome, persone: h.persone }))));
-
 // ─── DELETE household ───
 app.delete("/api/auth/household", requireHousehold, async (req, res) => {
   try {
     const { pin } = req.body || {};
     if (!pin) return res.status(400).json({ error: "PIN obbligatorio per confermare" });
-
-    // Prevent deletion of static/hardcoded households
-    if (HOUSEHOLDS.find(h => h.id === req.householdId))
-      return res.status(403).json({ error: "Questo account non può essere eliminato" });
 
     // Verify PIN matches
     const household = await householdsCol.findOne({ householdId: req.householdId });
@@ -323,21 +295,10 @@ app.put("/api/categorie", requireHousehold, async (req, res) => {
     const { categorie } = req.body || {};
     if (!Array.isArray(categorie) || categorie.length === 0)
       return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
-    const isStatic = !!HOUSEHOLDS.find(h => h.id === req.householdId);
-    if (isStatic) {
-      // Static households have no DB doc — store in categorie collection
-      await db.collection("categorie").updateOne(
-        { householdId: req.householdId },
-        { $set: { householdId: req.householdId, categorie, updatedAt: new Date() } },
-        { upsert: true }
-      );
-    } else {
-      // Dynamic households — store directly in household document
-      await householdsCol.updateOne(
-        { householdId: req.householdId },
-        { $set: { categorieUscita: categorie, updatedAt: new Date() } }
-      );
-    }
+    await householdsCol.updateOne(
+      { householdId: req.householdId },
+      { $set: { categorieUscita: categorie, updatedAt: new Date() } }
+    );
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
