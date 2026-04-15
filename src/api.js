@@ -338,14 +338,48 @@ const LS_CATEGORIE_KEY_PREFIX = "finanza-categorie-";
 function lsCatKey() {
   return `${LS_CATEGORIE_KEY_PREFIX}${currentHousehold?.householdId || "default"}`;
 }
-export function getCategorieUscita() {
-  try {
-    const raw = localStorage.getItem(lsCatKey());
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+function lsCatLoad() {
+  try { const raw = localStorage.getItem(lsCatKey()); return raw ? JSON.parse(raw) : null; } catch { return null; }
 }
-export function saveCategorieUscita(cats) {
+function lsCatSave(cats) {
   try { localStorage.setItem(lsCatKey(), JSON.stringify(cats)); } catch {}
+}
+
+export function getCategorieUscita() {
+  return lsCatLoad();
+}
+
+export async function fetchCategorie() {
+  if (currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/categorie`, {
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.categorie) {
+          lsCatSave(data.categorie);
+          return data.categorie;
+        }
+      }
+    } catch {}
+  }
+  return lsCatLoad();
+}
+
+export async function saveCategorie(cats) {
+  lsCatSave(cats);
+  if (currentHousehold) {
+    try {
+      await fetch(`${API_BASE}/api/categorie`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ categorie: cats }),
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch {}
+  }
 }
 
 export async function fetchQuotes(symbols, forceRefresh = false) {

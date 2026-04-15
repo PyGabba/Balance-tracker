@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer, deleteHousehold, getCategorieUscita, saveCategorieUscita } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -3100,12 +3100,20 @@ export default function FinanzaApp() {
     } catch (e) { console.error("loadPositions:", e); }
   }, []);
 
-  useEffect(() => { if (authed) { loadAll(); loadPositions(); } }, [authed, loadAll, loadPositions]);
+  const loadCategorie = useCallback(async () => {
+    try {
+      const cats = await fetchCategorie();
+      if (cats) setCategorieUscita(cats);
+    } catch (e) { console.error("loadCategorie:", e); }
+  }, []);
+
+  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); } }, [authed, loadAll, loadPositions, loadCategorie]);
 
   function handleLogin() {
     setAuthed(true);
     loadAll();
     loadPositions();
+    loadCategorie();
   }
   function handleLogout() { logout(); setAuthed(false); setTransazioni([]); setPositions([]); setTab("home"); }
 
@@ -3187,7 +3195,7 @@ export default function FinanzaApp() {
             persone={persone}
             onDeleted={() => { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }}
             categorie={categorieUscita}
-            onCategorieChange={(cats) => { saveCategorieUscita(cats); setCategorieUscita(cats); }}
+            onCategorieChange={(cats) => { setCategorieUscita(cats); saveCategorie(cats); }}
           />
         )}
       </div>
