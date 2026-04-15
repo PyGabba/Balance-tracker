@@ -2852,7 +2852,10 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
   function handleAddCat() {
     if (!newCat.nome.trim()) return;
     const newId = newCat.nome.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") + "_" + Date.now().toString(36);
-    onCategorieChange([...categorie, { ...newCat, id: newId }]);
+    const without = categorie.filter(c => c.id !== "altro");
+    const altro = categorie.find(c => c.id === "altro");
+    const updated = [...without, { ...newCat, id: newId }, ...(altro ? [altro] : [])];
+    onCategorieChange(updated);
     setShowNewCat(false);
     setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
   }
