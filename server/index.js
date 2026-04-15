@@ -43,17 +43,23 @@ async function connectDB() {
 // Look up a household from static list OR database
 async function findHousehold(hid) {
   const staticH = HOUSEHOLDS.find(h => h.id === hid);
-  if (staticH) return { id: staticH.id, nome: staticH.nome, persone: staticH.persone };
+  if (staticH) {
+    const catDoc = await db.collection("categorie").findOne({ householdId: hid });
+    return { id: staticH.id, nome: staticH.nome, persone: staticH.persone, categorieUscita: catDoc?.categorie || null };
+  }
   const dbH = await householdsCol.findOne({ householdId: hid });
-  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone };
+  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
   return null;
 }
 
 async function findHouseholdByPin(pin) {
   const staticH = HOUSEHOLDS.find(h => h.pin === pin);
-  if (staticH) return { householdId: staticH.id, nome: staticH.nome, persone: staticH.persone };
+  if (staticH) {
+    const catDoc = await db.collection("categorie").findOne({ householdId: staticH.id });
+    return { householdId: staticH.id, nome: staticH.nome, persone: staticH.persone, categorieUscita: catDoc?.categorie || null };
+  }
   const dbH = await householdsCol.findOne({ pin });
-  if (dbH) return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone };
+  if (dbH) return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
   return null;
 }
 
@@ -307,11 +313,9 @@ app.get("/api/stats/summary", requireHousehold, async (req, res) => {
 app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
 
 // ─── Custom Categories ───
-app.get("/api/categorie", requireHousehold, async (req, res) => {
-  try {
-    const doc = await db.collection("categorie").findOne({ householdId: req.householdId });
-    res.json({ categorie: doc?.categorie || null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+// Already loaded in requireHousehold via findHousehold — just return it
+app.get("/api/categorie", requireHousehold, (req, res) => {
+  res.json({ categorie: req.household.categorieUscita || null });
 });
 
 app.put("/api/categorie", requireHousehold, async (req, res) => {
@@ -319,11 +323,21 @@ app.put("/api/categorie", requireHousehold, async (req, res) => {
     const { categorie } = req.body || {};
     if (!Array.isArray(categorie) || categorie.length === 0)
       return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
-    await db.collection("categorie").updateOne(
-      { householdId: req.householdId },
-      { $set: { householdId: req.householdId, categorie, updatedAt: new Date() } },
-      { upsert: true }
-    );
+    const isStatic = !!HOUSEHOLDS.find(h => h.id === req.householdId);
+    if (isStatic) {
+      // Static households have no DB doc — store in categorie collection
+      await db.collection("categorie").updateOne(
+        { householdId: req.householdId },
+        { $set: { householdId: req.householdId, categorie, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    } else {
+      // Dynamic households — store directly in household document
+      await householdsCol.updateOne(
+        { householdId: req.householdId },
+        { $set: { categorieUscita: categorie, updatedAt: new Date() } }
+      );
+    }
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
