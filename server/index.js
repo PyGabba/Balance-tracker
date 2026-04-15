@@ -306,6 +306,28 @@ app.get("/api/stats/summary", requireHousehold, async (req, res) => {
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
 
+// ─── Custom Categories ───
+app.get("/api/categorie", requireHousehold, async (req, res) => {
+  try {
+    const doc = await db.collection("categorie").findOne({ householdId: req.householdId });
+    res.json({ categorie: doc?.categorie || null });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.put("/api/categorie", requireHousehold, async (req, res) => {
+  try {
+    const { categorie } = req.body || {};
+    if (!Array.isArray(categorie) || categorie.length === 0)
+      return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
+    await db.collection("categorie").updateOne(
+      { householdId: req.householdId },
+      { $set: { householdId: req.householdId, categorie, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
 // ─── Stock Positions ───
 // Collection: positions { householdId, ticker, nome, quantita, prezzoAcquisto, dataAcquisto, valuta, note, createdAt }
 
