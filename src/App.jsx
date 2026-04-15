@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer, deleteHousehold } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer, deleteHousehold, getCategorieUscita, saveCategorieUscita } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -461,7 +461,7 @@ function TabBar({ tab, setTab, householdId }) {
 }
 
 // ─── Home ───
-function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset }) {
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [settlingKey, setSettlingKey] = useState(null); // "da->a"
@@ -486,7 +486,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
     .filter(t => {
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
-      const cat = CATEGORIE.find(c => c.id === t.categoria);
+      const cat = categorie.find(c => c.id === t.categoria);
       return (t.descrizione || "").toLowerCase().includes(q)
         || (cat?.nome || "").toLowerCase().includes(q);
     })
@@ -687,7 +687,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {txOrdinate.map(t => (
-            <TransactionRow key={t.id} t={t} persone={persone} isEditing={editId === t.id}
+            <TransactionRow key={t.id} t={t} persone={persone} categorie={categorie} isEditing={editId === t.id}
               onTap={() => setEditId(editId === t.id ? null : t.id)}
               onDelete={() => { onDelete(t.id); setEditId(null); }}
               onSave={(updates) => { onEdit(t.id, updates); setEditId(null); }}
@@ -705,8 +705,9 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 }
 
 // ─── Transaction Row with inline edit ───
-function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCancel }) {
-  const cat = CATEGORIE.find(c => c.id === t.categoria) || CATEGORIE[7];
+function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onSave, onCancel }) {
+  const _ENTRATA_CAT = { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" };
+  const cat = t.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === t.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
   const persona = persone.find(p => p.id === t.pagatoDa);
 
   // Edit state
@@ -857,7 +858,7 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
         <div style={{ marginBottom: 12 }}>
           <label style={labelStyle}>Categoria</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5 }}>
-            {CATEGORIE.filter(c => c.id !== "entrata").map(c => (
+            {categorie.map(c => (
               <button key={c.id} onClick={() => setCategoria(c.id)} style={{
                 background: categoria === c.id ? c.colore + "33" : "#111119",
                 border: categoria === c.id ? `2px solid ${c.colore}88` : "2px solid #252538",
@@ -881,10 +882,10 @@ function TransactionRow({ t, persone, isEditing, onTap, onDelete, onSave, onCanc
       {tipo === "entrata" && (
         <div style={{ marginBottom: 12 }}>
           <label style={labelStyle}>Entrata di chi?</label>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {persone.map(p => (
               <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
-                flex: 1, padding: "10px 6px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
+                flex: "1 1 auto", minWidth: 0, padding: "10px 6px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
                 borderRadius: 12, cursor: "pointer", background: intestataA === p.id ? p.colore + "22" : "#111119",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s",
               }}>
@@ -941,10 +942,10 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [] }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie }) {
   const [tipo, setTipo] = useState("uscita");
   const [importo, setImporto] = useState("");
-  const [categoria, setCategoria] = useState("cibo");
+  const [categoria, setCategoria] = useState(() => categorie[0]?.id || "cibo");
   const [descrizione, setDescrizione] = useState("");
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
@@ -1002,7 +1003,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [] }) {
           <div style={{ marginBottom: 18 }}>
             <label style={labelStyle}>Categoria</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-              {CATEGORIE.filter(c => c.id !== "entrata").map(c => (
+              {categorie.map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id)} style={{
                   background: categoria===c.id?c.colore+"33":"#1a1a28", border: categoria===c.id?`2px solid ${c.colore}88`:"2px solid #252538",
                   borderRadius: 14, padding: "10px 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
@@ -1019,10 +1020,10 @@ function AggiungiView({ onAggiungi, persone, transazioni = [] }) {
       {tipo === "entrata" && (
         <div style={{ marginBottom: 18 }}>
           <label style={labelStyle}>Entrata di chi?</label>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {persone.map(p => (
               <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
-                flex: 1, padding: "12px 8px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
+                flex: "1 1 auto", minWidth: 0, padding: "12px 8px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
                 borderRadius: 14, cursor: "pointer", background: intestataA === p.id ? p.colore + "22" : "#1a1a28",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s",
               }}>
@@ -1121,7 +1122,7 @@ const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom
 const inputStyle = { width: "100%", maxWidth: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", WebkitAppearance: "none" };
 
 // ─── Stats ───
-function StatsView({ transazioni, persone, meseOffset }) {
+function StatsView({ transazioni, persone, meseOffset, categorie }) {
   const oggi = new Date();
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
@@ -1130,7 +1131,7 @@ function StatsView({ transazioni, persone, meseOffset }) {
   const totalUscite = usciteMese.reduce((s,t) => s+t.importo, 0);
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
     + txMese.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
-  const perCategoria = CATEGORIE.filter(c=>c.id!=="entrata").map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
+  const perCategoria = categorie.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
   const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
   const spesoPerPersona = persone.map(p => ({
     ...p,
@@ -1166,7 +1167,7 @@ function StatsView({ transazioni, persone, meseOffset }) {
   const deltaEntPct = totalEntratePrec > 0 ? ((totalEntrate - totalEntratePrec) / totalEntratePrec * 100) : null;
 
   // Category comparison vs previous month
-  const catTrends = CATEGORIE.filter(c=>c.id!=="entrata").map(cat => {
+  const catTrends = categorie.map(cat => {
     const curr = usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0);
     const prev = usciteMesePrec.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0);
     const delta = prev > 0 ? ((curr - prev) / prev * 100) : (curr > 0 ? 100 : 0);
@@ -1198,7 +1199,7 @@ function StatsView({ transazioni, persone, meseOffset }) {
   else if (savingRate > 0) insights.push({ icon: "💡", color: "#F0A500", text: `Tasso di risparmio: ${Math.round(savingRate)}%` });
   else if (totalEntrate > 0) insights.push({ icon: "⚠️", color: "#FF6B6B", text: `Spendi più di quanto guadagni questo mese` });
   if (maxTx) {
-    const maxCat = CATEGORIE.find(c=>c.id===maxTx.categoria);
+    const maxCat = categorie.find(c=>c.id===maxTx.categoria);
     insights.push({ icon: "🏷️", color: "#DDA0DD", text: `Spesa più grande: ${formattaValuta(maxTx.importo)} — ${maxTx.descrizione || maxCat?.nome || ""}` });
   }
   if (topDay.totale > 0) insights.push({ icon: "📅", color: "#45B7D1", text: `Giorno più costoso: ${topDay.giorno} ${MESI[meseVis.getMonth()]} (${formattaValuta(topDay.totale)})` });
@@ -2830,10 +2831,31 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function ImpostazioniView({ householdName, householdId, persone, onDeleted }) {
+function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange }) {
   const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
+
+  // Category editor state
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCat, setNewCat] = useState({ emoji: "📦", nome: "", colore: "#A8A8A8" });
+
+  function handleSaveEdit(id) {
+    onCategorieChange(categorie.map(c => c.id === id ? { ...c, ...editForm } : c));
+    setEditingCatId(null);
+  }
+  function handleDeleteCat(id) {
+    onCategorieChange(categorie.filter(c => c.id !== id));
+  }
+  function handleAddCat() {
+    if (!newCat.nome.trim()) return;
+    const newId = newCat.nome.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") + "_" + Date.now().toString(36);
+    onCategorieChange([...categorie, { ...newCat, id: newId }]);
+    setShowNewCat(false);
+    setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
+  }
 
   async function eseguiElimina() {
     if (!pin) return;
@@ -2869,6 +2891,61 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted }) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Category editor */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>Categorie uscite</div>
+        {categorie.map(c => (
+          <div key={c.id}>
+            {editingCatId === c.id ? (
+              <div style={{ padding: "10px 0", borderBottom: "1px solid #252538" }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                  <input value={editForm.emoji || c.emoji} onChange={e => setEditForm(f => ({ ...f, emoji: e.target.value }))}
+                    style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
+                  <input value={editForm.nome ?? c.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))}
+                    placeholder="Nome categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                  <input type="color" value={editForm.colore || c.colore} onChange={e => setEditForm(f => ({ ...f, colore: e.target.value }))}
+                    style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setEditingCatId(null)} style={{ flex: 1, padding: "8px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Annulla</button>
+                  <button onClick={() => handleSaveEdit(c.id)} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: "#6C5CE7", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Salva</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #252538" }}>
+                <span style={{ fontSize: 20 }}>{c.emoji}</span>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.colore, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 14, color: "#ccc", fontWeight: 600 }}>{c.nome}</span>
+                <button onClick={() => { setEditingCatId(c.id); setEditForm({}); }} style={{ padding: "5px 8px", border: "1px solid #252538", borderRadius: 8, background: "transparent", color: "#888", fontSize: 11, cursor: "pointer" }}>Modifica</button>
+                {categorie.length > 1 && (
+                  <button onClick={() => handleDeleteCat(c.id)} style={{ padding: "5px 8px", border: "1px solid #FF6B6B33", borderRadius: 8, background: "transparent", color: "#FF6B6B", fontSize: 11, cursor: "pointer" }}>Elimina</button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {showNewCat ? (
+          <div style={{ paddingTop: 12 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <input value={newCat.emoji} onChange={e => setNewCat(n => ({ ...n, emoji: e.target.value }))}
+                style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
+              <input value={newCat.nome} onChange={e => setNewCat(n => ({ ...n, nome: e.target.value }))}
+                placeholder="Nome categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} autoFocus />
+              <input type="color" value={newCat.colore} onChange={e => setNewCat(n => ({ ...n, colore: e.target.value }))}
+                style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setShowNewCat(false); setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" }); }} style={{ flex: 1, padding: "8px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Annulla</button>
+              <button onClick={handleAddCat} disabled={!newCat.nome.trim()} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: newCat.nome.trim() ? "#6C5CE7" : "#252538", color: newCat.nome.trim() ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: newCat.nome.trim() ? "pointer" : "default", fontFamily: "'DM Sans',sans-serif" }}>Aggiungi</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", border: "1px dashed #252538", borderRadius: 10, background: "transparent", color: "#666", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
+            + Nuova categoria
+          </button>
+        )}
       </div>
 
       {/* Delete section */}
@@ -2965,6 +3042,7 @@ export default function FinanzaApp() {
   const [transazioni, setTransazioni] = useState([]);
   const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
+  const [categorieUscita, setCategorieUscita] = useState(() => getCategorieUscita() || CATEGORIE.filter(c => c.id !== "entrata"));
 
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
@@ -3097,9 +3175,9 @@ export default function FinanzaApp() {
       )}
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} />}
-        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} />}
-        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
+        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} />}
+        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
         {tab === "impostazioni" && (
@@ -3108,6 +3186,8 @@ export default function FinanzaApp() {
             householdId={getSession()?.householdId}
             persone={persone}
             onDeleted={() => { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }}
+            categorie={categorieUscita}
+            onCategorieChange={(cats) => { saveCategorieUscita(cats); setCategorieUscita(cats); }}
           />
         )}
       </div>

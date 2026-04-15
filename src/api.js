@@ -333,6 +333,21 @@ export async function deletePosition(id) {
   return true;
 }
 
+// ─── Custom Categories ───
+const LS_CATEGORIE_KEY_PREFIX = "finanza-categorie-";
+function lsCatKey() {
+  return `${LS_CATEGORIE_KEY_PREFIX}${currentHousehold?.householdId || "default"}`;
+}
+export function getCategorieUscita() {
+  try {
+    const raw = localStorage.getItem(lsCatKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+export function saveCategorieUscita(cats) {
+  try { localStorage.setItem(lsCatKey(), JSON.stringify(cats)); } catch {}
+}
+
 export async function fetchQuotes(symbols, forceRefresh = false) {
   if (!symbols || symbols.length === 0) return { quotes: {}, cached: false, aggiornamento: " " };
   try {
