@@ -3101,10 +3101,11 @@ export default function FinanzaApp() {
   }, []);
 
   const loadCategorie = useCallback(async () => {
+    const defaults = CATEGORIE.filter(c => c.id !== "entrata");
     try {
       const cats = await fetchCategorie();
-      if (cats) setCategorieUscita(cats);
-    } catch (e) { console.error("loadCategorie:", e); }
+      setCategorieUscita(cats || defaults);
+    } catch (e) { console.error("loadCategorie:", e); setCategorieUscita(defaults); }
   }, []);
 
   useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); } }, [authed, loadAll, loadPositions, loadCategorie]);
@@ -3115,7 +3116,14 @@ export default function FinanzaApp() {
     loadPositions();
     loadCategorie();
   }
-  function handleLogout() { logout(); setAuthed(false); setTransazioni([]); setPositions([]); setTab("home"); }
+  function handleLogout() {
+    logout();
+    setAuthed(false);
+    setTransazioni([]);
+    setPositions([]);
+    setCategorieUscita(CATEGORIE.filter(c => c.id !== "entrata"));
+    setTab("home");
+  }
 
   async function aggiungiTransazione(t) {
     try {
