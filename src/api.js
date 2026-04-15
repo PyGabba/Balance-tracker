@@ -335,8 +335,12 @@ export async function deletePosition(id) {
 
 // ─── Custom Categories ───
 const LS_CATEGORIE_KEY_PREFIX = "finanza-categorie-";
+const LS_CATEGORIE_DIRTY_PREFIX = "finanza-categorie-dirty-";
 function lsCatKey() {
   return `${LS_CATEGORIE_KEY_PREFIX}${currentHousehold?.householdId || "default"}`;
+}
+function lsCatDirtyKey() {
+  return `${LS_CATEGORIE_DIRTY_PREFIX}${currentHousehold?.householdId || "default"}`;
 }
 function lsCatLoad() {
   try { const raw = localStorage.getItem(lsCatKey()); return raw ? JSON.parse(raw) : null; } catch { return null; }
@@ -349,18 +353,37 @@ export function getCategorieUscita() {
   return lsCatLoad();
 }
 
+async function pushCategorieToServer(cats) {
+  const res = await fetch(`${API_BASE}/api/categorie`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify({ categorie: cats }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(res.status);
+  try { localStorage.removeItem(lsCatDirtyKey()); } catch {}
+}
+
 export async function fetchCategorie() {
   if (currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/categorie`, {
         headers: authHeaders(),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
         const data = await res.json();
         if (data.categorie) {
           lsCatSave(data.categorie);
+          try { localStorage.removeItem(lsCatDirtyKey()); } catch {}
           return data.categorie;
+        }
+        // Server has no categories — if we have a pending local sync, push it now
+        const dirty = localStorage.getItem(lsCatDirtyKey());
+        const local = lsCatLoad();
+        if (dirty && local) {
+          pushCategorieToServer(local).catch(() => {});
+          return local;
         }
       }
     } catch {}
@@ -370,15 +393,12 @@ export async function fetchCategorie() {
 
 export async function saveCategorie(cats) {
   lsCatSave(cats);
+  // Mark as dirty immediately so fetchCategorie can retry on next load if this fails
+  try { localStorage.setItem(lsCatDirtyKey(), "1"); } catch {}
   if (currentHousehold) {
-    try {
-      await fetch(`${API_BASE}/api/categorie`, {
-        method: "PUT",
-        headers: authHeaders(),
-        body: JSON.stringify({ categorie: cats }),
-        signal: AbortSignal.timeout(8000),
-      });
-    } catch {}
+    pushCategorieToServer(cats).catch(() => {
+      // Dirty flag stays set — fetchCategorie will retry on next app load
+    });
   }
 }
 
