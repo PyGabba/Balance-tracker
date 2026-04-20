@@ -942,8 +942,8 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [], categorie }) {
-  const [tipo, setTipo] = useState("uscita");
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita" }) {
+  const [tipo, setTipo] = useState(initialTipo);
   const [importo, setImporto] = useState("");
   const [categoria, setCategoria] = useState(() => categorie[0]?.id || "cibo");
   const [descrizione, setDescrizione] = useState("");
@@ -3041,7 +3041,9 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 // ─── Main App ───
 export default function FinanzaApp() {
   const [authed, setAuthed] = useState(isLoggedIn());
-  const [tab, setTab] = useState("home");
+  const urlParams = new URLSearchParams(window.location.search);
+  const [tab, setTab] = useState(urlParams.get("action") === "add" ? "aggiungi" : "home");
+  const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
   const [transazioni, setTransazioni] = useState([]);
   const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
@@ -3195,7 +3197,7 @@ export default function FinanzaApp() {
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
-        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} />}
+        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
