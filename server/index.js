@@ -7,7 +7,43 @@ import YahooFinance from "yahoo-finance2";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+import nodemailer from "nodemailer";
 dotenv.config();
+
+// ─── Email alert ───
+async function sendLockoutAlert(ip) {
+  if (!process.env.GMAIL_APP_PASSWORD) return;
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: "pygabba@gmail.com", pass: process.env.GMAIL_APP_PASSWORD },
+  });
+  await transporter.sendMail({
+    from: "pygabba@gmail.com",
+    to: "pygabba@gmail.com",
+    subject: "⚠️ Balance Tracker: accesso bloccato",
+    text: `10 tentativi di PIN errati rilevati dall'IP ${ip}.\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`,
+  });
+}
+
+// ─── Per-IP wrong-PIN lockout (only counts wrong attempts, not all requests) ───
+const failedLogins = new Map(); // ip → { count, lockedUntil }
+const LOCK_DURATION = 10 * 60 * 1000;
+const MAX_FAILS = 10;
+
+function checkLock(ip) {
+  const rec = failedLogins.get(ip);
+  if (!rec) return null;
+  if (rec.lockedUntil && Date.now() > rec.lockedUntil) { failedLogins.delete(ip); return null; }
+  return rec;
+}
+function recordFail(ip) {
+  const rec = checkLock(ip) || { count: 0 };
+  rec.count += 1;
+  if (rec.count >= MAX_FAILS) rec.lockedUntil = Date.now() + LOCK_DURATION;
+  failedLogins.set(ip, rec);
+  return rec.count >= MAX_FAILS;
+}
+function clearFails(ip) { failedLogins.delete(ip); }
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 function signToken(householdId) {
@@ -102,8 +138,19 @@ const loginLimiter = rateLimit({
 
 app.post("/api/auth/login", loginLimiter, async (req, res) => {
   try {
+    const ip = req.ip;
+    const lock = checkLock(ip);
+    if (lock?.lockedUntil) {
+      const mins = Math.ceil((lock.lockedUntil - Date.now()) / 60000);
+      return res.status(429).json({ error: `Troppi tentativi errati. Riprova tra ${mins} minuti.` });
+    }
     const household = await findHouseholdByPin(req.body?.pin);
-    if (!household) return res.status(401).json({ error: "PIN non valido" });
+    if (!household) {
+      const nowLocked = recordFail(ip);
+      if (nowLocked) sendLockoutAlert(ip).catch(console.error);
+      return res.status(401).json({ error: "PIN non valido" });
+    }
+    clearFails(ip);
     res.json({ ...household, token: signToken(household.householdId) });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });
