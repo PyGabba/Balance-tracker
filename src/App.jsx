@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -1682,16 +1682,18 @@ function PortfolioView() {
     setPositions(prev => prev.filter(p => !ids.has(p.id)));
   }
 
-  // ── Manual price overrides (localStorage) ──
-  const [manualPrices, setManualPrices] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("portfolio-manual-prices") || "{}"); } catch { return {}; }
-  });
-  const [editingTicker, setEditingTicker] = useState(null); // ticker being edited
+  // ── Manual price overrides (MongoDB) ──
+  const [manualPrices, setManualPrices] = useState({});
+  const [editingTicker, setEditingTicker] = useState(null);
   const [editPriceVal, setEditPriceVal] = useState("");
+
+  useEffect(() => {
+    fetchManualPrices().then(p => setManualPrices(p));
+  }, []);
 
   function saveManualPrices(updated) {
     setManualPrices(updated);
-    try { localStorage.setItem("portfolio-manual-prices", JSON.stringify(updated)); } catch {}
+    saveManualPricesRemote(updated);
   }
 
   function startEditPrice(ticker, currentManual) {
@@ -3051,6 +3053,23 @@ export default function FinanzaApp() {
 
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
+
+  // Read clipboard on foreground to handle iOS Shortcut → Open App flow
+  useEffect(() => {
+    const handleVisibility = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const text = await navigator.clipboard.readText();
+        if (['uscita', 'entrata', 'saldo'].includes(text)) {
+          navigator.clipboard.writeText('');
+          setInitialTipo(text);
+          setTab('aggiungi');
+        }
+      } catch {}
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();

@@ -52,7 +52,7 @@ export function wakeupServer() {
 
 function authHeaders() {
   const h = { "Content-Type": "application/json" };
-  if (currentHousehold?.householdId) h["x-household-id"] = currentHousehold.householdId;
+  if (currentHousehold?.token) h["Authorization"] = `Bearer ${currentHousehold.token}`;
   return h;
 }
 
@@ -375,6 +375,30 @@ export async function saveCategorie(cats) {
       headers: authHeaders(),
       body: JSON.stringify({ categorie: cats }),
       signal: AbortSignal.timeout(20000),
+    });
+  } catch {}
+}
+
+export async function fetchManualPrices() {
+  if (!currentHousehold) return {};
+  try {
+    const res = await fetch(`${API_BASE}/api/positions/prices`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) return (await res.json()).manualPrices || {};
+  } catch {}
+  return {};
+}
+
+export async function saveManualPricesRemote(prices) {
+  if (!currentHousehold) return;
+  try {
+    await fetch(`${API_BASE}/api/positions/prices`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify({ manualPrices: prices }),
+      signal: AbortSignal.timeout(10000),
     });
   } catch {}
 }

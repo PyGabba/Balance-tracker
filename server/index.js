@@ -3,7 +3,13 @@ import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
 import YahooFinance from "yahoo-finance2";
+import jwt from "jsonwebtoken";
 dotenv.config();
+
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
+function signToken(householdId) {
+  return jwt.sign({ householdId }, JWT_SECRET, { expiresIn: "90d" });
+}
 
 const yf = new YahooFinance();
 
@@ -14,7 +20,7 @@ const DB_NAME = process.env.DB_NAME || "finanza_tracker";
 const CORS_OPTIONS = {
   origin: true,  // reflect request origin (allows all, including Vercel previews)
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "x-household-id"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   optionsSuccessStatus: 200,
 };
 app.use(cors(CORS_OPTIONS));
@@ -35,7 +41,7 @@ async function connectDB() {
 
 async function findHousehold(hid) {
   const dbH = await householdsCol.findOne({ householdId: hid });
-  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
+  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null, manualPrices: dbH.manualPrices || {} };
   return null;
 }
 
@@ -46,8 +52,12 @@ async function findHouseholdByPin(pin) {
 }
 
 async function requireHousehold(req, res, next) {
-  const hid = req.headers["x-household-id"];
-  if (!hid) return res.status(401).json({ error: "Household non valido" });
+  const auth = req.headers["authorization"];
+  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Household non valido" });
+  let payload;
+  try { payload = jwt.verify(auth.slice(7), JWT_SECRET); }
+  catch { return res.status(401).json({ error: "Token non valido" }); }
+  const hid = payload.householdId;
   try {
     const household = await findHousehold(hid);
     if (!household) return res.status(401).json({ error: "Household non valido" });
@@ -60,7 +70,7 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const household = await findHouseholdByPin(req.body?.pin);
     if (!household) return res.status(401).json({ error: "PIN non valido" });
-    res.json(household);
+    res.json({ ...household, token: signToken(household.householdId) });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });
 
@@ -88,7 +98,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     const doc = { householdId, nome, persone: personeFormatted, pin, createdAt: new Date() };
     await householdsCol.insertOne(doc);
-    res.status(201).json({ householdId, nome, persone: personeFormatted });
+    res.status(201).json({ householdId, nome, persone: personeFormatted, token: signToken(householdId) });
   } catch (e) {
     if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
     console.error("Register error:", e);
@@ -347,6 +357,24 @@ app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async
     const r = await db.collection("positions").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
     if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata" });
     res.json({ deleted: true, id: req.params.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// ─── Manual price overrides ───
+app.get("/api/positions/prices", requireHousehold, (req, res) => {
+  res.json({ manualPrices: req.household.manualPrices || {} });
+});
+
+app.put("/api/positions/prices", requireHousehold, async (req, res) => {
+  try {
+    const { manualPrices } = req.body || {};
+    if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
+      return res.status(400).json({ error: "manualPrices deve essere un oggetto" });
+    await householdsCol.updateOne(
+      { householdId: req.householdId },
+      { $set: { manualPrices, updatedAt: new Date() } }
+    );
+    res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
