@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import YahooFinance from "yahoo-finance2";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
@@ -90,7 +91,15 @@ async function requireHousehold(req, res, next) {
 }
 
 // ─── Auth ───
-app.post("/api/auth/login", async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                   // 10 attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Troppi tentativi, riprova tra 15 minuti" },
+});
+
+app.post("/api/auth/login", loginLimiter, async (req, res) => {
   try {
     const household = await findHouseholdByPin(req.body?.pin);
     if (!household) return res.status(401).json({ error: "PIN non valido" });
