@@ -2620,7 +2620,7 @@ function LoginScreen({ onLogin }) {
   const [loginErrore, setLoginErrore] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [pinShake, setPinShake] = useState(false);
-  const PIN_LEN = 4; // assumed fixed length for auto-submit; if user has longer PIN they can use backspace
+  const PIN_LEN = 6; // auto-submit at 6 digits (minimum PIN length)
 
   // Register state
   const [regNome, setRegNome] = useState("");
@@ -2826,8 +2826,8 @@ function LoginScreen({ onLogin }) {
 
             <NumPad onDigit={onDigit} onDelete={onDelete} disabled={loginLoading} />
 
-            {/* Fallback: se il PIN è più lungo di 4 cifre, mostra il tasto Accedi */}
-            {pin.length > PIN_LEN && (
+            {/* Show Accedi for legacy 4-5 digit PINs and for 7-8 digit PINs */}
+            {(pin.length >= 4 && pin.length < PIN_LEN || pin.length > PIN_LEN) && (
               <button
                 onClick={() => submitRef.current(pin)}
                 disabled={loginLoading}
