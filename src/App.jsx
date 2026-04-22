@@ -942,11 +942,11 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita" }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita", initialImporto = "", initialDescrizione = "" }) {
   const [tipo, setTipo] = useState(initialTipo);
-  const [importo, setImporto] = useState("");
+  const [importo, setImporto] = useState(initialImporto);
   const [categoria, setCategoria] = useState(() => categorie[0]?.id || "cibo");
-  const [descrizione, setDescrizione] = useState("");
+  const [descrizione, setDescrizione] = useState(initialDescrizione);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
@@ -3066,6 +3066,9 @@ export default function FinanzaApp() {
   const urlParams = new URLSearchParams(window.location.search);
   const [tab, setTab] = useState(urlParams.get("action") === "add" ? "aggiungi" : "home");
   const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
+  const [initialImporto, setInitialImporto] = useState(urlParams.get("importo") || "");
+  const [initialDescrizione, setInitialDescrizione] = useState(urlParams.get("descrizione") || "");
+  const [shortcutKey, setShortcutKey] = useState(0);
   const [transazioni, setTransazioni] = useState([]);
   const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
@@ -3074,15 +3077,32 @@ export default function FinanzaApp() {
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
 
-  // Read clipboard on foreground to handle iOS Shortcut → Open App flow
+  // Read clipboard on foreground to handle iOS Shortcut → Open App flow.
+  // Shortcut should copy JSON: {"tipo":"uscita","importo":"12.50","descrizione":"Merchant"}
   useEffect(() => {
     const handleVisibility = async () => {
       if (document.visibilityState !== 'visible') return;
       try {
-        const text = await navigator.clipboard.readText();
-        if (['uscita', 'entrata', 'saldo'].includes(text)) {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (!text) return;
+        let tipo = null, importo = "", descrizione = "";
+        try {
+          const parsed = JSON.parse(text);
+          if (['uscita', 'entrata', 'saldo'].includes(parsed.tipo)) {
+            tipo = parsed.tipo;
+            importo = parsed.importo != null ? String(parsed.importo) : "";
+            descrizione = parsed.descrizione || "";
+          }
+        } catch {
+          // legacy: plain tipo string
+          if (['uscita', 'entrata', 'saldo'].includes(text)) tipo = text;
+        }
+        if (tipo) {
           navigator.clipboard.writeText('');
-          setInitialTipo(text);
+          setInitialTipo(tipo);
+          setInitialImporto(importo);
+          setInitialDescrizione(descrizione);
+          setShortcutKey(k => k + 1);
           setTab('aggiungi');
         }
       } catch {}
@@ -3243,7 +3263,7 @@ export default function FinanzaApp() {
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
-        {tab === "aggiungi" && <AggiungiView onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} />}
+        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
