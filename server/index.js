@@ -66,6 +66,12 @@ async function hashPin(pin) { return bcrypt.hash(pin, 10); }
 
 const yf = new YahooFinance();
 
+function clientIp(req) {
+  const fwd = req.headers["x-forwarded-for"];
+  if (fwd) return fwd.split(",")[0].trim();
+  return req.socket?.remoteAddress || req.ip;
+}
+
 const app = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3001;
@@ -152,7 +158,7 @@ const loginLimiter = rateLimit({
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const ip = req.ip;
+    const ip = clientIp(req);
     const lock = await checkLock(ip);
     if (lock?.lockedUntil) {
       const mins = Math.ceil((lock.lockedUntil - new Date()) / 60000);
