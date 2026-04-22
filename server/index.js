@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { MongoClient, ObjectId } from "mongodb";
 import { createHmac } from "crypto";
 import dotenv from "dotenv";
@@ -77,14 +78,31 @@ app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
 const DB_NAME = process.env.DB_NAME || "finanza_tracker";
+
+// ─── Security headers ───
+app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled: SPA handles its own
+
+// ─── CORS: restrict to known origins ───
+const ALLOWED_ORIGINS = [
+  "https://balance-tracker-two.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:4173",
+];
+// Allow any Vercel preview deploy for this project
+const VERCEL_PREVIEW_RE = /^https:\/\/balance-tracker-[a-z0-9-]+-pygabba\.vercel\.app$/;
 const CORS_OPTIONS = {
-  origin: true,  // reflect request origin (allows all, including Vercel previews)
+  origin(origin, cb) {
+    if (!origin) return cb(null, true); // native app / curl / server-to-server
+    if (ALLOWED_ORIGINS.includes(origin) || VERCEL_PREVIEW_RE.test(origin))
+      return cb(null, true);
+    cb(new Error(`CORS: origin not allowed: ${origin}`));
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   optionsSuccessStatus: 200,
 };
 app.use(cors(CORS_OPTIONS));
-app.options("*", cors(CORS_OPTIONS));  // explicit OPTIONS preflight handler
+app.options("*", cors(CORS_OPTIONS));
 app.use(express.json({ limit: "10mb" }));
 
 let db, transactionsCol, householdsCol, quotesCol, blacklistCol;
@@ -123,14 +141,14 @@ function requireAdmin(req, res, next) {
 }
 
 // ─── Admin blacklist routes ───
-app.get("/api/admin/blacklist", requireAdmin, async (req, res) => {
+app.get("/api/admin/blacklist", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const docs = await blacklistCol.find({}).sort({ addedAt: -1 }).toArray();
     res.json(docs.map(d => ({ key: d.key, reason: d.reason || "", addedAt: d.addedAt })));
   } catch (e) { res.status(500).json({ error: "Errore" }); }
 });
 
-app.post("/api/admin/blacklist", requireAdmin, async (req, res) => {
+app.post("/api/admin/blacklist", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const { key, reason } = req.body || {};
     if (!key || typeof key !== "string") return res.status(400).json({ error: "key obbligatorio (es. ip:1.2.3.4 o device:uuid)" });
@@ -143,7 +161,7 @@ app.post("/api/admin/blacklist", requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: "Errore" }); }
 });
 
-app.delete("/api/admin/blacklist/:key(*)", requireAdmin, async (req, res) => {
+app.delete("/api/admin/blacklist/:key(*)", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const key = decodeURIComponent(req.params.key);
     const r = await blacklistCol.deleteOne({ key });
@@ -184,7 +202,7 @@ async function requireHousehold(req, res, next) {
   const auth = req.headers["authorization"];
   if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Household non valido" });
   let payload;
-  try { payload = jwt.verify(auth.slice(7), JWT_SECRET); }
+  try { payload = jwt.verify(auth.slice(7), JWT_SECRET, { algorithms: ["HS256"] }); }
   catch { return res.status(401).json({ error: "Token non valido" }); }
   const hid = payload.householdId;
   try {
@@ -194,13 +212,19 @@ async function requireHousehold(req, res, next) {
   } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
 }
 
-// ─── Auth ───
-const loginLimiter = rateLimit({
+// ─── Rate limiters ───
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,                    // 5 registrations per IP per hour
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppi account creati, riprova tra un'ora" },
+});
+
+const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,                   // 10 attempts per IP per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Troppi tentativi, riprova tra 15 minuti" },
+  max: 20,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppi tentativi admin" },
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -245,13 +269,13 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });
 
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", registerLimiter, async (req, res) => {
   try {
     const { nome, persone, pin } = req.body || {};
     if (!nome || !pin || !Array.isArray(persone) || persone.length === 0)
       return res.status(400).json({ error: "Campi obbligatori: nome, persone, pin" });
-    if (!/^\d{4,8}$/.test(pin))
-      return res.status(400).json({ error: "Il PIN deve essere di 4-8 cifre" });
+    if (!/^\d{6,8}$/.test(pin))
+      return res.status(400).json({ error: "Il PIN deve essere di 6-8 cifre" });
 
     // Build householdId: slug from nome + random suffix
     const slug = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -567,7 +591,7 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
 // Supports all exchanges: .MI (Milano), .DE (Frankfurt), .L (London), US, etc.
 // Cached once per day in MongoDB
 
-app.get("/api/quotes", async (req, res) => {
+app.get("/api/quotes", requireHousehold, async (req, res) => {
   try {
     const symbols = req.query.symbols;
     if (!symbols) return res.status(400).json({ error: "symbols required" });

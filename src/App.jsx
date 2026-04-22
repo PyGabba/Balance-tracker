@@ -2683,7 +2683,7 @@ function LoginScreen({ onLogin }) {
     const personeValide = regPersone.filter(p => p.nome.trim());
     if (!regNome.trim()) return setRegErrore("Inserisci il nome del gruppo");
     if (personeValide.length === 0) return setRegErrore("Aggiungi almeno una persona");
-    if (regPin.length < 4) return setRegErrore("Il PIN deve essere di almeno 4 cifre");
+    if (regPin.length < 6) return setRegErrore("Il PIN deve essere di almeno 6 cifre");
     if (regPin !== regPinConferma) return setRegErrore("I PIN non coincidono");
     setRegLoading(true);
     try {
