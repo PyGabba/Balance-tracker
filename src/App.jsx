@@ -3140,7 +3140,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
 // ─── Main App ───
 export default function FinanzaApp() {
-  const [authed, setAuthed] = useState(isLoggedIn());
+  const [authed, setAuthed] = useState(isLoggedIn() && !getSession()?.requiresPinChange);
   const urlParams = new URLSearchParams(window.location.search);
   const [tab, setTab] = useState(urlParams.get("action") === "add" ? "aggiungi" : "home");
   const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
