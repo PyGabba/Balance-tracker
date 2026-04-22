@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { App as CapApp } from "@capacitor/app";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
 
 const CATEGORIE = [
@@ -3091,36 +3092,43 @@ export default function FinanzaApp() {
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
 
-  // Handle iOS Shortcut → Open App via URL params.
-  // Shortcut opens: https://your-app.vercel.app/?action=add&tipo=uscita&importo=12.50&descrizione=Merchant
-  // Works both on fresh load (useState init above) and when app is already open in background.
+  // Shared deep-link handler — used by both URL params and webapp:// scheme.
+  // Shortcut: webapp://?action=add&tipo=uscita&importo=12.50&descrizione=Merchant&categoria=cibo&pagatoDa=Gabriele
+  const applyDeepLink = useCallback((queryString) => {
+    const p = new URLSearchParams(queryString);
+    if (p.get("action") !== "add") return false;
+    setInitialTipo(p.get("tipo") || "uscita");
+    setInitialImporto(p.get("importo") || "");
+    setInitialDescrizione(p.get("descrizione") || "");
+    setInitialCategoria(p.get("categoria") || "");
+    setInitialPagatoDa(p.get("pagatoDa") || "");
+    setShortcutKey(k => k + 1);
+    setTab("aggiungi");
+    return true;
+  }, []);
+
+  // webapp:// scheme — fires when Capacitor app is opened via custom URL scheme.
   useEffect(() => {
-    function applyUrlParams() {
-      const p = new URLSearchParams(window.location.search);
-      if (p.get("action") !== "add") return false;
-      const tipo = p.get("tipo") || "uscita";
-      const importo = p.get("importo") || "";
-      const descrizione = p.get("descrizione") || "";
-      const categoria = p.get("categoria") || "";
-      const pagatoDa = p.get("pagatoDa") || "";
-      window.history.replaceState({}, "", window.location.pathname);
-      setInitialTipo(tipo);
-      setInitialImporto(importo);
-      setInitialDescrizione(descrizione);
-      setInitialCategoria(categoria);
-      setInitialPagatoDa(pagatoDa);
-      setShortcutKey(k => k + 1);
-      setTab("aggiungi");
-      return true;
+    let listener;
+    CapApp.addListener("appUrlOpen", (event) => {
+      const qs = event.url.includes("?") ? event.url.split("?")[1] : "";
+      applyDeepLink(qs);
+    }).then(l => { listener = l; }).catch(() => {});
+    return () => { listener?.remove(); };
+  }, [applyDeepLink]);
+
+  // https:// URL params — works on web/PWA and on fresh Capacitor load.
+  useEffect(() => {
+    function checkUrlParams() {
+      const qs = window.location.search.slice(1);
+      if (!qs) return;
+      if (applyDeepLink(qs)) window.history.replaceState({}, "", window.location.pathname);
     }
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") applyUrlParams();
-    };
-
+    checkUrlParams();
+    const handleVisibility = () => { if (document.visibilityState === "visible") checkUrlParams(); };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+  }, [applyDeepLink]);
 
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();
