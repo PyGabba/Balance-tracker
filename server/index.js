@@ -137,6 +137,21 @@ async function isBlacklisted(key) {
   return !!rec;
 }
 
+// ─── Rate limiters ───
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppi account creati, riprova tra un'ora" },
+});
+
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppi tentativi admin" },
+});
+
 // ─── Admin middleware ───
 function requireAdmin(req, res, next) {
   const secret = process.env.ADMIN_SECRET;
@@ -216,21 +231,6 @@ async function requireHousehold(req, res, next) {
     req.household = household; req.householdId = hid; next();
   } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
 }
-
-// ─── Rate limiters ───
-const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,                    // 5 registrations per IP per hour
-  standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppi account creati, riprova tra un'ora" },
-});
-
-const adminLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
-  standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppi tentativi admin" },
-});
 
 app.post("/api/auth/login", async (req, res) => {
   try {
