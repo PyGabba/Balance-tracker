@@ -123,6 +123,11 @@ async function connectDB() {
   await locksCol.createIndex({ key: 1 }, { unique: true });
   await locksCol.createIndex({ lockedUntil: 1 }, { expireAfterSeconds: 0, sparse: true });
   await blacklistCol.createIndex({ key: 1 }, { unique: true });
+  // One-time migration: flag all existing households to require a 6-digit PIN change
+  await householdsCol.updateMany(
+    { requiresPinChange: { $exists: false } },
+    { $set: { requiresPinChange: true } }
+  );
   console.log("Connected: " + DB_NAME); return client;
 }
 
@@ -172,7 +177,7 @@ app.delete("/api/admin/blacklist/:key(*)", adminLimiter, requireAdmin, async (re
 
 async function findHousehold(hid) {
   const dbH = await householdsCol.findOne({ householdId: hid });
-  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
+  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null, requiresPinChange: dbH.requiresPinChange || false };
   return null;
 }
 
@@ -195,7 +200,7 @@ async function findHouseholdByPin(pin) {
   }
 
   if (!dbH) return null;
-  return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
+  return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null, requiresPinChange: dbH.requiresPinChange || false };
 }
 
 async function requireHousehold(req, res, next) {
@@ -303,6 +308,22 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
 });
 
 // ─── DELETE household ───
+// ─── Change PIN ───
+app.put("/api/auth/pin", requireHousehold, async (req, res) => {
+  try {
+    const { newPin } = req.body || {};
+    if (!newPin || !/^\d{6,8}$/.test(newPin))
+      return res.status(400).json({ error: "Il nuovo PIN deve essere di 6-8 cifre" });
+    const pinHash = await hashPin(newPin);
+    const pinLookup = pinLookupKey(newPin);
+    await householdsCol.updateOne(
+      { householdId: req.householdId },
+      { $set: { pinHash, pinLookup, requiresPinChange: false, updatedAt: new Date() }, $unset: { pin: "" } }
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
+});
+
 app.delete("/api/auth/household", requireHousehold, async (req, res) => {
   try {
     const { pin } = req.body || {};

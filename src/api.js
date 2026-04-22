@@ -175,6 +175,25 @@ export async function register({ nome, persone, pin }) {
   return data;
 }
 
+export async function changePin(newPin) {
+  const res = await fetch(`${API_BASE}/api/auth/pin`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify({ newPin }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Aggiornamento PIN fallito");
+  }
+  savePinHash(newPin);
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, requiresPinChange: false };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return true;
+}
+
 export function logout() {
   clearSession();
   clearPersistentSession();

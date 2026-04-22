@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -2613,7 +2613,7 @@ function NumPad({ onDigit, onDelete, disabled }) {
 }
 
 function LoginScreen({ onLogin }) {
-  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [mode, setMode] = useState("login"); // "login" | "register" | "change-pin"
 
   // Login state — numpad
   const [pin, setPin] = useState("");
@@ -2635,6 +2635,51 @@ function LoginScreen({ onLogin }) {
   const [loginFromCache, setLoginFromCache] = useState(false);
   const [loginSubtitle, setLoginSubtitle] = useState("");
 
+  // PIN change state
+  const [newPin, setNewPin] = useState("");
+  const [newPinConferma, setNewPinConferma] = useState("");
+  const [changePinStep, setChangePinStep] = useState("new"); // "new" | "confirm"
+  const [changePinErrore, setChangePinErrore] = useState("");
+  const [changePinLoading, setChangePinLoading] = useState(false);
+
+  async function handleChangePinDigit(d) {
+    if (changePinStep === "new") {
+      const val = newPin + d;
+      if (val.length <= 8) setNewPin(val);
+    } else {
+      const val = newPinConferma + d;
+      if (val.length <= 8) setNewPinConferma(val);
+    }
+  }
+  function handleChangePinDelete() {
+    if (changePinStep === "new") setNewPin(p => p.slice(0, -1));
+    else setNewPinConferma(p => p.slice(0, -1));
+  }
+  async function handleChangePinNext() {
+    if (changePinStep === "new") {
+      if (newPin.length < 6) return setChangePinErrore("Il PIN deve essere di almeno 6 cifre");
+      setChangePinErrore("");
+      setChangePinStep("confirm");
+    } else {
+      if (newPin !== newPinConferma) {
+        setChangePinErrore("I PIN non coincidono");
+        setNewPinConferma("");
+        return;
+      }
+      setChangePinLoading(true);
+      setChangePinErrore("");
+      try {
+        await changePin(newPin);
+        onLogin();
+      } catch (err) {
+        setChangePinErrore(err.message || "Errore aggiornamento PIN");
+        setNewPin(""); setNewPinConferma(""); setChangePinStep("new");
+      } finally {
+        setChangePinLoading(false);
+      }
+    }
+  }
+
   // Auto-submit when PIN reaches PIN_LEN digits
   const submitRef = useRef(null);
   submitRef.current = async (p) => {
@@ -2648,7 +2693,11 @@ function LoginScreen({ onLogin }) {
     try {
       const result = await login(p);
       if (result._fromCache) setLoginFromCache(true);
-      onLogin();
+      if (result.requiresPinChange) {
+        setMode("change-pin");
+      } else {
+        onLogin();
+      }
     }
     catch (err) {
       setLoginErrore(err.message || "PIN non valido");
@@ -2720,8 +2769,30 @@ function LoginScreen({ onLogin }) {
       </div>
       <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 32 }}>TRACKER</div>
 
-      {/* Mode toggle */}
-      <div style={{ display: "flex", background: "#1a1a28", borderRadius: 12, padding: 4, marginBottom: 28, width: "100%", maxWidth: 300 }}>
+      {/* PIN change screen */}
+      {mode === "change-pin" && (
+        <div style={{ width: "100%", maxWidth: 300, textAlign: "center" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Aggiorna il PIN</div>
+          <div style={{ fontSize: 13, color: "#888", marginBottom: 24 }}>
+            {changePinStep === "new" ? "Scegli un nuovo PIN (minimo 6 cifre)" : "Conferma il nuovo PIN"}
+          </div>
+          <PinDots value={changePinStep === "new" ? newPin : newPinConferma} maxLen={8} shake={false} />
+          {changePinErrore && <div style={{ color: "#FF6B6B", fontSize: 13, marginTop: 8 }}>{changePinErrore}</div>}
+          <div style={{ marginTop: 16 }}>
+            <NumPad onDigit={handleChangePinDigit} onDelete={handleChangePinDelete} disabled={changePinLoading} />
+          </div>
+          {(changePinStep === "new" ? newPin.length >= 6 : newPinConferma.length >= 6) && (
+            <button onClick={handleChangePinNext} disabled={changePinLoading} style={{
+              marginTop: 16, width: "100%", padding: "14px", border: "none", borderRadius: 12,
+              background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 700, cursor: "pointer",
+            }}>{changePinStep === "new" ? "Avanti" : (changePinLoading ? "Salvataggio..." : "Salva PIN")}</button>
+          )}
+        </div>
+      )}
+
+      {/* Mode toggle — hidden during PIN change */}
+      {mode !== "change-pin" && <div style={{ display: "flex", background: "#1a1a28", borderRadius: 12, padding: 4, marginBottom: 28, width: "100%", maxWidth: 300 }}>
         {[["login", "Accedi"], ["register", "Crea account"]].map(([m, label]) => (
           <button key={m} onClick={() => { setMode(m); setLoginErrore(""); setRegErrore(""); setPin(""); }} style={{
             flex: 1, padding: "10px", border: "none", borderRadius: 9, cursor: "pointer",
@@ -2732,7 +2803,7 @@ function LoginScreen({ onLogin }) {
         ))}
       </div>
 
-      <div style={{ width: "100%", maxWidth: 300 }}>
+      {mode !== "change-pin" && <div style={{ width: "100%", maxWidth: 300 }}>
 
         {mode === "login" ? (
           <>
@@ -2855,7 +2926,7 @@ function LoginScreen({ onLogin }) {
             }}>{regLoading ? "Creazione..." : "Crea account"}</button>
           </>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
