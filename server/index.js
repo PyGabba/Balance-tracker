@@ -25,25 +25,35 @@ async function sendLockoutAlert(ip) {
   });
 }
 
-// ─── Per-IP wrong-PIN lockout (only counts wrong attempts, not all requests) ───
-const failedLogins = new Map(); // ip → { count, lockedUntil }
-const LOCK_DURATION = 10 * 60 * 1000;
+// ─── Per-IP wrong-PIN lockout — persisted in MongoDB, survives restarts ───
 const MAX_FAILS = 10;
+const LOCK_MINUTES = 10;
 
-function checkLock(ip) {
-  const rec = failedLogins.get(ip);
+let locksCol;  // set in connectDB
+
+async function checkLock(ip) {
+  const rec = await locksCol.findOne({ ip });
   if (!rec) return null;
-  if (rec.lockedUntil && Date.now() > rec.lockedUntil) { failedLogins.delete(ip); return null; }
-  return rec;
+  if (rec.lockedUntil && rec.lockedUntil > new Date()) return rec; // still locked
+  if (rec.lockedUntil) { await locksCol.deleteOne({ ip }); return null; } // expired
+  return rec; // has count but not yet locked
 }
-function recordFail(ip) {
-  const rec = checkLock(ip) || { count: 0 };
-  rec.count += 1;
-  if (rec.count >= MAX_FAILS) rec.lockedUntil = Date.now() + LOCK_DURATION;
-  failedLogins.set(ip, rec);
-  return rec.count >= MAX_FAILS;
+
+async function recordFail(ip) {
+  const lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60 * 1000);
+  const result = await locksCol.findOneAndUpdate(
+    { ip },
+    { $inc: { count: 1 }, $setOnInsert: { ip, createdAt: new Date() } },
+    { upsert: true, returnDocument: "after" }
+  );
+  if (result.count >= MAX_FAILS) {
+    await locksCol.updateOne({ ip }, { $set: { lockedUntil } });
+    return true;
+  }
+  return false;
 }
-function clearFails(ip) { failedLogins.delete(ip); }
+
+async function clearLock(ip) { await locksCol.deleteOne({ ip }); }
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 function signToken(householdId) {
@@ -77,11 +87,14 @@ async function connectDB() {
   db = client.db(DB_NAME);
   transactionsCol = db.collection("transactions");
   householdsCol = db.collection("households");
+  locksCol = db.collection("login_locks");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   try { await householdsCol.dropIndex("pin_1"); } catch {}
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ pinLookup: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ householdId: 1 }, { unique: true });
+  await locksCol.createIndex({ ip: 1 }, { unique: true });
+  await locksCol.createIndex({ lockedUntil: 1 }, { expireAfterSeconds: 0, sparse: true });
   console.log("Connected: " + DB_NAME); return client;
 }
 
@@ -136,21 +149,21 @@ const loginLimiter = rateLimit({
   message: { error: "Troppi tentativi, riprova tra 15 minuti" },
 });
 
-app.post("/api/auth/login", loginLimiter, async (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   try {
     const ip = req.ip;
-    const lock = checkLock(ip);
+    const lock = await checkLock(ip);
     if (lock?.lockedUntil) {
-      const mins = Math.ceil((lock.lockedUntil - Date.now()) / 60000);
-      return res.status(429).json({ error: `Troppi tentativi errati. Riprova tra ${mins} minuti.` });
+      const mins = Math.ceil((lock.lockedUntil - new Date()) / 60000);
+      return res.status(429).json({ error: `Accesso bloccato. Riprova tra ${mins} minuti.` });
     }
     const household = await findHouseholdByPin(req.body?.pin);
     if (!household) {
-      const nowLocked = recordFail(ip);
+      const nowLocked = await recordFail(ip);
       if (nowLocked) sendLockoutAlert(ip).catch(console.error);
       return res.status(401).json({ error: "PIN non valido" });
     }
-    clearFails(ip);
+    await clearLock(ip);
     res.json({ ...household, token: signToken(household.householdId) });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });
