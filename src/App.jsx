@@ -3077,38 +3077,31 @@ export default function FinanzaApp() {
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
 
-  // Read clipboard on foreground to handle iOS Shortcut → Open App flow.
-  // Shortcut should copy JSON: {"tipo":"uscita","importo":"12.50","descrizione":"Merchant"}
+  // Handle iOS Shortcut → Open App via URL params.
+  // Shortcut opens: https://your-app.vercel.app/?action=add&tipo=uscita&importo=12.50&descrizione=Merchant
+  // Works both on fresh load (useState init above) and when app is already open in background.
   useEffect(() => {
-    const handleVisibility = async () => {
-      if (document.visibilityState !== 'visible') return;
-      try {
-        const text = (await navigator.clipboard.readText()).trim();
-        if (!text) return;
-        let tipo = null, importo = "", descrizione = "";
-        try {
-          const parsed = JSON.parse(text);
-          if (['uscita', 'entrata', 'saldo'].includes(parsed.tipo)) {
-            tipo = parsed.tipo;
-            importo = parsed.importo != null ? String(parsed.importo) : "";
-            descrizione = parsed.descrizione || "";
-          }
-        } catch {
-          // legacy: plain tipo string
-          if (['uscita', 'entrata', 'saldo'].includes(text)) tipo = text;
-        }
-        if (tipo) {
-          navigator.clipboard.writeText('');
-          setInitialTipo(tipo);
-          setInitialImporto(importo);
-          setInitialDescrizione(descrizione);
-          setShortcutKey(k => k + 1);
-          setTab('aggiungi');
-        }
-      } catch {}
+    function applyUrlParams() {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("action") !== "add") return false;
+      const tipo = p.get("tipo") || "uscita";
+      const importo = p.get("importo") || "";
+      const descrizione = p.get("descrizione") || "";
+      window.history.replaceState({}, "", window.location.pathname);
+      setInitialTipo(tipo);
+      setInitialImporto(importo);
+      setInitialDescrizione(descrizione);
+      setShortcutKey(k => k + 1);
+      setTab("aggiungi");
+      return true;
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") applyUrlParams();
     };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
