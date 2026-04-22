@@ -942,15 +942,27 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita", initialImporto = "", initialDescrizione = "" }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "" }) {
   const [tipo, setTipo] = useState(initialTipo);
   const [importo, setImporto] = useState(initialImporto);
-  const [categoria, setCategoria] = useState(() => categorie[0]?.id || "cibo");
+  const [categoria, setCategoria] = useState(() => {
+    if (initialCategoria) {
+      const match = categorie.find(c => c.id === initialCategoria || c.nome.toLowerCase() === initialCategoria.toLowerCase());
+      if (match) return match.id;
+    }
+    return categorie[0]?.id || "cibo";
+  });
   const [descrizione, setDescrizione] = useState(initialDescrizione);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [salvato, setSalvato] = useState(false);
-  const [pagatoDa, setPagatoDa] = useState(persone[0]?.id || "");
+  const [pagatoDa, setPagatoDa] = useState(() => {
+    if (initialPagatoDa) {
+      const match = persone.find(p => p.id === initialPagatoDa || p.nome.toLowerCase() === initialPagatoDa.toLowerCase());
+      if (match) return match.id;
+    }
+    return persone[0]?.id || "";
+  });
   const base = Math.floor(100 / persone.length);
   const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === persone.length - 1 ? 100 - base * (persone.length - 1) : base})));
   const [extraPersone, setExtraPersone] = useState([]);
@@ -3068,6 +3080,8 @@ export default function FinanzaApp() {
   const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
   const [initialImporto, setInitialImporto] = useState(urlParams.get("importo") || "");
   const [initialDescrizione, setInitialDescrizione] = useState(urlParams.get("descrizione") || "");
+  const [initialCategoria, setInitialCategoria] = useState(urlParams.get("categoria") || "");
+  const [initialPagatoDa, setInitialPagatoDa] = useState(urlParams.get("pagatoDa") || "");
   const [shortcutKey, setShortcutKey] = useState(0);
   const [transazioni, setTransazioni] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -3087,10 +3101,14 @@ export default function FinanzaApp() {
       const tipo = p.get("tipo") || "uscita";
       const importo = p.get("importo") || "";
       const descrizione = p.get("descrizione") || "";
+      const categoria = p.get("categoria") || "";
+      const pagatoDa = p.get("pagatoDa") || "";
       window.history.replaceState({}, "", window.location.pathname);
       setInitialTipo(tipo);
       setInitialImporto(importo);
       setInitialDescrizione(descrizione);
+      setInitialCategoria(categoria);
+      setInitialPagatoDa(pagatoDa);
       setShortcutKey(k => k + 1);
       setTab("aggiungi");
       return true;
@@ -3256,7 +3274,7 @@ export default function FinanzaApp() {
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
-        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} />}
+        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
