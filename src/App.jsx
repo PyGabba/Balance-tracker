@@ -2117,16 +2117,28 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
         const pagatoDa = persona?.id || persone[0]?.id || "";
 
         let splits = null;
+        let extraPersone = null;
         const partecipantiRaw = String(row["Partecipanti e quote"] || row["Partecipanti"] || "").trim();
         if (tipo === "uscita" && partecipantiRaw) {
+          const extraMap = {};
+          let extraCount = 0;
           const parsed = partecipantiRaw.split(",").map(s => s.trim()).map(s => {
             const m = s.match(/^(.+?)\s+(\d+(?:\.\d+)?)%$/);
             if (!m) return null;
             const nome = m[1].trim();
             const quota = parseFloat(m[2]);
             const p = persone.find(x => x.nome.toLowerCase() === nome.toLowerCase());
-            return p ? { personaId: p.id, quota } : null;
+            if (p) return { personaId: p.id, quota };
+            const id = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "") || `extra${extraCount}`;
+            if (!extraMap[id]) {
+              extraMap[id] = { id, nome, emoji: "👤", colore: COLORI_EXTRA[extraCount % COLORI_EXTRA.length] };
+              extraCount++;
+            }
+            return { personaId: id, quota };
           }).filter(Boolean);
+
+          const extraList = Object.values(extraMap);
+          if (extraList.length > 0) extraPersone = extraList;
 
           if (parsed.length > 0) {
             const assignedTotal = parsed.reduce((s, x) => s + x.quota, 0);
@@ -2151,7 +2163,7 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
           }));
         }
 
-        righe.push({ data, tipo, importo, categoria, descrizione, pagatoDa, splits });
+        righe.push({ data, tipo, importo, categoria, descrizione, pagatoDa, splits, extraPersone });
       });
 
       setImportPreview({ righe, errori });

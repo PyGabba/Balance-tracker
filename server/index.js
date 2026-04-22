@@ -1,15 +1,21 @@
 import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
+import { createHmac } from "crypto";
 import dotenv from "dotenv";
 import YahooFinance from "yahoo-finance2";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 function signToken(householdId) {
   return jwt.sign({ householdId }, JWT_SECRET, { expiresIn: "90d" });
 }
+function pinLookupKey(pin) {
+  return createHmac("sha256", JWT_SECRET).update(pin).digest("hex");
+}
+async function hashPin(pin) { return bcrypt.hash(pin, 10); }
 
 const yf = new YahooFinance();
 
@@ -34,7 +40,9 @@ async function connectDB() {
   transactionsCol = db.collection("transactions");
   householdsCol = db.collection("households");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
-  await householdsCol.createIndex({ pin: 1 }, { unique: true });
+  try { await householdsCol.dropIndex("pin_1"); } catch {}
+  await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
+  await householdsCol.createIndex({ pinLookup: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ householdId: 1 }, { unique: true });
   console.log("Connected: " + DB_NAME); return client;
 }
@@ -46,9 +54,25 @@ async function findHousehold(hid) {
 }
 
 async function findHouseholdByPin(pin) {
-  const dbH = await householdsCol.findOne({ pin });
-  if (dbH) return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
-  return null;
+  const lookup = pinLookupKey(pin);
+  let dbH = await householdsCol.findOne({ pinLookup: lookup });
+
+  if (!dbH) {
+    // Legacy: plain-text pin — migrate on first successful login
+    dbH = await householdsCol.findOne({ pin });
+    if (dbH) {
+      const pinHash = await hashPin(pin);
+      await householdsCol.updateOne(
+        { _id: dbH._id },
+        { $set: { pinHash, pinLookup: lookup }, $unset: { pin: "" } }
+      );
+    }
+  } else if (!await bcrypt.compare(pin, dbH.pinHash)) {
+    return null;
+  }
+
+  if (!dbH) return null;
+  return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
 }
 
 async function requireHousehold(req, res, next) {
@@ -96,7 +120,8 @@ app.post("/api/auth/register", async (req, res) => {
       colore: COLORS[i % COLORS.length],
     }));
 
-    const doc = { householdId, nome, persone: personeFormatted, pin, createdAt: new Date() };
+    const pinHash = await hashPin(pin);
+    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), createdAt: new Date() };
     await householdsCol.insertOne(doc);
     res.status(201).json({ householdId, nome, persone: personeFormatted, token: signToken(householdId) });
   } catch (e) {
@@ -115,7 +140,10 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     // Verify PIN matches
     const household = await householdsCol.findOne({ householdId: req.householdId });
     if (!household) return res.status(404).json({ error: "Account non trovato" });
-    if (household.pin !== pin) return res.status(401).json({ error: "PIN non corretto" });
+    const pinValid = household.pinHash
+      ? await bcrypt.compare(pin, household.pinHash)
+      : household.pin === pin;
+    if (!pinValid) return res.status(401).json({ error: "PIN non corretto" });
 
     // Delete all data for this household
     await transactionsCol.deleteMany({ householdId: req.householdId });
