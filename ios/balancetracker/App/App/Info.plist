@@ -54,7 +54,7 @@
 			<string>com.pygabba.balancetracker</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>balancetracker</string>
+				<string>webapp</string>
 			</array>
 		</dict>
 	</array>

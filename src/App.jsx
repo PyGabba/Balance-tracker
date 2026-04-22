@@ -3092,8 +3092,8 @@ export default function FinanzaApp() {
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
 
-  // Shared deep-link handler — used by both URL params and balancetracker:// scheme.
-  // Shortcut: balancetracker://?action=add&tipo=uscita&importo=12.50&descrizione=Merchant&categoria=cibo&pagatoDa=Gabriele
+  // Shared deep-link handler — used by both URL params and webapp:// scheme.
+  // Shortcut: webapp://?action=add&tipo=uscita&importo=12.50&descrizione=Merchant&categoria=cibo&pagatoDa=Gabriele
   const applyDeepLink = useCallback((queryString) => {
     const p = new URLSearchParams(queryString);
     if (p.get("action") !== "add") return false;
@@ -3107,7 +3107,7 @@ export default function FinanzaApp() {
     return true;
   }, []);
 
-  // balancetracker:// scheme — fires when Capacitor app is opened via custom URL scheme.
+  // webapp:// scheme — fires when Capacitor app is opened via custom URL scheme.
   useEffect(() => {
     let listener;
     CapApp.addListener("appUrlOpen", (event) => {
