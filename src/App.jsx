@@ -2052,6 +2052,7 @@ const ALL_COLUMNS = [
   { id: "categoria", label: "Categoria" },
   { id: "descrizione", label: "Descrizione" },
   { id: "pagatoDa", label: "Pagato da" },
+  { id: "ricevutoDa", label: "Ricevuto da" },
   { id: "partecipanti", label: "Partecipanti e quote" },
 ];
 
@@ -2102,12 +2103,13 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
         const categoria = String(row["Categoria"] || "Altro").trim();
         const descrizione = String(row["Descrizione"] || "").trim();
         const pagatoDaNome = String(row["Pagato da"] || "").trim();
+        const ricevutoDaNome = String(row["Ricevuto da"] || "").trim();
 
         if (!data.match(/^\d{4}-\d{2}-\d{2}$/)) {
           errori.push(`Riga ${num}: data non valida ("${data}") — formato atteso YYYY-MM-DD`);
           return;
         }
-        const tipo = tipoRaw === "entrata" ? "entrata" : "uscita";
+        const tipo = tipoRaw === "saldo" ? "saldo" : tipoRaw === "entrata" ? "entrata" : "uscita";
         const importo = parseFloat(String(importoRaw).replace(",", "."));
         if (isNaN(importo) || importo <= 0) {
           errori.push(`Riga ${num}: importo non valido ("${importoRaw}")`);
@@ -2115,6 +2117,8 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
         }
         const persona = persone.find(p => p.nome.toLowerCase() === pagatoDaNome.toLowerCase());
         const pagatoDa = persona?.id || persone[0]?.id || "";
+        const ricevutoDaPersona = persone.find(p => p.nome.toLowerCase() === ricevutoDaNome.toLowerCase());
+        const ricevutoDa = ricevutoDaPersona?.id || null;
 
         let splits = null;
         let extraPersone = null;
@@ -2163,7 +2167,7 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
           }));
         }
 
-        righe.push({ data, tipo, importo, categoria, descrizione, pagatoDa, splits, extraPersone });
+        righe.push({ data, tipo, importo, categoria: tipo === "saldo" ? null : categoria, descrizione, pagatoDa, ricevutoDa, splits, extraPersone });
       });
 
       setImportPreview({ righe, errori });
@@ -2241,7 +2245,7 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
   // Filter transactions by month range
   const filtrate = transazioni.filter(t => {
     const mese = t.data?.slice(0, 7); // "YYYY-MM"
-    return mese && mese >= meseDa && mese <= meseA && t.tipo !== "saldo";
+    return mese && mese >= meseDa && mese <= meseA;
   });
 
   // Sort
@@ -2267,12 +2271,16 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
         const row = {};
         const p = persone.find(p => p.id === t.pagatoDa);
         if (colonne.includes("data")) row["Data"] = t.data;
-        if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "uscita" ? "Uscita" : "Entrata";
+        if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "saldo" ? "Saldo" : t.tipo === "uscita" ? "Uscita" : "Entrata";
         if (colonne.includes("importo")) row["Importo (€)"] = t.importo;
-        if (colonne.includes("categoria")) row["Categoria"] = t.categoria;
+        if (colonne.includes("categoria")) row["Categoria"] = t.tipo === "saldo" ? "" : (t.categoria || "");
         if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
         if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
-        if (colonne.includes("partecipanti")) {
+        if (colonne.includes("ricevutoDa")) {
+          const rp = persone.find(x => x.id === t.ricevutoDa);
+          row["Ricevuto da"] = rp?.nome || t.ricevutoDa || "";
+        }
+        if (colonne.includes("partecipanti") && t.tipo !== "saldo") {
           if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
             const allP = getAllPersone(transazioni, persone);
             row["Partecipanti"] = t.splits.map(s => {
@@ -2390,9 +2398,9 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
               <div style={{ borderTop: "1px solid #252538", marginTop: 8, paddingTop: 8 }}>
                 {importPreview.righe.slice(0, 3).map((r, i) => (
                   <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
-                    <span>{r.data} · {r.categoria}</span>
-                    <span style={{ color: r.tipo === "uscita" ? "#FF6B6B" : "#4ECDC4", fontFamily: "'Space Mono',monospace" }}>
-                      {r.tipo === "uscita" ? "-" : "+"}€{r.importo.toFixed(2)}
+                    <span>{r.data} · {r.tipo === "saldo" ? "Saldo" : r.categoria}</span>
+                    <span style={{ color: r.tipo === "uscita" ? "#FF6B6B" : r.tipo === "saldo" ? "#a78bfa" : "#4ECDC4", fontFamily: "'Space Mono',monospace" }}>
+                      {r.tipo === "uscita" ? "-" : r.tipo === "saldo" ? "↔" : "+"}€{r.importo.toFixed(2)}
                     </span>
                   </div>
                 ))}
