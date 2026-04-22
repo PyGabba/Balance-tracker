@@ -2801,7 +2801,7 @@ function LoginScreen({ onLogin }) {
             color: mode === m ? "#fff" : "#666", transition: "all 0.2s",
           }}>{label}</button>
         ))}
-      </div>
+      </div>}
 
       {mode !== "change-pin" && <div style={{ width: "100%", maxWidth: 300 }}>
 
