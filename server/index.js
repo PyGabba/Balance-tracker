@@ -81,13 +81,14 @@ app.use(cors(CORS_OPTIONS));
 app.options("*", cors(CORS_OPTIONS));  // explicit OPTIONS preflight handler
 app.use(express.json({ limit: "10mb" }));
 
-let db, transactionsCol, householdsCol;
+let db, transactionsCol, householdsCol, quotesCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
   db = client.db(DB_NAME);
   transactionsCol = db.collection("transactions");
   householdsCol = db.collection("households");
   locksCol = db.collection("login_locks");
+  quotesCol = db.collection("quotes_cache");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   try { await householdsCol.dropIndex("pin_1"); } catch {}
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
@@ -100,7 +101,7 @@ async function connectDB() {
 
 async function findHousehold(hid) {
   const dbH = await householdsCol.findOne({ householdId: hid });
-  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null, manualPrices: dbH.manualPrices || {} };
+  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null };
   return null;
 }
 
@@ -458,9 +459,14 @@ app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// ─── Manual price overrides ───
-app.get("/api/positions/prices", requireHousehold, (req, res) => {
-  res.json({ manualPrices: req.household.manualPrices || {} });
+// ─── Manual price overrides (stored in quotes_cache, scoped by householdId) ───
+app.get("/api/positions/prices", requireHousehold, async (req, res) => {
+  try {
+    const docs = await quotesCol.find({ householdId: req.householdId, manualPrice: { $exists: true } }).toArray();
+    const manualPrices = {};
+    for (const d of docs) manualPrices[d.ticker] = d.manualPrice;
+    res.json({ manualPrices });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
 app.put("/api/positions/prices", requireHousehold, async (req, res) => {
@@ -468,10 +474,15 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
     const { manualPrices } = req.body || {};
     if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
       return res.status(400).json({ error: "manualPrices deve essere un oggetto" });
-    await householdsCol.updateOne(
-      { householdId: req.householdId },
-      { $set: { manualPrices, updatedAt: new Date() } }
-    );
+    // Remove all existing manual prices for this household, then upsert new ones
+    await quotesCol.deleteMany({ householdId: req.householdId, manualPrice: { $exists: true } });
+    for (const [ticker, price] of Object.entries(manualPrices)) {
+      await quotesCol.updateOne(
+        { ticker: ticker.toUpperCase(), householdId: req.householdId },
+        { $set: { ticker: ticker.toUpperCase(), householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -486,7 +497,6 @@ app.get("/api/quotes", async (req, res) => {
     if (!symbols) return res.status(400).json({ error: "symbols required" });
     const forceRefresh = req.query.refresh === "true";
     const tickers = symbols.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-    const quotesCol = db.collection("quotes_cache");
     const today = new Date().toISOString().slice(0, 10);
     const quotes = {};
 

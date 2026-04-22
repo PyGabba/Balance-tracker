@@ -1657,12 +1657,6 @@ function PortfolioView() {
     }
   }
 
-  // Fetch quotes when holdings change (uses daily cache)
-  useEffect(() => {
-    if (holdings.length === 0) return;
-    fetchQuotes(holdings.map(h => h.ticker)).then(r => setQuotesData(r));
-  }, [positions]);
-
   // Force refresh bypasses daily cache
   async function refreshQuotes() {
     if (holdings.length === 0) return;
