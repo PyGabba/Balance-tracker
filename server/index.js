@@ -87,7 +87,7 @@ app.use(cors(CORS_OPTIONS));
 app.options("*", cors(CORS_OPTIONS));  // explicit OPTIONS preflight handler
 app.use(express.json({ limit: "10mb" }));
 
-let db, transactionsCol, householdsCol, quotesCol;
+let db, transactionsCol, householdsCol, quotesCol, blacklistCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
   db = client.db(DB_NAME);
@@ -95,6 +95,7 @@ async function connectDB() {
   householdsCol = db.collection("households");
   locksCol = db.collection("login_locks");
   quotesCol = db.collection("quotes_cache");
+  blacklistCol = db.collection("blacklist");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   try { await householdsCol.dropIndex("pin_1"); } catch {}
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
@@ -103,8 +104,53 @@ async function connectDB() {
   try { await locksCol.dropIndex("ip_1"); } catch {}
   await locksCol.createIndex({ key: 1 }, { unique: true });
   await locksCol.createIndex({ lockedUntil: 1 }, { expireAfterSeconds: 0, sparse: true });
+  await blacklistCol.createIndex({ key: 1 }, { unique: true });
   console.log("Connected: " + DB_NAME); return client;
 }
+
+// ─── Blacklist helpers ───
+async function isBlacklisted(key) {
+  const rec = await blacklistCol.findOne({ key });
+  return !!rec;
+}
+
+// ─── Admin middleware ───
+function requireAdmin(req, res, next) {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return res.status(503).json({ error: "Admin non configurato (ADMIN_SECRET mancante)" });
+  if (req.headers["x-admin-secret"] !== secret) return res.status(401).json({ error: "Non autorizzato" });
+  next();
+}
+
+// ─── Admin blacklist routes ───
+app.get("/api/admin/blacklist", requireAdmin, async (req, res) => {
+  try {
+    const docs = await blacklistCol.find({}).sort({ addedAt: -1 }).toArray();
+    res.json(docs.map(d => ({ key: d.key, reason: d.reason || "", addedAt: d.addedAt })));
+  } catch (e) { res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/admin/blacklist", requireAdmin, async (req, res) => {
+  try {
+    const { key, reason } = req.body || {};
+    if (!key || typeof key !== "string") return res.status(400).json({ error: "key obbligatorio (es. ip:1.2.3.4 o device:uuid)" });
+    await blacklistCol.updateOne(
+      { key },
+      { $set: { key, reason: reason || "", addedAt: new Date() } },
+      { upsert: true }
+    );
+    res.status(201).json({ ok: true, key });
+  } catch (e) { res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/admin/blacklist/:key(*)", requireAdmin, async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    const r = await blacklistCol.deleteOne({ key });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    res.json({ ok: true, key });
+  } catch (e) { res.status(500).json({ error: "Errore" }); }
+});
 
 async function findHousehold(hid) {
   const dbH = await householdsCol.findOne({ householdId: hid });
@@ -163,6 +209,15 @@ app.post("/api/auth/login", async (req, res) => {
     const deviceId = req.body?.deviceId || null;
     const ipKey = `ip:${ip}`;
     const devKey = deviceId ? `device:${deviceId}` : null;
+
+    // Check blacklist first — permanent block
+    const [ipBanned, devBanned] = await Promise.all([
+      isBlacklisted(ipKey),
+      devKey ? isBlacklisted(devKey) : false,
+    ]);
+    if (ipBanned || devBanned) {
+      return res.status(403).json({ error: "Accesso permanentemente bloccato" });
+    }
 
     // Check both locks — blocked if either is active
     const [ipLock, devLock] = await Promise.all([
