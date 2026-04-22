@@ -21,6 +21,7 @@ async function hashPin(pin) { return bcrypt.hash(pin, 10); }
 const yf = new YahooFinance();
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
 const DB_NAME = process.env.DB_NAME || "finanza_tracker";
