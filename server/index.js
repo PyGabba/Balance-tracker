@@ -11,7 +11,7 @@ import nodemailer from "nodemailer";
 dotenv.config();
 
 // ─── Email alert ───
-async function sendLockoutAlert(ip) {
+async function sendLockoutAlert(ip, deviceId) {
   if (!process.env.GMAIL_APP_PASSWORD) return;
   const transporter = nodemailer.createTransport({
     service: "gmail",
@@ -21,39 +21,39 @@ async function sendLockoutAlert(ip) {
     from: "pygabba@gmail.com",
     to: "pygabba@gmail.com",
     subject: "⚠️ Balance Tracker: accesso bloccato",
-    text: `10 tentativi di PIN errati rilevati dall'IP ${ip}.\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`,
+    text: `10 tentativi di PIN errati rilevati.\nIP: ${ip}\nDevice ID: ${deviceId || "sconosciuto"}\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`,
   });
 }
 
-// ─── Per-IP wrong-PIN lockout — persisted in MongoDB, survives restarts ───
+// ─── Lockout by IP and device ID — persisted in MongoDB, survives restarts ───
 const MAX_FAILS = 10;
 const LOCK_MINUTES = 10;
 
 let locksCol;  // set in connectDB
 
-async function checkLock(ip) {
-  const rec = await locksCol.findOne({ ip });
+async function checkLock(key) {
+  const rec = await locksCol.findOne({ key });
   if (!rec) return null;
   if (rec.lockedUntil && rec.lockedUntil > new Date()) return rec; // still locked
-  if (rec.lockedUntil) { await locksCol.deleteOne({ ip }); return null; } // expired
+  if (rec.lockedUntil) { await locksCol.deleteOne({ key }); return null; } // expired
   return rec; // has count but not yet locked
 }
 
-async function recordFail(ip) {
+async function recordFail(key) {
   const lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60 * 1000);
   const result = await locksCol.findOneAndUpdate(
-    { ip },
-    { $inc: { count: 1 }, $setOnInsert: { ip, createdAt: new Date() } },
+    { key },
+    { $inc: { count: 1 }, $setOnInsert: { key, createdAt: new Date() } },
     { upsert: true, returnDocument: "after" }
   );
   if (result.count >= MAX_FAILS) {
-    await locksCol.updateOne({ ip }, { $set: { lockedUntil } });
+    await locksCol.updateOne({ key }, { $set: { lockedUntil } });
     return true;
   }
   return false;
 }
 
-async function clearLock(ip) { await locksCol.deleteOne({ ip }); }
+async function clearLock(key) { await locksCol.deleteOne({ key }); }
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 function signToken(householdId) {
@@ -100,7 +100,8 @@ async function connectDB() {
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ pinLookup: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ householdId: 1 }, { unique: true });
-  await locksCol.createIndex({ ip: 1 }, { unique: true });
+  try { await locksCol.dropIndex("ip_1"); } catch {}
+  await locksCol.createIndex({ key: 1 }, { unique: true });
   await locksCol.createIndex({ lockedUntil: 1 }, { expireAfterSeconds: 0, sparse: true });
   console.log("Connected: " + DB_NAME); return client;
 }
@@ -159,18 +160,32 @@ const loginLimiter = rateLimit({
 app.post("/api/auth/login", async (req, res) => {
   try {
     const ip = clientIp(req);
-    const lock = await checkLock(ip);
-    if (lock?.lockedUntil) {
-      const mins = Math.ceil((lock.lockedUntil - new Date()) / 60000);
+    const deviceId = req.body?.deviceId || null;
+    const ipKey = `ip:${ip}`;
+    const devKey = deviceId ? `device:${deviceId}` : null;
+
+    // Check both locks — blocked if either is active
+    const [ipLock, devLock] = await Promise.all([
+      checkLock(ipKey),
+      devKey ? checkLock(devKey) : null,
+    ]);
+    const activeLock = (ipLock?.lockedUntil && ipLock) || (devLock?.lockedUntil && devLock);
+    if (activeLock) {
+      const mins = Math.ceil((activeLock.lockedUntil - new Date()) / 60000);
       return res.status(429).json({ error: `Accesso bloccato. Riprova tra ${mins} minuti.` });
     }
+
     const household = await findHouseholdByPin(req.body?.pin);
     if (!household) {
-      const nowLocked = await recordFail(ip);
-      if (nowLocked) sendLockoutAlert(ip).catch(console.error);
+      const [ipNowLocked, devNowLocked] = await Promise.all([
+        recordFail(ipKey),
+        devKey ? recordFail(devKey) : false,
+      ]);
+      if (ipNowLocked || devNowLocked) sendLockoutAlert(ip, deviceId).catch(console.error);
       return res.status(401).json({ error: "PIN non valido" });
     }
-    await clearLock(ip);
+
+    await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null]);
     res.json({ ...household, token: signToken(household.householdId) });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });

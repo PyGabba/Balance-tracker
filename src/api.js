@@ -29,6 +29,19 @@ function clearPersistentSession() {
   try { localStorage.removeItem(LS_SESSION_KEY); } catch {}
 }
 
+// ─── Device ID (persists across sessions, identifies browser/device) ───
+const LS_DEVICE_ID_KEY = "finanza-device-id";
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem(LS_DEVICE_ID_KEY);
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(LS_DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch { return null; }
+}
+
 // ─── Init: restore session (sessionStorage first, then persistent) ───
 const saved = loadSession() || loadPersistentSession();
 if (saved) currentHousehold = saved;
@@ -103,7 +116,7 @@ export async function login(pin) {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin }),
+      body: JSON.stringify({ pin, deviceId: getDeviceId() }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (res.ok) {
