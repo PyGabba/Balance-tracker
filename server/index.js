@@ -123,10 +123,11 @@ app.options("*", cors(CORS_OPTIONS));
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 
+const IS_PROD = process.env.NODE_ENV === "production";
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: true,      // required for SameSite=None
-  sameSite: "none",  // frontend (Vercel) and backend (Render) are different origins
+  secure: IS_PROD,      // localhost dev doesn't use HTTPS
+  sameSite: "strict",   // safe: prod requests come via Vercel proxy (same-origin); local is same-site
   maxAge: TOKEN_TTL_SECONDS * 1000,
   path: "/",
 };
@@ -344,7 +345,7 @@ app.post("/api/auth/logout", requireHousehold, async (req, res) => {
   try {
     await revokeToken(req.jti);
     audit("logout", { householdId: req.householdId, ip: clientIp(req) });
-    res.clearCookie("token", { path: "/", httpOnly: true, secure: true, sameSite: "none" });
+    res.clearCookie("token", { path: "/", httpOnly: true, secure: IS_PROD, sameSite: "strict" });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: "Errore logout" }); }
 });
@@ -427,7 +428,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     await revokeAllTokens(req.householdId);
     await householdsCol.deleteOne({ householdId: req.householdId });
     audit("household_delete", { householdId: req.householdId, ip: clientIp(req) });
-    res.clearCookie("token", { path: "/", httpOnly: true, secure: true, sameSite: "none" });
+    res.clearCookie("token", { path: "/", httpOnly: true, secure: IS_PROD, sameSite: "strict" });
     res.json({ ok: true });
   } catch (e) { console.error("Delete household error:", e.message); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
 });
