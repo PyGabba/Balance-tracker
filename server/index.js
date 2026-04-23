@@ -165,6 +165,12 @@ async function connectDB() {
   console.log("Connected: " + DB_NAME); return client;
 }
 
+// ─── Input sanitization ───
+function sanitizeText(s, maxLen = 500) {
+  if (s == null) return "";
+  return String(s).trim().slice(0, maxLen);
+}
+
 // ─── Audit log ───
 function audit(event, { householdId = null, ip = null, deviceId = null, success = true, detail = null } = {}) {
   const doc = { event, householdId, ip, deviceId, success, ts: new Date() };
@@ -458,7 +464,7 @@ app.post("/api/transactions", requireHousehold, async (req, res) => {
       tipo: b.tipo,
       importo: parseFloat(b.importo),
       categoria: b.categoria || "altro",
-      descrizione: b.descrizione || "",
+      descrizione: sanitizeText(b.descrizione),
       data: b.data,
       pagatoDa: b.pagatoDa || null,
       ricevutoDa: b.ricevutoDa || null,
@@ -497,6 +503,7 @@ app.put("/api/transactions/:id", requireHousehold, async (req, res) => {
         else if (key === "splitPagante") update[key] = req.body[key] != null ? parseInt(req.body[key]) : null;
         else if (key === "splits") update[key] = Array.isArray(req.body[key]) ? req.body[key] : null;
         else if (key === "extraPersone") update[key] = Array.isArray(req.body[key]) ? req.body[key] : null;
+        else if (key === "descrizione") update[key] = sanitizeText(req.body[key]);
         else update[key] = req.body[key];
       }
     }
@@ -636,12 +643,12 @@ app.post("/api/positions", requireHousehold, requirePortfolioAccess, async (req,
     const doc = {
       householdId: req.householdId,
       ticker: b.ticker.toUpperCase().trim(),
-      nome: b.nome || b.ticker.toUpperCase().trim(),
+      nome: sanitizeText(b.nome || b.ticker.toUpperCase().trim(), 100),
       quantita: parseFloat(b.quantita),
       prezzoAcquisto: parseFloat(b.prezzoAcquisto),
       dataAcquisto: b.dataAcquisto || new Date().toISOString().slice(0, 10),
       valuta: b.valuta || "EUR",
-      note: b.note || "",
+      note: sanitizeText(b.note, 500),
       tipo: b.tipo || "buy", // buy or sell
       createdAt: new Date(),
     };
@@ -675,12 +682,20 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
     const { manualPrices } = req.body || {};
     if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
       return res.status(400).json({ error: "manualPrices deve essere un oggetto" });
-    // Remove all existing manual prices for this household, then upsert new ones
+    const TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
+    const entries = Object.entries(manualPrices);
+    if (entries.length > 200)
+      return res.status(400).json({ error: "Massimo 200 prezzi manuali" });
+    // Remove all existing manual prices for this household, then upsert validated ones
     await quotesCol.deleteMany({ householdId: req.householdId, manualPrice: { $exists: true } });
-    for (const [ticker, price] of Object.entries(manualPrices)) {
+    for (const [rawTicker, rawPrice] of entries) {
+      const ticker = String(rawTicker).toUpperCase().trim();
+      if (!TICKER_RE.test(ticker)) continue; // skip malformed keys
+      const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
+      if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
       await quotesCol.updateOne(
-        { ticker: ticker.toUpperCase(), householdId: req.householdId },
-        { $set: { ticker: ticker.toUpperCase(), householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
+        { ticker, householdId: req.householdId },
+        { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
         { upsert: true }
       );
     }
