@@ -84,9 +84,9 @@ async function hashPin(pin) { return bcrypt.hash(pin, 10); }
 const yf = new YahooFinance();
 
 function clientIp(req) {
-  const fwd = req.headers["x-forwarded-for"];
-  if (fwd) return fwd.split(",")[0].trim();
-  return req.socket?.remoteAddress || req.ip;
+  // Use Express-computed req.ip (respects trust proxy: 1, takes rightmost untrusted hop).
+  // Never read X-Forwarded-For[0] directly — it is client-controlled and trivially spoofed.
+  return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
 const app = express();
@@ -103,12 +103,16 @@ const ALLOWED_ORIGINS = [
   "https://balance-tracker-two.vercel.app",
   "http://localhost:5173",
   "http://localhost:4173",
+  "capacitor://localhost",  // Capacitor iOS webview
+  "http://localhost",       // Capacitor Android webview
 ];
 // Allow any Vercel preview deploy for this project
 const VERCEL_PREVIEW_RE = /^https:\/\/balance-tracker-[a-z0-9-]+-pygabba\.vercel\.app$/;
 const CORS_OPTIONS = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true); // native app / curl / server-to-server
+    // Null/missing origin (file://, data:, about:) is denied — no legitimate browser client
+    // sends requests without an origin. Curl/server-to-server don't carry session cookies anyway.
+    if (!origin) return cb(new Error("CORS: null origin not allowed"));
     if (ALLOWED_ORIGINS.includes(origin) || VERCEL_PREVIEW_RE.test(origin))
       return cb(null, true);
     cb(new Error(`CORS: origin not allowed: ${origin}`));
@@ -186,6 +190,13 @@ async function isBlacklisted(key) {
 }
 
 // ─── Rate limiters ───
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30, // secondary ceiling — IP rotation can bypass MongoDB lockout but not this
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppi tentativi di accesso, riprova tra 15 minuti" },
+});
+
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -274,8 +285,7 @@ async function findHouseholdByPin(pin) {
 }
 
 async function requireHousehold(req, res, next) {
-  // Prefer httpOnly cookie; fall back to Authorization header for backward compat
-  const rawToken = req.cookies?.token || (req.headers["authorization"]?.startsWith("Bearer ") ? req.headers["authorization"].slice(7) : null);
+  const rawToken = req.cookies?.token;
   if (!rawToken) return res.status(401).json({ error: "Household non valido" });
   let payload;
   try { payload = jwt.verify(rawToken, JWT_SECRET, { algorithms: ["HS256"] }); }
@@ -292,11 +302,13 @@ async function requireHousehold(req, res, next) {
   } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
 }
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", loginLimiter, async (req, res) => {
   try {
     const ip = clientIp(req);
     const deviceId = req.body?.deviceId || null;
     const ipKey = `ip:${ip}`;
+    // PIN-hash lock: attacker rotating IPs/devices still hits this — same PIN tried 10x = lockout
+    const pinKey = req.body?.pin ? `pin:${pinLookupKey(req.body.pin)}` : null;
     const devKey = deviceId ? `device:${deviceId}` : null;
 
     // Check blacklist first — permanent block
@@ -309,12 +321,13 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(403).json({ error: "Accesso permanentemente bloccato" });
     }
 
-    // Check both locks — blocked if either is active
-    const [ipLock, devLock] = await Promise.all([
+    // Check all three locks — IP, device, and PIN-hash
+    const [ipLock, devLock, pinLock] = await Promise.all([
       checkLock(ipKey),
       devKey ? checkLock(devKey) : null,
+      pinKey ? checkLock(pinKey) : null,
     ]);
-    const activeLock = (ipLock?.lockedUntil && ipLock) || (devLock?.lockedUntil && devLock);
+    const activeLock = (ipLock?.lockedUntil && ipLock) || (devLock?.lockedUntil && devLock) || (pinLock?.lockedUntil && pinLock);
     if (activeLock) {
       const mins = Math.ceil((activeLock.lockedUntil - new Date()) / 60000);
       audit("login_blocked", { ip, deviceId, success: false, detail: `locked ${mins}m` });
@@ -323,16 +336,17 @@ app.post("/api/auth/login", async (req, res) => {
 
     const household = await findHouseholdByPin(req.body?.pin);
     if (!household) {
-      const [ipNowLocked, devNowLocked] = await Promise.all([
+      const [ipNowLocked, devNowLocked, pinNowLocked] = await Promise.all([
         recordFail(ipKey),
         devKey ? recordFail(devKey) : false,
+        pinKey ? recordFail(pinKey) : false,
       ]);
-      if (ipNowLocked || devNowLocked) sendLockoutAlert(ip, deviceId).catch(console.error);
+      if (ipNowLocked || devNowLocked || pinNowLocked) sendLockoutAlert(ip, deviceId).catch(console.error);
       audit("login_fail", { ip, deviceId, success: false });
       return res.status(401).json({ error: "PIN non valido" });
     }
 
-    await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null]);
+    await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null, pinKey ? clearLock(pinKey) : null]);
     const { token, jti } = signToken(household.householdId);
     await storeToken(jti, household.householdId);
     audit("login_success", { householdId: household.householdId, ip, deviceId });
