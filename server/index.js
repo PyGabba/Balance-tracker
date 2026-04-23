@@ -125,8 +125,8 @@ app.use(express.json({ limit: "10mb" }));
 
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "strict",
+  secure: true,      // required for SameSite=None
+  sameSite: "none",  // frontend (Vercel) and backend (Render) are different origins
   maxAge: TOKEN_TTL_SECONDS * 1000,
   path: "/",
 };
@@ -315,7 +315,7 @@ app.post("/api/auth/login", async (req, res) => {
 app.post("/api/auth/logout", requireHousehold, async (req, res) => {
   try {
     await revokeToken(req.jti);
-    res.clearCookie("token", { path: "/" });
+    res.clearCookie("token", { path: "/", httpOnly: true, secure: true, sameSite: "none" });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: "Errore logout" }); }
 });
@@ -395,7 +395,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     await db.collection("positions").deleteMany({ householdId: req.householdId });
     await revokeAllTokens(req.householdId);
     await householdsCol.deleteOne({ householdId: req.householdId });
-    res.clearCookie("token", { path: "/" });
+    res.clearCookie("token", { path: "/", httpOnly: true, secure: true, sameSite: "none" });
     res.json({ ok: true });
   } catch (e) { console.error("Delete household error:", e); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
 });
