@@ -131,7 +131,7 @@ const COOKIE_OPTS = {
   path: "/",
 };
 
-let db, transactionsCol, householdsCol, quotesCol, blacklistCol;
+let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
   db = client.db(DB_NAME);
@@ -141,7 +141,11 @@ async function connectDB() {
   quotesCol = db.collection("quotes_cache");
   blacklistCol = db.collection("blacklist");
   activeTokensCol = db.collection("active_tokens");
+  auditCol = db.collection("audit_log");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
+  await auditCol.createIndex({ ts: -1 });
+  await auditCol.createIndex({ householdId: 1, ts: -1 });
+  await auditCol.createIndex({ ts: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // 90-day retention
   try { await householdsCol.dropIndex("pin_1"); } catch {}
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ pinLookup: 1 }, { unique: true, sparse: true });
@@ -159,6 +163,13 @@ async function connectDB() {
     { $set: { requiresPinChange: true } }
   );
   console.log("Connected: " + DB_NAME); return client;
+}
+
+// ─── Audit log ───
+function audit(event, { householdId = null, ip = null, deviceId = null, success = true, detail = null } = {}) {
+  const doc = { event, householdId, ip, deviceId, success, ts: new Date() };
+  if (detail) doc.detail = detail;
+  auditCol?.insertOne(doc).catch(() => {}); // fire-and-forget, never block a request
 }
 
 // ─── Blacklist helpers ───
@@ -180,6 +191,13 @@ const adminLimiter = rateLimit({
   max: 20,
   standardHeaders: true, legacyHeaders: false,
   message: { error: "Troppi tentativi admin" },
+});
+
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppe richieste, riprova tra un minuto" },
 });
 
 // ─── Admin middleware ───
@@ -280,6 +298,7 @@ app.post("/api/auth/login", async (req, res) => {
       devKey ? isBlacklisted(devKey) : false,
     ]);
     if (ipBanned || devBanned) {
+      audit("login_blocked", { ip, deviceId, success: false, detail: "blacklisted" });
       return res.status(403).json({ error: "Accesso permanentemente bloccato" });
     }
 
@@ -291,6 +310,7 @@ app.post("/api/auth/login", async (req, res) => {
     const activeLock = (ipLock?.lockedUntil && ipLock) || (devLock?.lockedUntil && devLock);
     if (activeLock) {
       const mins = Math.ceil((activeLock.lockedUntil - new Date()) / 60000);
+      audit("login_blocked", { ip, deviceId, success: false, detail: `locked ${mins}m` });
       return res.status(429).json({ error: `Accesso bloccato. Riprova tra ${mins} minuti.` });
     }
 
@@ -301,12 +321,14 @@ app.post("/api/auth/login", async (req, res) => {
         devKey ? recordFail(devKey) : false,
       ]);
       if (ipNowLocked || devNowLocked) sendLockoutAlert(ip, deviceId).catch(console.error);
+      audit("login_fail", { ip, deviceId, success: false });
       return res.status(401).json({ error: "PIN non valido" });
     }
 
     await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null]);
     const { token, jti } = signToken(household.householdId);
     await storeToken(jti, household.householdId);
+    audit("login_success", { householdId: household.householdId, ip, deviceId });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ...household });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
@@ -315,6 +337,7 @@ app.post("/api/auth/login", async (req, res) => {
 app.post("/api/auth/logout", requireHousehold, async (req, res) => {
   try {
     await revokeToken(req.jti);
+    audit("logout", { householdId: req.householdId, ip: clientIp(req) });
     res.clearCookie("token", { path: "/", httpOnly: true, secure: true, sameSite: "none" });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: "Errore logout" }); }
@@ -347,11 +370,12 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     await householdsCol.insertOne(doc);
     const { token, jti } = signToken(householdId);
     await storeToken(jti, householdId);
+    audit("register", { householdId, ip: clientIp(req) });
     res.cookie("token", token, COOKIE_OPTS);
     res.status(201).json({ householdId, nome, persone: personeFormatted });
   } catch (e) {
     if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
-    console.error("Register error:", e);
+    console.error("Register error:", e.message); // never log e directly — req.body may appear in stack
     res.status(500).json({ error: "Errore durante la registrazione" });
   }
 });
@@ -372,9 +396,10 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
     await revokeAllTokens(req.householdId);
     const { token, jti } = signToken(req.householdId);
     await storeToken(jti, req.householdId);
+    audit("pin_change", { householdId: req.householdId, ip: clientIp(req) });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
+  } catch (e) { console.error("PIN change error:", e.message); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
 });
 
 app.delete("/api/auth/household", requireHousehold, async (req, res) => {
@@ -395,9 +420,10 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     await db.collection("positions").deleteMany({ householdId: req.householdId });
     await revokeAllTokens(req.householdId);
     await householdsCol.deleteOne({ householdId: req.householdId });
+    audit("household_delete", { householdId: req.householdId, ip: clientIp(req) });
     res.clearCookie("token", { path: "/", httpOnly: true, secure: true, sameSite: "none" });
     res.json({ ok: true });
-  } catch (e) { console.error("Delete household error:", e); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
+  } catch (e) { console.error("Delete household error:", e.message); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
 });
 
 // ─── GET household info ───
@@ -406,7 +432,7 @@ app.get("/api/household", requireHousehold, (req, res) => {
 });
 
 // ─── GET transactions ───
-app.get("/api/transactions", requireHousehold, async (req, res) => {
+app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) => {
   try {
     const { tipo, categoria, pagatoDa, meseAnno, limit } = req.query;
     const filter = { householdId: req.householdId };
