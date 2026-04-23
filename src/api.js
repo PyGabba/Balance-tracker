@@ -1,8 +1,8 @@
 // ─── API Client with household auth ───
 
-// Empty string = relative paths → Vercel proxy forwards /api/* to Render (same-origin, Safari-safe)
-// Set VITE_API_URL=http://localhost:3001 in .env for local development
-const API_BASE = import.meta.env.VITE_API_URL || "";
+// Production: always use relative paths so Vercel proxy forwards /api/* to Render (same-origin, Safari-safe)
+// Development: use VITE_API_URL or fall back to localhost
+const API_BASE = import.meta.env.PROD ? "" : (import.meta.env.VITE_API_URL || "http://localhost:3001");
 
 let apiAvailable = null;
 let currentHousehold = null; // { householdId, nome, persone }
