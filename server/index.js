@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from "mongodb";
 import { createHmac, randomUUID } from "crypto";
 import dotenv from "dotenv";
@@ -114,11 +115,21 @@ const CORS_OPTIONS = {
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
   optionsSuccessStatus: 200,
 };
 app.use(cors(CORS_OPTIONS));
 app.options("*", cors(CORS_OPTIONS));
+app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
+
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict",
+  maxAge: TOKEN_TTL_SECONDS * 1000,
+  path: "/",
+};
 
 let db, transactionsCol, householdsCol, quotesCol, blacklistCol;
 async function connectDB() {
@@ -238,10 +249,11 @@ async function findHouseholdByPin(pin) {
 }
 
 async function requireHousehold(req, res, next) {
-  const auth = req.headers["authorization"];
-  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Household non valido" });
+  // Prefer httpOnly cookie; fall back to Authorization header for backward compat
+  const rawToken = req.cookies?.token || (req.headers["authorization"]?.startsWith("Bearer ") ? req.headers["authorization"].slice(7) : null);
+  if (!rawToken) return res.status(401).json({ error: "Household non valido" });
   let payload;
-  try { payload = jwt.verify(auth.slice(7), JWT_SECRET, { algorithms: ["HS256"] }); }
+  try { payload = jwt.verify(rawToken, JWT_SECRET, { algorithms: ["HS256"] }); }
   catch { return res.status(401).json({ error: "Token non valido" }); }
   const { householdId: hid, jti } = payload;
   if (!jti) return res.status(401).json({ error: "Token non valido" });
@@ -295,13 +307,15 @@ app.post("/api/auth/login", async (req, res) => {
     await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null]);
     const { token, jti } = signToken(household.householdId);
     await storeToken(jti, household.householdId);
-    res.json({ ...household, token });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.json({ ...household });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
 });
 
 app.post("/api/auth/logout", requireHousehold, async (req, res) => {
   try {
     await revokeToken(req.jti);
+    res.clearCookie("token", { path: "/" });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: "Errore logout" }); }
 });
@@ -333,7 +347,8 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     await householdsCol.insertOne(doc);
     const { token, jti } = signToken(householdId);
     await storeToken(jti, householdId);
-    res.status(201).json({ householdId, nome, persone: personeFormatted, token });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.status(201).json({ householdId, nome, persone: personeFormatted });
   } catch (e) {
     if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
     console.error("Register error:", e);
@@ -357,7 +372,8 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
     await revokeAllTokens(req.householdId);
     const { token, jti } = signToken(req.householdId);
     await storeToken(jti, req.householdId);
-    res.json({ ok: true, token });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
 });
 
@@ -379,7 +395,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     await db.collection("positions").deleteMany({ householdId: req.householdId });
     await revokeAllTokens(req.householdId);
     await householdsCol.deleteOne({ householdId: req.householdId });
-
+    res.clearCookie("token", { path: "/" });
     res.json({ ok: true });
   } catch (e) { console.error("Delete household error:", e); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
 });

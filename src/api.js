@@ -50,7 +50,7 @@ if (saved) currentHousehold = saved;
 async function checkAPI() {
   if (apiAvailable !== null) return apiAvailable;
   try {
-    const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(`${API_BASE}/api/health`, { credentials: "include", signal: AbortSignal.timeout(4000) });
     apiAvailable = res.ok;
   } catch { apiAvailable = false; }
   return apiAvailable;
@@ -58,15 +58,13 @@ async function checkAPI() {
 
 // ─── Background API wakeup: fire-and-forget ping to warm up Render ───
 export function wakeupServer() {
-  fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(30000) })
+  fetch(`${API_BASE}/api/health`, { credentials: "include", signal: AbortSignal.timeout(30000) })
     .then(r => { if (r.ok) apiAvailable = true; })
     .catch(() => {});
 }
 
 function authHeaders() {
-  const h = { "Content-Type": "application/json" };
-  if (currentHousehold?.token) h["Authorization"] = `Bearer ${currentHousehold.token}`;
-  return h;
+  return { "Content-Type": "application/json" };
 }
 
 // ─── localStorage fallback (scoped by household) ───
@@ -116,6 +114,7 @@ export async function login(pin) {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ pin, deviceId: getDeviceId() }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -135,12 +134,13 @@ export async function login(pin) {
   }
 
   if (serverResult) {
-    currentHousehold = serverResult;
-    saveSession(serverResult);
-    savePersistentSession(serverResult);
+    const { token: _token, ...sessionData } = serverResult; // token is in httpOnly cookie, not stored in JS
+    currentHousehold = sessionData;
+    saveSession(sessionData);
+    savePersistentSession(sessionData);
     savePinHash(pin);
     apiAvailable = true;
-    return serverResult;
+    return sessionData;
   }
 
   // Server failed or timed out: try cached session if PIN matches
@@ -160,13 +160,15 @@ export async function register({ nome, persone, pin }) {
   const res = await fetch(`${API_BASE}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ nome, persone, pin }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Registrazione fallita");
   }
-  const data = await res.json();
+  const raw = await res.json();
+  const { token: _token, ...data } = raw; // token is in httpOnly cookie
   currentHousehold = data;
   saveSession(data);
   savePersistentSession(data);
@@ -179,16 +181,16 @@ export async function changePin(newPin) {
   const res = await fetch(`${API_BASE}/api/auth/pin`, {
     method: "PUT",
     headers: authHeaders(),
+    credentials: "include",
     body: JSON.stringify({ newPin }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Aggiornamento PIN fallito");
   }
-  const data = await res.json();
   savePinHash(newPin);
   if (currentHousehold) {
-    currentHousehold = { ...currentHousehold, requiresPinChange: false, token: data.token };
+    currentHousehold = { ...currentHousehold, requiresPinChange: false };
     saveSession(currentHousehold);
     savePersistentSession(currentHousehold);
   }
@@ -197,15 +199,14 @@ export async function changePin(newPin) {
 
 export async function logout() {
   // Best-effort server-side token revocation
-  if (currentHousehold?.token) {
-    try {
-      await fetch(`${API_BASE}/api/auth/logout`, {
-        method: "POST",
-        headers: authHeaders(),
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch {}
-  }
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      headers: authHeaders(),
+      credentials: "include",
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {}
   clearSession();
   clearPersistentSession();
   try { localStorage.removeItem(LS_PIN_HASH_KEY); } catch {}
@@ -242,6 +243,7 @@ export async function fetchTransactions(onSync) {
       try {
         const res = await fetch(`${API_BASE}/api/transactions`, {
           headers: authHeaders(),
+          credentials: "include",
           signal: AbortSignal.timeout(15000),
         });
         if (res.status === 401) { clearSession(); return; }
@@ -270,7 +272,7 @@ export async function addTransaction(tx) {
   if (await checkAPI() && currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/transactions`, {
-        method: "POST", headers: authHeaders(), body: JSON.stringify(tx),
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(tx),
       });
       if (!res.ok) throw new Error(res.status);
       return await res.json();
@@ -289,7 +291,7 @@ export async function addTransaction(tx) {
 export async function deleteTransaction(id) {
   if (await checkAPI() && currentHousehold) {
     try {
-      const res = await fetch(`${API_BASE}/api/transactions/${id}`, { method: "DELETE", headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/transactions/${id}`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
       if (!res.ok) throw new Error(res.status);
       return true;
     } catch (err) {
@@ -306,7 +308,7 @@ export async function updateTransaction(id, updates) {
   if (await checkAPI() && currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/transactions/${id}`, {
-        method: "PUT", headers: authHeaders(), body: JSON.stringify(updates),
+        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
       });
       if (!res.ok) throw new Error(res.status);
       return await res.json();
@@ -332,6 +334,7 @@ export async function deleteHousehold(pin) {
   const res = await fetch(`${API_BASE}/api/auth/household`, {
     method: "DELETE",
     headers: authHeaders(),
+    credentials: "include",
     body: JSON.stringify({ pin }),
   });
   if (!res.ok) {
@@ -345,7 +348,7 @@ export async function deleteHousehold(pin) {
 export async function fetchPositions() {
   if (await checkAPI() && currentHousehold) {
     try {
-      const res = await fetch(`${API_BASE}/api/positions`, { headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/positions`, { headers: authHeaders(), credentials: "include" });
       if (!res.ok) throw new Error(res.status);
       return await res.json();
     } catch (err) { console.error("fetchPositions:", err); }
@@ -357,7 +360,7 @@ export async function addPosition(pos) {
   if (await checkAPI() && currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/positions`, {
-        method: "POST", headers: authHeaders(), body: JSON.stringify(pos),
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(pos),
       });
       if (!res.ok) throw new Error(res.status);
       return await res.json();
@@ -369,7 +372,7 @@ export async function addPosition(pos) {
 export async function deletePosition(id) {
   if (await checkAPI() && currentHousehold) {
     try {
-      const res = await fetch(`${API_BASE}/api/positions/${id}`, { method: "DELETE", headers: authHeaders() });
+      const res = await fetch(`${API_BASE}/api/positions/${id}`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
       if (!res.ok) throw new Error(res.status);
       return true;
     } catch (err) { console.error("deletePosition:", err); }
@@ -391,6 +394,7 @@ export async function fetchCategorie() {
   try {
     const res = await fetch(`${API_BASE}/api/categorie`, {
       headers: authHeaders(),
+      credentials: "include",
       signal: AbortSignal.timeout(10000),
     });
     if (res.ok) {
@@ -417,6 +421,7 @@ export async function saveCategorie(cats) {
     await fetch(`${API_BASE}/api/categorie`, {
       method: "PUT",
       headers: authHeaders(),
+      credentials: "include",
       body: JSON.stringify({ categorie: cats }),
       signal: AbortSignal.timeout(20000),
     });
@@ -428,6 +433,7 @@ export async function fetchManualPrices() {
   try {
     const res = await fetch(`${API_BASE}/api/positions/prices`, {
       headers: authHeaders(),
+      credentials: "include",
       signal: AbortSignal.timeout(10000),
     });
     if (res.ok) return (await res.json()).manualPrices || {};
@@ -441,6 +447,7 @@ export async function saveManualPricesRemote(prices) {
     await fetch(`${API_BASE}/api/positions/prices`, {
       method: "PUT",
       headers: authHeaders(),
+      credentials: "include",
       body: JSON.stringify({ manualPrices: prices }),
       signal: AbortSignal.timeout(10000),
     });
@@ -451,7 +458,7 @@ export async function fetchQuotes(symbols, forceRefresh = false) {
   if (!symbols || symbols.length === 0) return { quotes: {}, cached: false, aggiornamento: " " };
   try {
     const url = `${API_BASE}/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}${forceRefresh ? "&refresh=true" : ""}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: "include" });
     if (!res.ok) throw new Error(res.status);
     return await res.json(); // { quotes: { TICKER: { prezzo, cambioPct } }, cached, aggiornamento }
   } catch (err) {
