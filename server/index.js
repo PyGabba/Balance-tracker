@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { MongoClient, ObjectId } from "mongodb";
-import { createHmac } from "crypto";
+import { createHmac, randomUUID } from "crypto";
 import dotenv from "dotenv";
 import YahooFinance from "yahoo-finance2";
 import jwt from "jsonwebtoken";
@@ -57,8 +57,23 @@ async function recordFail(key) {
 async function clearLock(key) { await locksCol.deleteOne({ key }); }
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
+const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
+
+let activeTokensCol; // set in connectDB
+
 function signToken(householdId) {
-  return jwt.sign({ householdId }, JWT_SECRET, { expiresIn: "90d" });
+  const jti = randomUUID();
+  const token = jwt.sign({ householdId, jti }, JWT_SECRET, { expiresIn: "90d" });
+  return { token, jti };
+}
+async function storeToken(jti, householdId) {
+  await activeTokensCol.insertOne({ jti, householdId, createdAt: new Date() });
+}
+async function revokeToken(jti) {
+  await activeTokensCol.deleteOne({ jti });
+}
+async function revokeAllTokens(householdId) {
+  await activeTokensCol.deleteMany({ householdId });
 }
 function pinLookupKey(pin) {
   return createHmac("sha256", JWT_SECRET).update(pin).digest("hex");
@@ -114,6 +129,7 @@ async function connectDB() {
   locksCol = db.collection("login_locks");
   quotesCol = db.collection("quotes_cache");
   blacklistCol = db.collection("blacklist");
+  activeTokensCol = db.collection("active_tokens");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   try { await householdsCol.dropIndex("pin_1"); } catch {}
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
@@ -123,6 +139,9 @@ async function connectDB() {
   await locksCol.createIndex({ key: 1 }, { unique: true });
   await locksCol.createIndex({ lockedUntil: 1 }, { expireAfterSeconds: 0, sparse: true });
   await blacklistCol.createIndex({ key: 1 }, { unique: true });
+  await activeTokensCol.createIndex({ jti: 1 }, { unique: true });
+  await activeTokensCol.createIndex({ householdId: 1 });
+  await activeTokensCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: TOKEN_TTL_SECONDS });
   // One-time migration: flag all existing households to require a 6-digit PIN change
   await householdsCol.updateMany(
     { requiresPinChange: { $exists: false } },
@@ -224,11 +243,15 @@ async function requireHousehold(req, res, next) {
   let payload;
   try { payload = jwt.verify(auth.slice(7), JWT_SECRET, { algorithms: ["HS256"] }); }
   catch { return res.status(401).json({ error: "Token non valido" }); }
-  const hid = payload.householdId;
+  const { householdId: hid, jti } = payload;
+  if (!jti) return res.status(401).json({ error: "Token non valido" });
   try {
-    const household = await findHousehold(hid);
-    if (!household) return res.status(401).json({ error: "Household non valido" });
-    req.household = household; req.householdId = hid; next();
+    const [household, active] = await Promise.all([
+      findHousehold(hid),
+      activeTokensCol.findOne({ jti }),
+    ]);
+    if (!household || !active) return res.status(401).json({ error: "Sessione scaduta, accedi nuovamente" });
+    req.household = household; req.householdId = hid; req.jti = jti; next();
   } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
 }
 
@@ -270,8 +293,17 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null]);
-    res.json({ ...household, token: signToken(household.householdId) });
+    const { token, jti } = signToken(household.householdId);
+    await storeToken(jti, household.householdId);
+    res.json({ ...household, token });
   } catch (e) { res.status(500).json({ error: "Errore login" }); }
+});
+
+app.post("/api/auth/logout", requireHousehold, async (req, res) => {
+  try {
+    await revokeToken(req.jti);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: "Errore logout" }); }
 });
 
 app.post("/api/auth/register", registerLimiter, async (req, res) => {
@@ -299,7 +331,9 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     const pinHash = await hashPin(pin);
     const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), createdAt: new Date() };
     await householdsCol.insertOne(doc);
-    res.status(201).json({ householdId, nome, persone: personeFormatted, token: signToken(householdId) });
+    const { token, jti } = signToken(householdId);
+    await storeToken(jti, householdId);
+    res.status(201).json({ householdId, nome, persone: personeFormatted, token });
   } catch (e) {
     if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
     console.error("Register error:", e);
@@ -320,7 +354,10 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
       { householdId: req.householdId },
       { $set: { pinHash, pinLookup, requiresPinChange: false, updatedAt: new Date() }, $unset: { pin: "" } }
     );
-    res.json({ ok: true });
+    await revokeAllTokens(req.householdId);
+    const { token, jti } = signToken(req.householdId);
+    await storeToken(jti, req.householdId);
+    res.json({ ok: true, token });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
 });
 
@@ -340,6 +377,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     // Delete all data for this household
     await transactionsCol.deleteMany({ householdId: req.householdId });
     await db.collection("positions").deleteMany({ householdId: req.householdId });
+    await revokeAllTokens(req.householdId);
     await householdsCol.deleteOne({ householdId: req.householdId });
 
     res.json({ ok: true });

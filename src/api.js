@@ -185,20 +185,32 @@ export async function changePin(newPin) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Aggiornamento PIN fallito");
   }
+  const data = await res.json();
   savePinHash(newPin);
   if (currentHousehold) {
-    currentHousehold = { ...currentHousehold, requiresPinChange: false };
+    currentHousehold = { ...currentHousehold, requiresPinChange: false, token: data.token };
     saveSession(currentHousehold);
     savePersistentSession(currentHousehold);
   }
   return true;
 }
 
-export function logout() {
+export async function logout() {
+  // Best-effort server-side token revocation
+  if (currentHousehold?.token) {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, {
+        method: "POST",
+        headers: authHeaders(),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch {}
+  }
   clearSession();
   clearPersistentSession();
   try { localStorage.removeItem(LS_PIN_HASH_KEY); } catch {}
   apiAvailable = null;
+  currentHousehold = null;
 }
 
 export function getSession() {
