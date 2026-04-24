@@ -176,6 +176,27 @@ function sanitizeText(s, maxLen = 500) {
   return String(s).trim().slice(0, maxLen);
 }
 
+// #7: whitelist splits/extraPersone sub-object keys to prevent stored XSS via arbitrary fields
+function sanitizeSplits(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  if (arr.length > 20) return null; // more splits than people = suspicious
+  return arr.map(s => {
+    if (!s || typeof s !== "object") return null;
+    const quota = typeof s.quota === "number" ? s.quota : parseFloat(s.quota);
+    if (!Number.isFinite(quota) || quota < 0 || quota > 100) return null;
+    return { personaId: sanitizeText(s.personaId, 50), quota };
+  }).filter(Boolean);
+}
+
+function sanitizeExtraPersone(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  if (arr.length > 20) return null;
+  return arr.map(p => {
+    if (!p || typeof p !== "object") return null;
+    return { id: sanitizeText(p.id, 50), nome: sanitizeText(p.nome, 100) };
+  }).filter(Boolean);
+}
+
 // ─── Audit log ───
 function audit(event, { householdId = null, ip = null, deviceId = null, success = true, detail = null } = {}) {
   const doc = { event, householdId, ip, deviceId, success, ts: new Date() };
@@ -206,9 +227,23 @@ const registerLimiter = rateLimit({
 
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 5, // #8: 5 attempts per 15 min — wrong secret = locked out fast
   standardHeaders: true, legacyHeaders: false,
   message: { error: "Troppi tentativi admin" },
+});
+
+const quotesLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5, // #4: 5 quote fetches/min — prevents Yahoo Finance hammering
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppe richieste quotazioni, riprova tra un minuto" },
+});
+
+const writeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120, // #5: 120 writes/min per IP — stops storage flood while allowing normal use
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: "Troppe operazioni, riprova tra un minuto" },
 });
 
 const exportLimiter = rateLimit({
@@ -284,6 +319,9 @@ async function findHouseholdByPin(pin) {
   return { householdId: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null, requiresPinChange: dbH.requiresPinChange || false };
 }
 
+// Routes allowed even when requiresPinChange is set
+const PIN_CHANGE_EXEMPT = ["/api/auth/pin", "/api/auth/logout"];
+
 async function requireHousehold(req, res, next) {
   const rawToken = req.cookies?.token;
   if (!rawToken) return res.status(401).json({ error: "Household non valido" });
@@ -298,6 +336,10 @@ async function requireHousehold(req, res, next) {
       activeTokensCol.findOne({ jti }),
     ]);
     if (!household || !active) return res.status(401).json({ error: "Sessione scaduta, accedi nuovamente" });
+    // #2: enforce PIN change server-side — token is valid but access is locked until PIN updated
+    if (household.requiresPinChange && !PIN_CHANGE_EXEMPT.includes(req.path)) {
+      return res.status(403).json({ error: "PIN_CHANGE_REQUIRED" });
+    }
     req.household = household; req.householdId = hid; req.jti = jti; next();
   } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
 }
@@ -470,7 +512,7 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
 });
 
 // ─── POST transaction ───
-app.post("/api/transactions", requireHousehold, async (req, res) => {
+app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const b = req.body;
     if (!b.tipo || !b.importo || !b.data) return res.status(400).json({ error: "Campi obbligatori" });
@@ -483,8 +525,8 @@ app.post("/api/transactions", requireHousehold, async (req, res) => {
       data: b.data,
       pagatoDa: b.pagatoDa || null,
       ricevutoDa: b.ricevutoDa || null,
-      splits: Array.isArray(b.splits) && b.splits.length > 0 ? b.splits : null,
-      extraPersone: Array.isArray(b.extraPersone) && b.extraPersone.length > 0 ? b.extraPersone : null,
+      splits: sanitizeSplits(b.splits),
+      extraPersone: sanitizeExtraPersone(b.extraPersone),
       splitPagante: b.splitPagante != null ? parseInt(b.splitPagante) : null,
       intestataA: b.intestataA || null,
       createdAt: new Date(),
@@ -497,7 +539,7 @@ app.post("/api/transactions", requireHousehold, async (req, res) => {
 });
 
 // ─── DELETE transaction ───
-app.delete("/api/transactions/:id", requireHousehold, async (req, res) => {
+app.delete("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const r = await transactionsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -507,7 +549,7 @@ app.delete("/api/transactions/:id", requireHousehold, async (req, res) => {
 });
 
 // ─── PUT transaction ───
-app.put("/api/transactions/:id", requireHousehold, async (req, res) => {
+app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const update = {};
@@ -516,8 +558,8 @@ app.put("/api/transactions/:id", requireHousehold, async (req, res) => {
       if (req.body[key] !== undefined) {
         if (key === "importo") update[key] = parseFloat(req.body[key]);
         else if (key === "splitPagante") update[key] = req.body[key] != null ? parseInt(req.body[key]) : null;
-        else if (key === "splits") update[key] = Array.isArray(req.body[key]) ? req.body[key] : null;
-        else if (key === "extraPersone") update[key] = Array.isArray(req.body[key]) ? req.body[key] : null;
+        else if (key === "splits") update[key] = sanitizeSplits(req.body[key]);
+        else if (key === "extraPersone") update[key] = sanitizeExtraPersone(req.body[key]);
         else if (key === "descrizione") update[key] = sanitizeText(req.body[key]);
         else update[key] = req.body[key];
       }
@@ -627,9 +669,26 @@ app.put("/api/categorie", requireHousehold, async (req, res) => {
     const { categorie } = req.body || {};
     if (!Array.isArray(categorie) || categorie.length === 0)
       return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
+    if (categorie.length > 100)
+      return res.status(400).json({ error: "Massimo 100 categorie" });
+    // Sanitize: allow strings or objects with known keys only
+    const ALLOWED_CAT_KEYS = new Set(["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"]);
+    const sanitized = categorie.map(c => {
+      if (typeof c === "string") return sanitizeText(c, 100);
+      if (c && typeof c === "object" && !Array.isArray(c)) {
+        const safe = {};
+        for (const k of ALLOWED_CAT_KEYS) {
+          if (c[k] !== undefined) safe[k] = sanitizeText(String(c[k]), 100);
+        }
+        return safe;
+      }
+      return null;
+    }).filter(Boolean);
+    if (sanitized.length === 0)
+      return res.status(400).json({ error: "Nessuna categoria valida" });
     await householdsCol.updateOne(
       { householdId: req.householdId },
-      { $set: { categorieUscita: categorie, updatedAt: new Date() } }
+      { $set: { categorieUscita: sanitized, updatedAt: new Date() } }
     );
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
@@ -651,14 +710,16 @@ app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, 
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-app.post("/api/positions", requireHousehold, requirePortfolioAccess, async (req, res) => {
+app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAccess, async (req, res) => {
   try {
     const b = req.body;
     if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return res.status(400).json({ error: "Campi obbligatori: ticker, quantita, prezzoAcquisto" });
+    const ticker = b.ticker.toUpperCase().trim();
+    if (!/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) return res.status(400).json({ error: "Ticker non valido (max 20 caratteri alfanumerici)" });
     const doc = {
       householdId: req.householdId,
-      ticker: b.ticker.toUpperCase().trim(),
-      nome: sanitizeText(b.nome || b.ticker.toUpperCase().trim(), 100),
+      ticker,
+      nome: sanitizeText(b.nome || ticker, 100),
       quantita: parseFloat(b.quantita),
       prezzoAcquisto: parseFloat(b.prezzoAcquisto),
       dataAcquisto: b.dataAcquisto || new Date().toISOString().slice(0, 10),
@@ -722,12 +783,15 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
 // Supports all exchanges: .MI (Milano), .DE (Frankfurt), .L (London), US, etc.
 // Cached once per day in MongoDB
 
-app.get("/api/quotes", requireHousehold, async (req, res) => {
+app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
   try {
     const symbols = req.query.symbols;
     if (!symbols) return res.status(400).json({ error: "symbols required" });
     const forceRefresh = req.query.refresh === "true";
-    const tickers = symbols.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    const TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
+    const tickers = symbols.split(",").map(s => s.trim().toUpperCase()).filter(s => TICKER_RE.test(s));
+    if (tickers.length === 0) return res.status(400).json({ error: "Nessun simbolo valido" });
+    if (tickers.length > 20) return res.status(400).json({ error: "Massimo 20 simboli per richiesta" });
     const today = new Date().toISOString().slice(0, 10);
     const quotes = {};
 
