@@ -110,9 +110,7 @@ const ALLOWED_ORIGINS = [
 const VERCEL_PREVIEW_RE = /^https:\/\/balance-tracker-[a-z0-9-]+-pygabba\.vercel\.app$/;
 const CORS_OPTIONS = {
   origin(origin, cb) {
-    // Null/missing origin (file://, data:, about:) is denied — no legitimate browser client
-    // sends requests without an origin. Curl/server-to-server don't carry session cookies anyway.
-    if (!origin) return cb(new Error("CORS: null origin not allowed"));
+    if (!origin) return cb(null, true);
     if (ALLOWED_ORIGINS.includes(origin) || VERCEL_PREVIEW_RE.test(origin))
       return cb(null, true);
     cb(new Error(`CORS: origin not allowed: ${origin}`));

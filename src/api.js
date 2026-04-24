@@ -69,6 +69,29 @@ function authHeaders() {
   return { "Content-Type": "application/json" };
 }
 
+// ─── Central auth-error handler ───
+// App.jsx registers a callback so any 401/403 from the server forces re-auth
+// regardless of which endpoint fired it (positions, categorie, etc.)
+let _authErrorCb = null;
+export function setAuthErrorHandler(fn) { _authErrorCb = fn; }
+
+async function onAuthError(res) {
+  clearSession();
+  clearPersistentSession();
+  currentHousehold = null;
+  apiAvailable = null;
+  try {
+    const body = await res.clone().json();
+    if (_authErrorCb) _authErrorCb(body.error);
+  } catch { if (_authErrorCb) _authErrorCb("auth_error"); }
+}
+
+// Returns true if the response was an auth error (caller should return early)
+async function checkAuthError(res) {
+  if (res.status === 401 || res.status === 403) { await onAuthError(res); return true; }
+  return false;
+}
+
 // ─── localStorage fallback (scoped by household) ───
 function lsKey() {
   return `finanza-tx-${currentHousehold?.householdId || "default"}`;
@@ -248,7 +271,7 @@ export async function fetchTransactions(onSync) {
           credentials: "include",
           signal: AbortSignal.timeout(15000),
         });
-        if (res.status === 401) { clearSession(); return; }
+        if (await checkAuthError(res)) return;
         if (!res.ok) return;
         const serverData = await res.json();
         apiAvailable = true;
@@ -351,6 +374,7 @@ export async function fetchPositions() {
   if (await checkAPI() && currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/positions`, { headers: authHeaders(), credentials: "include" });
+      if (await checkAuthError(res)) return [];
       if (!res.ok) throw new Error(res.status);
       return await res.json();
     } catch (err) { console.error("fetchPositions:", err); }
@@ -399,6 +423,7 @@ export async function fetchCategorie() {
       credentials: "include",
       signal: AbortSignal.timeout(10000),
     });
+    if (await checkAuthError(res)) return null;
     if (res.ok) {
       const data = await res.json();
       if (data.categorie) {
@@ -438,6 +463,7 @@ export async function fetchManualPrices() {
       credentials: "include",
       signal: AbortSignal.timeout(10000),
     });
+    if (await checkAuthError(res)) return {};
     if (res.ok) return (await res.json()).manualPrices || {};
   } catch {}
   return {};

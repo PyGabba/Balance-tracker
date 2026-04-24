@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -3156,6 +3156,13 @@ export default function FinanzaApp() {
 
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
+
+  // Any 401/403 from the server forces re-auth — catches PIN_CHANGE_REQUIRED state mismatch
+  // (old cached session bypasses frontend check but server still enforces it)
+  useEffect(() => {
+    setAuthErrorHandler(() => setAuthed(false));
+    return () => setAuthErrorHandler(null);
+  }, []);
 
   // Shared deep-link handler — used by both URL params and webapp:// scheme.
   // Shortcut: webapp://?action=add&tipo=uscita&importo=12.50&descrizione=Merchant&categoria=cibo&pagatoDa=Gabriele
