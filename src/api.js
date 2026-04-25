@@ -482,15 +482,4 @@ export async function saveManualPricesRemote(prices) {
   } catch {}
 }
 
-export async function fetchQuotes(symbols, forceRefresh = false) {
-  if (!symbols || symbols.length === 0) return { quotes: {}, cached: false, aggiornamento: " " };
-  try {
-    const url = `${API_BASE}/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}${forceRefresh ? "&refresh=true" : ""}`;
-    const res = await fetch(url, { credentials: "include" });
-    if (!res.ok) throw new Error(res.status);
-    return await res.json(); // { quotes: { TICKER: { prezzo, cambioPct } }, cached, aggiornamento }
-  } catch (err) {
-    console.error("fetchQuotes:", err);
-    return { quotes: {}, cached: false, aggiornamento: " " };
-  }
-}
+// fetchQuotes removed — Yahoo API disabled, use manual prices only

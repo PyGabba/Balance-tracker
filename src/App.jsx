@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchQuotes, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -332,7 +332,7 @@ function TabBar({ tab, setTab, householdId }) {
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
-  const tabs = [...baseTabs.slice(0, 3), { id: "portfolio", label: "Portfolio", icon: "📈" }, baseTabs[3], { id: "impostazioni", label: "Account", icon: "⚙" }];
+  const tabs = [...baseTabs, { id: "impostazioni", label: "Account", icon: "⚙" }];
 
   const icons = {
     home: (active) => (
@@ -351,12 +351,6 @@ function TabBar({ tab, setTab, householdId }) {
         <rect x="3" y="12" width="4" height="9" rx="1"/>
         <rect x="10" y="7" width="4" height="14" rx="1"/>
         <rect x="17" y="3" width="4" height="18" rx="1"/>
-      </svg>
-    ),
-    portfolio: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
-        <polyline points="16 7 22 7 22 13"/>
       </svg>
     ),
     export: (active) => (
@@ -1606,7 +1600,6 @@ function StatsView({ transazioni, persone, meseOffset, categorie }) {
 // ─── Portfolio View ───
 function PortfolioView() {
   const [positions, setPositions] = useState([]);
-  const [quotesData, setQuotesData] = useState({ quotes: {}, cached: false, aggiornamento: "" });
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [ticker, setTicker] = useState("");
@@ -1616,10 +1609,7 @@ function PortfolioView() {
   const [dataAcquisto, setDataAcquisto] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
   const [adding, setAdding] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [sortPortfolio, setSortPortfolio] = useState("valore-desc");
-
-  const quotes = quotesData.quotes || {};
 
   // Load positions
   useEffect(() => {
@@ -1655,15 +1645,6 @@ function PortfolioView() {
       h.prezzoMedio = h.costoTotale / h.quantita;
       holdings.push(h);
     }
-  }
-
-  // Force refresh bypasses daily cache
-  async function refreshQuotes() {
-    if (holdings.length === 0) return;
-    setRefreshing(true);
-    const r = await fetchQuotes(holdings.map(h => h.ticker), true);
-    setQuotesData(r);
-    setRefreshing(false);
   }
 
   async function handleAdd() {
@@ -1724,12 +1705,11 @@ function PortfolioView() {
     setEditingTicker(null);
   }
 
-  // Portfolio totals — prefer API price, fall back to manual override, then cost
+  // Portfolio totals — use manual price override, fall back to cost basis
   let totalInvestito = 0, totalValore = 0;
   for (const h of holdings) {
-    const q = quotes[h.ticker];
     const manuale = manualPrices[h.ticker];
-    const prezzo = q?.prezzo || manuale || 0;
+    const prezzo = manuale || 0;
     totalInvestito += h.costoTotale;
     totalValore += prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
   }
@@ -1738,16 +1718,14 @@ function PortfolioView() {
 
   // Sort holdings
   const holdingsOrdinate = [...holdings].sort((a, b) => {
-    const qa = quotes[a.ticker]; const qb = quotes[b.ticker];
     const ma = manualPrices[a.ticker]; const mb = manualPrices[b.ticker];
-    const pa = qa?.prezzo || ma || 0; const pb = qb?.prezzo || mb || 0;
+    const pa = ma || 0; const pb = mb || 0;
     const va = pa > 0 ? a.quantita * pa : a.costoTotale;
     const vb = pb > 0 ? b.quantita * pb : b.costoTotale;
     const pla = pa > 0 ? va - a.costoTotale : 0;
     const plb = pb > 0 ? vb - b.costoTotale : 0;
     const plpca = a.costoTotale > 0 && pa > 0 ? pla / a.costoTotale * 100 : 0;
     const plpcb = b.costoTotale > 0 && pb > 0 ? plb / b.costoTotale * 100 : 0;
-    const dpca = qa?.cambioPct || 0; const dpcb = qb?.cambioPct || 0;
     switch (sortPortfolio) {
       case "valore-desc": return vb - va;
       case "valore-asc":  return va - vb;
@@ -1755,8 +1733,6 @@ function PortfolioView() {
       case "pl-asc":      return pla - plb;
       case "plpct-desc":  return plpcb - plpca;
       case "plpct-asc":   return plpca - plpcb;
-      case "oggi-desc":   return dpcb - dpca;
-      case "oggi-asc":    return dpca - dpcb;
       case "ticker-asc":  return a.ticker.localeCompare(b.ticker);
       case "ticker-desc": return b.ticker.localeCompare(a.ticker);
       case "investito-desc": return b.costoTotale - a.costoTotale;
@@ -1774,23 +1750,11 @@ function PortfolioView() {
           <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>Portfolio</div>
           <div style={{ fontSize: 12, color: "#888" }}>{holdings.length} titoli</div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={refreshQuotes} disabled={refreshing} title="Aggiorna prezzi (forza)" style={{
-            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-            color: "#888", fontSize: 13, padding: "6px 10px", opacity: refreshing ? 0.5 : 1,
-          }}>{refreshing ? "..." : "↻"}</button>
-          <button onClick={() => setShowAdd(!showAdd)} style={{
+        <button onClick={() => setShowAdd(!showAdd)} style={{
             background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538",
             borderRadius: 8, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 16, padding: "4px 10px",
           }}>{showAdd ? "✕" : "+"}</button>
-        </div>
       </div>
-      {/* Cache info */}
-      {quotesData.aggiornamento && (
-        <div style={{ fontSize: 11, color: "#555", marginBottom: 14 }}>
-          Prezzi aggiornati al {quotesData.aggiornamento}{quotesData.cached ? " (cache)" : " (live)"} — ↻ per forzare aggiornamento
-        </div>
-      )}
 
       {/* Summary card */}
       {holdings.length > 0 && (
@@ -1884,8 +1848,6 @@ function PortfolioView() {
               <option value="pl-asc">P&L € ↑ (peggiore)</option>
               <option value="plpct-desc">P&L % ↓ (migliore)</option>
               <option value="plpct-asc">P&L % ↑ (peggiore)</option>
-              <option value="oggi-desc">Variazione oggi ↓</option>
-              <option value="oggi-asc">Variazione oggi ↑</option>
               <option value="investito-desc">Investito ↓</option>
               <option value="investito-asc">Investito ↑</option>
               <option value="ticker-asc">Ticker A→Z</option>
@@ -1894,14 +1856,12 @@ function PortfolioView() {
           </div>
 
           {holdingsOrdinate.map(h => {
-            const q = quotes[h.ticker];
             const manuale = manualPrices[h.ticker];
-            const isManuale = !q?.prezzo && manuale > 0;
-            const prezzoCorrente = q?.prezzo || manuale || 0;
+            const isManuale = manuale > 0;
+            const prezzoCorrente = manuale || 0;
             const valoreCorrente = prezzoCorrente > 0 ? h.quantita * prezzoCorrente : h.costoTotale;
             const pl = prezzoCorrente > 0 ? valoreCorrente - h.costoTotale : 0;
             const plPct = h.costoTotale > 0 && prezzoCorrente > 0 ? (pl / h.costoTotale * 100) : 0;
-            const dailyPct = q?.cambioPct || 0;
             const isEditing = editingTicker === h.ticker;
 
             return (
@@ -1938,17 +1898,9 @@ function PortfolioView() {
                     {prezzoCorrente > 0 && !isEditing ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap" }}>{formattaValuta(prezzoCorrente)}</span>
-                        {q?.prezzo ? (
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
-                            background: dailyPct >= 0 ? "#4ECDC415" : "#FF6B6B15",
-                            color: dailyPct >= 0 ? "#4ECDC4" : "#FF6B6B",
-                            fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap",
-                          }}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}% oggi</span>
-                        ) : null}
                       </div>
                     ) : !isEditing ? (
-                      <span style={{ fontSize: 11, color: "#555" }}>Prezzo non disponibile</span>
+                      <span style={{ fontSize: 11, color: "#555" }}>Inserisci prezzo manuale</span>
                     ) : null}
                   </div>
 
@@ -2021,13 +1973,12 @@ function PortfolioView() {
       )}
 
       {/* Allocation chart */}
-      {holdings.length >= 2 && Object.keys(quotes).length > 0 && (
+      {holdings.length >= 2 && Object.keys(manualPrices).length > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
           <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Allocazione</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {holdings.map(h => {
-              const q = quotes[h.ticker];
-              const prezzo = q?.prezzo || manualPrices[h.ticker] || 0;
+              const prezzo = manualPrices[h.ticker] || 0;
               const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
               const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
               const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];

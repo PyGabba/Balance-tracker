@@ -5,7 +5,7 @@ import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from "mongodb";
 import { createHmac, randomUUID } from "crypto";
 import dotenv from "dotenv";
-import YahooFinance from "yahoo-finance2";
+// Yahoo Finance disabled — manual prices only
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
@@ -81,7 +81,7 @@ function pinLookupKey(pin) {
 }
 async function hashPin(pin) { return bcrypt.hash(pin, 10); }
 
-const yf = new YahooFinance();
+// Yahoo Finance disabled
 
 function clientIp(req) {
   // Use Express-computed req.ip (respects trust proxy: 1, takes rightmost untrusted hop).
@@ -777,76 +777,12 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// Stock quotes via yahoo-finance2 library (handles cookies/crumb automatically)
-// Supports all exchanges: .MI (Milano), .DE (Frankfurt), .L (London), US, etc.
-// Cached once per day in MongoDB
+// Stock quotes endpoint — DISABLED
+// Only manual prices via /api/manual-prices are now supported
+// To re-enable: uncomment and ensure yahoo-finance2 is installed
 
 app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
-  try {
-    const symbols = req.query.symbols;
-    if (!symbols) return res.status(400).json({ error: "symbols required" });
-    const forceRefresh = req.query.refresh === "true";
-    const TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
-    const tickers = symbols.split(",").map(s => s.trim().toUpperCase()).filter(s => TICKER_RE.test(s));
-    if (tickers.length === 0) return res.status(400).json({ error: "Nessun simbolo valido" });
-    if (tickers.length > 20) return res.status(400).json({ error: "Massimo 20 simboli per richiesta" });
-    const today = new Date().toISOString().slice(0, 10);
-    const quotes = {};
-
-    // Check cache first
-    const toFetch = [];
-    for (const sym of tickers) {
-      if (!forceRefresh) {
-        const cached = await quotesCol.findOne({ ticker: sym, dataCache: today });
-        if (cached) { quotes[sym] = cached.quote; continue; }
-      }
-      toFetch.push(sym);
-    }
-
-    // Fetch missing tickers via yahoo-finance2
-    if (toFetch.length > 0) {
-      for (const sym of toFetch) {
-        try {
-          const q = await yf.quote(sym);
-          if (q && q.regularMarketPrice) {
-            const quote = {
-              prezzo: q.regularMarketPrice || 0,
-              cambio: q.regularMarketChange || 0,
-              cambioPct: q.regularMarketChangePercent || 0,
-              valuta: q.currency || "EUR",
-              nome: q.shortName || q.longName || q.symbol || sym,
-              apertura: q.regularMarketOpen || 0,
-              massimo: q.regularMarketDayHigh || 0,
-              minimo: q.regularMarketDayLow || 0,
-              volume: q.regularMarketVolume || 0,
-              chiusuraPrec: q.regularMarketPreviousClose || 0,
-              marketCap: q.marketCap || 0,
-              maxAnno: q.fiftyTwoWeekHigh || 0,
-              minAnno: q.fiftyTwoWeekLow || 0,
-              exchange: q.exchange || "",
-            };
-            quotes[sym] = quote;
-            await quotesCol.updateOne(
-              { ticker: sym },
-              { $set: { ticker: sym, quote, dataCache: today, updatedAt: new Date() } },
-              { upsert: true }
-            );
-          }
-        } catch (err) {
-          console.error(`Quote error for ${sym}:`, err.message);
-          // Fallback to stale cache
-          const stale = await quotesCol.findOne({ ticker: sym });
-          if (stale) quotes[sym] = stale.quote;
-        }
-      }
-    }
-
-    const cached = toFetch.length === 0;
-    res.json({ quotes, cached, aggiornamento: today });
-  } catch (e) {
-    console.error("Quotes error:", e.message);
-    res.status(502).json({ error: "Impossibile recuperare le quotazioni" });
-  }
+  res.status(410).json({ error: "API quotazioni rimossa. Usa i prezzi manuali." });
 });
 
 async function start() {
