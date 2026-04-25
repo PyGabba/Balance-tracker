@@ -329,6 +329,7 @@ function TabBar({ tab, setTab, householdId }) {
   const baseTabs = [
     { id: "home", label: "Home", icon: "⌂" },
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
+    { id: "portfolio", label: "Portfolio", icon: "📈" },
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
@@ -357,6 +358,11 @@ function TabBar({ tab, setTab, householdId }) {
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
         <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="18" x2="20" y2="18"/>
+      </svg>
+    ),
+    portfolio: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
       </svg>
     ),
     impostazioni: (active) => (
