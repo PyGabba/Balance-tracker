@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchPortfolioSnapshots, addPortfolioSnapshot } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -1628,6 +1628,32 @@ function PortfolioView() {
     })();
   }, []);
 
+  // Portfolio Snapshots (historical values)
+  const [snapshots, setSnapshots] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fetchPortfolioSnapshots();
+        setSnapshots(data || []);
+      } catch (e) { console.error(e); }
+    })();
+  }, []);
+
+  async function saveSnapshot() {
+    if (totalValore <= 0 || totalInvestito <= 0) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      await addPortfolioSnapshot({
+        date: today,
+        valoreTotale: totalValore,
+        investitoTotale: totalInvestito,
+      });
+      const updated = await fetchPortfolioSnapshots();
+      setSnapshots(updated || []);
+    } catch (e) { console.error(e); }
+  }
+
   // Aggregate: group by ticker, sum quantities
   const holdings = [];
   const tickerMap = {};
@@ -1978,30 +2004,105 @@ function PortfolioView() {
         </div>
       )}
 
-      {/* Allocation chart */}
-      {holdings.length >= 2 && Object.keys(manualPrices).length > 0 && (
+      {/* Allocation pie chart */}
+      {holdings.length >= 2 && totalValore > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
           <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Allocazione</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {holdings.map(h => {
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            <DonutChart segmenti={holdings.map((h, i) => {
               const prezzo = manualPrices[h.ticker] || 0;
               const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
-              const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
               const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];
-              const color = colors[holdings.indexOf(h) % colors.length];
-              return (
-                <div key={h.ticker}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontSize: 12, color: "#ccc", fontWeight: 600 }}>{h.ticker}</span>
+              return { valore: val, colore: colors[i % colors.length], label: h.ticker };
+            })} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+              {holdings.map((h, i) => {
+                const prezzo = manualPrices[h.ticker] || 0;
+                const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
+                const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
+                const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];
+                const color = colors[i % colors.length];
+                return (
+                  <div key={h.ticker} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
+                    <span style={{ fontSize: 12, color: "#ccc", fontWeight: 600, flex: 1 }}>{h.ticker}</span>
                     <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{pct.toFixed(1)}%</span>
                   </div>
-                  <div style={{ height: 8, background: "#252538", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, transition: "width 0.5s" }} />
-                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P&L Bar Chart */}
+      {holdings.length >= 1 && totalValore > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Profit & Loss</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 100 }}>
+            {holdings.map(h => {
+              const prezzo = manualPrices[h.ticker] || 0;
+              const valore = prezzo > 0 ? h.quantita * prezzo : 0;
+              const pl = prezzo > 0 ? valore - h.costoTotale : 0;
+              const maxPL = Math.max(...holdings.map(h => {
+                const p = manualPrices[h.ticker] || 0;
+                return p > 0 ? Math.abs((h.quantita * p) - h.costoTotale) : 0;
+              }), 1);
+              const height = Math.max(2, (Math.abs(pl) / maxPL) * 80);
+              const isPositive = pl >= 0;
+              return (
+                <div key={h.ticker} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
+                  <div style={{ width: "100%", maxWidth: 28, height, background: isPositive ? "#4ECDC4" : "#FF6B6B", borderRadius: "4px 4px 0 0", transition: "height 0.5s" }} />
+                  <span style={{ fontSize: 9, color: "#888", marginTop: 4 }}>{h.ticker}</span>
+                  <span style={{ fontSize: 8, color: isPositive ? "#4ECDC4" : "#FF6B6B" }}>{isPositive ? "+" : ""}{pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€</span>
                 </div>
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Historical Value Chart */}
+      {snapshots.length >= 2 && totalValore > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Valore nel tempo</div>
+            <button onClick={saveSnapshot} style={{
+              background: "none", border: "none", color: "#6C5CE7", fontSize: 11, fontWeight: 600, cursor: "pointer",
+              padding: "4px 8px", borderRadius: 6,
+            }}>Salva oggi</button>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 80 }}>
+            {snapshots.slice(-30).reverse().map((s, i, arr) => {
+              const minVal = Math.min(...arr.map(x => x.valoreTotale));
+              const maxVal = Math.max(...arr.map(x => x.valoreTotale));
+              const range = maxVal - minVal || 1;
+              const height = ((s.valoreTotale - minVal) / range) * 60 + 10;
+              return (
+                <div key={s.date} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
+                  <div style={{ width: "100%", maxWidth: 16, height, background: s.valoreTotale >= s.investitoTotale ? "#4ECDC4" : "#FF6B6B", borderRadius: "3px 3px 0 0", transition: "height 0.3s" }} />
+                  <span style={{ fontSize: 8, color: "#555", marginTop: 2 }}>{s.date.slice(5)}</span>
+                </div>
+              );
+            })}
+            {totalValore > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#6C5CE7", marginBottom: 4 }} />
+                <span style={{ fontSize: 8, color: "#6C5CE7" }}>oggi</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot button when no snapshots */}
+      {holdings.length > 0 && snapshots.length < 2 && totalValore > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 16, marginTop: 16, border: "1px solid #252538", textAlign: "center" }}>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>Tenere traccia del valore nel tempo</div>
+          <button onClick={saveSnapshot} style={{
+            padding: "10px 20px", background: "linear-gradient(135deg, #6C5CE7, #a855f7)", border: "none",
+            borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+          }}>Salva snapshot oggi</button>
         </div>
       )}
     </div>

@@ -464,7 +464,10 @@ export async function fetchManualPrices() {
       signal: AbortSignal.timeout(10000),
     });
     if (await checkAuthError(res)) return {};
-    if (res.ok) return (await res.json()).manualPrices || {};
+    if (res.ok) {
+      const data = await res.json();
+      return data.manualPrices || {};
+    }
   } catch {}
   return {};
 }
@@ -480,6 +483,31 @@ export async function saveManualPricesRemote(prices) {
       signal: AbortSignal.timeout(10000),
     });
   } catch {}
+}
+
+export async function fetchPortfolioSnapshots() {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/positions/snapshots`, { headers: authHeaders(), credentials: "include" });
+      if (await checkAuthError(res)) return [];
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("fetchPortfolioSnapshots:", err); }
+  }
+  return [];
+}
+
+export async function addPortfolioSnapshot(snapshot) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/positions/snapshots`, {
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(snapshot),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("addPortfolioSnapshot:", err); }
+  }
+  return null;
 }
 
 // fetchQuotes removed — Yahoo API disabled, use manual prices only

@@ -777,6 +777,39 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
+// Portfolio Snapshots (historical values)
+app.get("/api/positions/snapshots", requireHousehold, async (req, res) => {
+  try {
+    const col = db.collection("portfolio_snapshots");
+    const docs = await col.find({ householdId: req.householdId }).sort({ date: -1 }).limit(90).toArray();
+    res.json(docs.map(d => { delete d._id; delete d.householdId; return d; }));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/positions/snapshots", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const b = req.body;
+    if (!b.date || typeof b.valoreTotale !== "number") {
+      return res.status(400).json({ error: "Campi obbligatori: date, valoreTotale" });
+    }
+    const doc = {
+      householdId: req.householdId,
+      date: b.date,
+      valoreTotale: b.valoreTotale,
+      investitoTotale: b.investitoTotale || 0,
+      createdAt: new Date(),
+    };
+    const col = db.collection("portfolio_snapshots");
+    await col.updateOne(
+      { householdId: req.householdId, date: b.date },
+      { $set: doc },
+      { upsert: true }
+    );
+    delete doc.householdId;
+    res.status(201).json(doc);
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
 // Stock quotes endpoint — DISABLED
 // Only manual prices via /api/manual-prices are now supported
 // To re-enable: uncomment and ensure yahoo-finance2 is installed
