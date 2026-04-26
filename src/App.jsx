@@ -1615,7 +1615,9 @@ function PortfolioView() {
   const [dataAcquisto, setDataAcquisto] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
   const [adding, setAdding] = useState(false);
+  const [tradeType, setTradeType] = useState("buy");
   const [sortPortfolio, setSortPortfolio] = useState("valore-desc");
+  const [expandedTicker, setExpandedTicker] = useState(null);
 
   // Load positions
   useEffect(() => {
@@ -1660,7 +1662,7 @@ function PortfolioView() {
       const pos = await addPosition({
         ticker: ticker.trim().toUpperCase(), nome: nome.trim() || ticker.trim().toUpperCase(),
         quantita: parseFloat(quantita), prezzoAcquisto: parseFloat(prezzoAcquisto),
-        dataAcquisto, note: note.trim(), tipo: "buy",
+        dataAcquisto, note: note.trim(), tipo: tradeType,
       });
       setPositions(prev => [...prev, pos]);
       setTicker(""); setNome(""); setQuantita(""); setPrezzoAcquisto(""); setNote("");
@@ -1805,6 +1807,19 @@ function PortfolioView() {
       {showAdd && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "2px solid #6C5CE7" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12 }}>Aggiungi posizione</div>
+          
+          {/* Buy/Sell toggle */}
+          <div style={{ display: "flex", background: "#111119", borderRadius: 12, padding: 3, marginBottom: 12, border: "1px solid #252538" }}>
+            {["buy", "sell"].map(tp => (
+              <button key={tp} onClick={() => setTradeType(tp)} style={{
+                flex: 1, padding: "8px 0", border: "none", borderRadius: 10, cursor: "pointer",
+                fontSize: 13, fontWeight: 600,
+                background: tradeType === tp ? (tp === "buy" ? "#4ECDC422" : "#FF6B6B22") : "transparent",
+                color: tradeType === tp ? (tp === "buy" ? "#4ECDC4" : "#FF6B6B") : "#666",
+              }}>{tp === "buy" ? "▲ Acquista" : "▼ Vendi"}</button>
+            ))}
+          </div>
+          
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Ticker</label>
@@ -1844,9 +1859,9 @@ function PortfolioView() {
           <button onClick={handleAdd} disabled={adding || !ticker || !quantita || !prezzoAcquisto} style={{
             width: "100%", padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
             fontSize: 14, fontWeight: 700, color: "#fff",
-            background: ticker && quantita && prezzoAcquisto ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+            background: ticker && quantita && prezzoAcquisto ? (tradeType === "buy" ? "linear-gradient(135deg, #4ECDC4, #3ab8b0)" : "linear-gradient(135deg, #FF6B6B, #e05050)") : "#252538",
             opacity: adding ? 0.6 : 1,
-          }}>{adding ? "Salvataggio..." : "Aggiungi al portfolio"}</button>
+          }}>{adding ? "Salvataggio..." : (tradeType === "buy" ? "Aggiungi acquisto" : "Registra vendita")}</button>
         </div>
       )}
 
@@ -1986,6 +2001,36 @@ function PortfolioView() {
                     )}
                     <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
                       Il prezzo API verrà usato automaticamente se disponibile.
+                    </div>
+                  </div>
+                )}
+
+                {/* Toggle trade history button */}
+                {h.trades && h.trades.length > 1 && !isEditing && (
+                  <button onClick={() => setExpandedTicker(expandedTicker === h.ticker ? null : h.ticker)} style={{
+                    marginTop: 8, width: "100%", padding: "6px", background: "none",
+                    border: "none", color: "#6C5CE7", cursor: "pointer",
+                    fontSize: 11, fontFamily: "'DM Sans',sans-serif",
+                  }}>
+                    {expandedTicker === h.ticker ? "▲ Nascondi storico" : `▼ Vedi ${h.trades.length} trades`}
+                  </button>
+                )}
+
+                {/* Expandable trade history */}
+                {expandedTicker === h.ticker && h.trades && h.trades.length > 0 && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #252538" }}>
+                    <div style={{ fontSize: 10, color: "#888", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Storico trades</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((t, i) => (
+                        <div key={t.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: "#111119", borderRadius: 8 }}>
+                          <span style={{ fontSize: 10, color: "#666", minWidth: 60 }}>{t.dataAcquisto}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: t.tipo === "sell" ? "#FF6B6B" : "#4ECDC4", minWidth: 35 }}>
+                            {t.tipo === "sell" ? "SELL" : "BUY"}
+                          </span>
+                          <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{t.quantita} pz</span>
+                          <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(t.prezzoAcquisto)}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
