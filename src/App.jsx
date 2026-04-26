@@ -1747,6 +1747,23 @@ function PortfolioView() {
     }
   });
 
+  // Sorted holdings for charts (by value descending)
+  const holdingsByValue = [...holdings].sort((a, b) => {
+    const pa = manualPrices[a.ticker] || 0;
+    const pb = manualPrices[b.ticker] || 0;
+    const va = pa > 0 ? a.quantita * pa : a.costoTotale;
+    const vb = pb > 0 ? b.quantita * pb : b.costoTotale;
+    return vb - va;
+  });
+
+  const holdingsByPL = [...holdings].sort((a, b) => {
+    const pa = manualPrices[a.ticker] || 0;
+    const pb = manualPrices[b.ticker] || 0;
+    const pla = pa > 0 ? (a.quantita * pa) - a.costoTotale : 0;
+    const plb = pb > 0 ? (b.quantita * pb) - b.costoTotale : 0;
+    return plb - pla;
+  });
+
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Caricamento portfolio...</div>;
 
   return (
@@ -1978,26 +1995,57 @@ function PortfolioView() {
         </div>
       )}
 
-      {/* Allocation chart */}
-      {holdings.length >= 2 && Object.keys(manualPrices).length > 0 && (
+      {/* Allocation pie chart */}
+      {holdings.length >= 2 && totalValore > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
           <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Allocazione</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {holdings.map(h => {
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            <DonutChart segmenti={holdingsByValue.map((h, i) => {
               const prezzo = manualPrices[h.ticker] || 0;
               const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
-              const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
               const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];
-              const color = colors[holdings.indexOf(h) % colors.length];
-              return (
-                <div key={h.ticker}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontSize: 12, color: "#ccc", fontWeight: 600 }}>{h.ticker}</span>
+              return { valore: val, colore: colors[i % colors.length], label: h.ticker };
+            })} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+              {holdingsByValue.map((h, i) => {
+                const prezzo = manualPrices[h.ticker] || 0;
+                const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
+                const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
+                const colors = ["#6C5CE7", "#4ECDC4", "#FF6B6B", "#FFEAA7", "#DDA0DD", "#F0A500", "#74B9FF", "#55EFC4"];
+                const color = colors[i % colors.length];
+                return (
+                  <div key={h.ticker} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
+                    <span style={{ fontSize: 12, color: "#ccc", fontWeight: 600, flex: 1 }}>{h.ticker}</span>
                     <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{pct.toFixed(1)}%</span>
                   </div>
-                  <div style={{ height: 8, background: "#252538", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 4, transition: "width 0.5s" }} />
-                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* P&L Bar Chart */}
+      {holdings.length >= 1 && totalValore > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Profit & Loss</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 100 }}>
+            {holdingsByPL.map(h => {
+              const prezzo = manualPrices[h.ticker] || 0;
+              const valore = prezzo > 0 ? h.quantita * prezzo : 0;
+              const pl = prezzo > 0 ? valore - h.costoTotale : 0;
+              const maxPL = Math.max(...holdings.map(h => {
+                const p = manualPrices[h.ticker] || 0;
+                return p > 0 ? Math.abs((h.quantita * p) - h.costoTotale) : 0;
+              }), 1);
+              const height = Math.max(2, (Math.abs(pl) / maxPL) * 80);
+              const isPositive = pl >= 0;
+              return (
+                <div key={h.ticker} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
+                  <div style={{ width: "100%", maxWidth: 28, height, background: isPositive ? "#4ECDC4" : "#FF6B6B", borderRadius: "4px 4px 0 0", transition: "height 0.5s" }} />
+                  <span style={{ fontSize: 9, color: "#888", marginTop: 4 }}>{h.ticker}</span>
+                  <span style={{ fontSize: 8, color: isPositive ? "#4ECDC4" : "#FF6B6B" }}>{isPositive ? "+" : ""}{pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€</span>
                 </div>
               );
             })}
