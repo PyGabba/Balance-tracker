@@ -804,6 +804,9 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
       targetAmount: parseFloat(b.targetAmount),
       targetDate: b.targetDate || null,
       currentAmount: parseFloat(b.currentAmount) || 0,
+      contributionType: b.contributionType || "manual",
+      contributionValue: b.contributionType !== "manual" ? parseFloat(b.contributionValue) || 0 : 0,
+      autoAdd: b.autoAdd === true,
       createdAt: new Date(),
     };
     const result = await db.collection("goals").insertOne(doc);
@@ -822,6 +825,9 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
     if (b.targetAmount !== undefined) update.targetAmount = parseFloat(b.targetAmount);
     if (b.targetDate !== undefined) update.targetDate = b.targetDate;
     if (b.currentAmount !== undefined) update.currentAmount = parseFloat(b.currentAmount);
+    if (b.contributionType !== undefined) update.contributionType = b.contributionType;
+    if (b.contributionValue !== undefined) update.contributionValue = parseFloat(b.contributionValue);
+    if (b.autoAdd !== undefined) update.autoAdd = b.autoAdd === true;
     if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
     update.updatedAt = new Date();
     await db.collection("goals").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });

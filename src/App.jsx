@@ -527,6 +527,9 @@ function GoalsForm({ onAdd, onCancel }) {
   const [targetAmount, setTargetAmount] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [currentAmount, setCurrentAmount] = useState("");
+  const [contributionType, setContributionType] = useState("manual");
+  const [contributionValue, setContributionValue] = useState("");
+  const [autoAdd, setAutoAdd] = useState(false);
   
   function handleSubmit() {
     if (!nome.trim() || !targetAmount) return;
@@ -535,8 +538,12 @@ function GoalsForm({ onAdd, onCancel }) {
       targetAmount: parseFloat(targetAmount),
       targetDate: targetDate || null,
       currentAmount: parseFloat(currentAmount) || 0,
+      contributionType,
+      contributionValue: contributionType !== "manual" ? parseFloat(contributionValue) || 0 : 0,
+      autoAdd,
     });
     setNome(""); setTargetAmount(""); setTargetDate(""); setCurrentAmount("");
+    setContributionType("manual"); setContributionValue(""); setAutoAdd(false);
     onCancel?.();
   }
   
@@ -550,11 +557,40 @@ function GoalsForm({ onAdd, onCancel }) {
         <input type="number" inputMode="decimal" value={currentAmount} onChange={e => setCurrentAmount(e.target.value)} placeholder="Già risparmiato"
           style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder="Data obiettivo"
           style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#666", fontSize: 12, outline: "none", colorScheme: "dark" }} />
+      </div>
+      {/* Contribution type */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Risparmio automatico (ogni Entrata)</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+          {["manual", "percent", "fixed"].map(tp => (
+            <button key={tp} onClick={() => setContributionType(tp)} style={{
+              flex: 1, padding: "6px 0", border: "none", borderRadius: 8, cursor: "pointer",
+              fontSize: 11, fontWeight: 600,
+              background: contributionType === tp ? "#6C5CE722" : "transparent",
+              color: contributionType === tp ? "#a78bfa" : "#666",
+              border: contributionType === tp ? "1px solid #6C5CE7" : "1px solid #252538",
+            }}>
+              {tp === "manual" ? "Manuale" : tp === "percent" ? "% Entrata" : "€ Fisso"}
+            </button>
+          ))}
+        </div>
+        {contributionType !== "manual" && (
+          <input type="number" inputMode="decimal" value={contributionValue} onChange={e => setContributionValue(e.target.value)}
+            placeholder={contributionType === "percent" ? "% da salvare" : "€ da salvare"}
+            style={{ width: "100%", padding: "8px 10px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+        )}
+      </div>
+      {/* Auto-add toggle */}
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" }}>
+        <input type="checkbox" checked={autoAdd} onChange={e => setAutoAdd(e.target.checked)} style={{ width: 16, height: 16 }} />
+        <span style={{ fontSize: 12, color: "#aaa" }}>Applica automaticamente alle entrate</span>
+      </label>
+      <div style={{ display: "flex", gap: 8 }}>
         <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 12 }}>✕</button>
-        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: "1 1 100px", padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
+        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
       </div>
     </div>
   );
@@ -3505,6 +3541,25 @@ export default function FinanzaApp() {
     try {
       const saved = await addTransaction(t);
       setTransazioni(prev => [...prev, saved]);
+      
+      // Auto-apply goal contributions on entrata
+      if (t.tipo === "entrata" && goals?.length > 0) {
+        const activeGoals = goals.filter(g => g.autoAdd && (g.contributionType === "percent" || g.contributionType === "fixed"));
+        for (const g of activeGoals) {
+          let contribution = 0;
+          if (g.contributionType === "percent") {
+            contribution = t.importo * (g.contributionValue / 100);
+          } else if (g.contributionType === "fixed") {
+            contribution = g.contributionValue;
+          }
+          if (contribution > 0) {
+            const newAmount = (g.currentAmount || 0) + contribution;
+            await updateGoal(g.id, { currentAmount: newAmount });
+            setGoals(prev => prev.map(goal => goal.id === g.id ? { ...goal, currentAmount: newAmount } : goal));
+          }
+        }
+      }
+      
       setTab("home");
     } catch (err) { console.error("Add error:", err); }
   }
