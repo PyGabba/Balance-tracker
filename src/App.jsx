@@ -1122,6 +1122,7 @@ function calcolaProssimaData(data, frequenza) {
 function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "" }) {
   const [tipo, setTipo] = useState(initialTipo);
   const [importoRaw, setImportoRaw] = useState(initialImporto);
+  const importoInputRef = useRef(null);
   const [importo, setImporto] = useState(() => evalImporto(initialImporto));
   const computedImporto = evalImporto(importoRaw);
   const isComputed = computedImporto !== importo && computedImporto > 0;
@@ -1187,7 +1188,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
       </div>
       <div style={{ marginBottom: 18 }}>
         <label style={labelStyle}>Importo (€)</label>
-        <input type="text" inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
+        <input type="text" ref={importoInputRef} inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":"#4ECDC4" }} />
         {isComputed && (
           <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4 }}>
@@ -1196,12 +1197,16 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
         )}
         {/* Calculator keypad */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 10 }}>
-          {["+", "-", "*", "/", "="].map(op => (
-            <button key={op} onClick={() => { const newVal = importoRaw + op; setImportoRaw(newVal); setImporto(evalImporto(newVal)); }}
+          {["+", "-", "*", "/"].map(op => (
+            <button key={op} onClick={(e) => { e.preventDefault(); const newVal = importoRaw + op; setImportoRaw(newVal); setImporto(evalImporto(newVal)); importoInputRef.current?.focus(); }}
               style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
               {op}
             </button>
           ))}
+          <button key="=" onClick={(e) => { e.preventDefault(); const newVal = importoRaw + "=" + computedImporto; setImportoRaw(String(computedImporto)); setImporto(computedImporto); importoInputRef.current?.focus(); }}
+            style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
+            =
+          </button>
         </div>
       </div>
       {tipo === "uscita" && (
