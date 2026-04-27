@@ -1166,11 +1166,11 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
       intestataA: tipo === "entrata" ? intestataA : null,
       ricorrenza: ricorrenzaData,
     });
-    setImporto(""); setDescrizione(""); setRicorrenza("no"); setSalvato(true);
+    setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
 
-  const val = parseFloat(importo.replace(",",".")) || 0;
+  const val = importo || 0;
 
   return (
     <div style={{ padding: "20px 16px" }}>
