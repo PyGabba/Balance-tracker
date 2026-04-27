@@ -544,17 +544,17 @@ function GoalsForm({ onAdd, onCancel }) {
     <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10, border: "1px solid #252538" }}>
       <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome obiettivo (es. Vacanza)"
         style={{ ...inputStyle, marginBottom: 8, background: "#1a1a28" }} />
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <input type="number" inputMode="decimal" value={targetAmount} onChange={e => setTargetAmount(e.target.value)} placeholder="Target €"
-          style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
         <input type="number" inputMode="decimal" value={currentAmount} onChange={e => setCurrentAmount(e.target.value)} placeholder="Già risparmiato"
-          style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder="Data obiettivo"
-          style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#666", fontSize: 12, outline: "none", colorScheme: "dark" }} />
+          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#666", fontSize: 12, outline: "none", colorScheme: "dark" }} />
         <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 12 }}>✕</button>
-        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
+        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: "1 1 100px", padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
       </div>
     </div>
   );
