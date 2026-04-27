@@ -483,3 +483,55 @@ export async function saveManualPricesRemote(prices) {
 }
 
 // fetchQuotes removed — Yahoo API disabled, use manual prices only
+
+// ─── Savings Goals ───
+export async function fetchGoals() {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/goals`, { headers: authHeaders(), credentials: "include" });
+      if (await checkAuthError(res)) return [];
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("fetchGoals:", err); }
+  }
+  return [];
+}
+
+export async function addGoal(goal) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/goals`, {
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(goal),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("addGoal:", err); }
+  }
+  return { id: Date.now().toString(36), ...goal, currentAmount: 0 };
+}
+
+export async function updateGoal(id, updates) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/goals/${id}`, {
+        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("updateGoal:", err); }
+  }
+  return { ok: true };
+}
+
+export async function deleteGoal(id) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/goals/${id}`, {
+        method: "DELETE", headers: authHeaders(), credentials: "include",
+      });
+      if (!res.ok) throw new Error(res.status);
+      return true;
+    } catch (err) { console.error("deleteGoal:", err); }
+  }
+  return true;
+}

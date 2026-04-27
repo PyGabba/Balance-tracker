@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -462,12 +462,111 @@ function TabBar({ tab, setTab, householdId }) {
 }
 
 // ─── Home ───
-function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie }) {
+
+// Goal gauge component
+function GoalGauge({ current, target, size = 60 }) {
+  const pct = target > 0 ? Math.min(current / target, 1) : 0;
+  const stroke = 8;
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const offset = circ * (1 - pct);
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="#252538" strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={pct >= 1 ? "#4ECDC4" : "#6C5CE7"} strokeWidth={stroke}
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`} style={{transition: "stroke-dashoffset 0.5s"}} />
+    </svg>
+  );
+}
+
+// Goal row component
+function GoalRow({ goal, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState(String(goal.currentAmount || 0));
+  const pct = goal.targetAmount > 0 ? (goal.currentAmount / goal.targetAmount * 100) : 0;
+  const daysLeft = goal.targetDate ? Math.ceil((new Date(goal.targetDate) - new Date()) / (1000*60*60*24)) : null;
+  
+  function handleSave() {
+    const val = parseFloat(amount.replace(",", "."));
+    if (!isNaN(val) && val >= 0) {
+      onUpdate(goal.id, { currentAmount: val });
+    }
+    setEditing(false);
+  }
+  
+  return (
+    <div style={{ background: "#111119", borderRadius: 12, padding: 12, border: editing ? "1px solid #6C5CE7" : "1px solid #252538" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <GoalGauge current={goal.currentAmount || 0} target={goal.targetAmount} size={50} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#eee" }}>{goal.nome}</div>
+          <div style={{ fontSize: 11, color: "#888" }}>
+            {formattaValuta(goal.currentAmount || 0)} / {formattaValuta(goal.targetAmount)} ({pct.toFixed(0)}%)
+            {daysLeft !== null && <span style={{ color: daysLeft < 0 ? "#FF6B6B" : "#666", marginLeft: 8 }}>{daysLeft < 0 ? `in ritardo ${Math.abs(daysLeft)}g` : `${daysLeft}g rimasti`}</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setEditing(!editing)} style={{ background: "none", border: "none", color: "#6C5CE7", cursor: "pointer", fontSize: 14 }}>✏</button>
+          <button onClick={() => { if (confirm("Eliminare questo obiettivo?")) onDelete(goal.id); }} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>
+        </div>
+      </div>
+      {editing && (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <input type="number" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)}
+            placeholder="0.00" style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 14, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+          <button onClick={handleSave} style={{ padding: "8px 14px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700 }}>Salva</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Goals form component
+function GoalsForm({ onAdd, onCancel }) {
+  const [nome, setNome] = useState("");
+  const [targetAmount, setTargetAmount] = useState("");
+  const [targetDate, setTargetDate] = useState("");
+  const [currentAmount, setCurrentAmount] = useState("");
+  
+  function handleSubmit() {
+    if (!nome.trim() || !targetAmount) return;
+    onAdd({
+      nome: nome.trim(),
+      targetAmount: parseFloat(targetAmount),
+      targetDate: targetDate || null,
+      currentAmount: parseFloat(currentAmount) || 0,
+    });
+    setNome(""); setTargetAmount(""); setTargetDate(""); setCurrentAmount("");
+    onCancel?.();
+  }
+  
+  return (
+    <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10, border: "1px solid #252538" }}>
+      <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome obiettivo (es. Vacanza)"
+        style={{ ...inputStyle, marginBottom: 8, background: "#1a1a28" }} />
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <input type="number" inputMode="decimal" value={targetAmount} onChange={e => setTargetAmount(e.target.value)} placeholder="Target €"
+          style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+        <input type="number" inputMode="decimal" value={currentAmount} onChange={e => setCurrentAmount(e.target.value)} placeholder="Già risparmiato"
+          style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder="Data obiettivo"
+          style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#666", fontSize: 12, outline: "none", colorScheme: "dark" }} />
+        <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 12 }}>✕</button>
+        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
+      </div>
+    </div>
+  );
+}
+
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
-  const [settlingKey, setSettlingKey] = useState(null); // "da->a"
+  const [settlingKey, setSettlingKey] = useState(null);
   const [settleAmount, setSettleAmount] = useState("");
   const [search, setSearch] = useState("");
+  const [showAddGoal, setShowAddGoal] = useState(false);
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
@@ -661,6 +760,34 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
             </div>
           );
         })()}
+      </div>
+
+      {/* Savings Goals card */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Obiettivi risparmio</div>
+          <button onClick={() => setShowAddGoal(!showAddGoal)} style={{
+            background: "none", border: "none", color: "#6C5CE7", cursor: "pointer", fontSize: 14,
+          }}>{showAddGoal ? "✕" : "+"}</button>
+        </div>
+
+        {/* Add goal form */}
+        {showAddGoal && (
+          <GoalsForm onAdd={onAddGoal} onCancel={() => setShowAddGoal(false)} />
+        )}
+
+        {/* Goals list */}
+        {(!goals || goals.length === 0) && !showAddGoal ? (
+          <div style={{ fontSize: 12, color: "#666", textAlign: "center", padding: 8 }}>
+            Nessun obiettivo. Tocca + per aggiungerne uno.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {goals?.map(g => (
+              <GoalRow key={g.id} goal={g} onUpdate={onUpdateGoal} onDelete={onDeleteGoal} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Transactions for selected month */}
@@ -1135,7 +1262,7 @@ const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom
 const inputStyle = { width: "100%", maxWidth: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", WebkitAppearance: "none" };
 
 // ─── Stats ───
-function StatsView({ transazioni, persone, meseOffset, categorie }) {
+function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
   const oggi = new Date();
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
@@ -1279,6 +1406,27 @@ function StatsView({ transazioni, persone, meseOffset, categorie }) {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+      {goals && goals.length > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>Obiettivi risparmio</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
+            {goals.map(g => {
+              const pct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount * 100) : 0;
+              const daysLeft = g.targetDate ? Math.ceil((new Date(g.targetDate) - new Date()) / (1000*60*60*24)) : null;
+              return (
+                <div key={g.id} style={{ background: "#111119", borderRadius: 12, padding: 12, textAlign: "center" }}>
+                  <GoalGauge current={g.currentAmount || 0} target={g.targetAmount} size={70} />
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#eee", marginTop: 8 }}>{g.nome}</div>
+                  <div style={{ fontSize: 11, color: pct >= 100 ? "#4ECDC4" : "#888" }}>{pct.toFixed(0)}%</div>
+                  {daysLeft !== null && daysLeft < 30 && daysLeft >= 0 && (
+                    <div style={{ fontSize: 10, color: "#F0A500", marginTop: 4 }}>{daysLeft}g rimasti</div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -3200,6 +3348,7 @@ export default function FinanzaApp() {
   const [initialPagatoDa, setInitialPagatoDa] = useState(urlParams.get("pagatoDa") || "");
   const [shortcutKey, setShortcutKey] = useState(0);
   const [transazioni, setTransazioni] = useState([]);
+  const [goals, setGoals] = useState([]);
   const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
   const [categorieUscita, setCategorieUscita] = useState(() => getCategorieUscita() || CATEGORIE.filter(c => c.id !== "entrata"));
@@ -3305,6 +3454,28 @@ export default function FinanzaApp() {
     } catch (e) { console.error("loadPositions:", e); }
   }, []);
 
+  const loadGoals = useCallback(async () => {
+    try {
+      const data = await fetchGoals();
+      setGoals(data || []);
+    } catch (e) { console.error("loadGoals:", e); }
+  }, []);
+
+  const handleAddGoal = async (goal) => {
+    const saved = await addGoal(goal);
+    setGoals(prev => [...prev, saved]);
+  };
+
+  const handleUpdateGoal = async (id, updates) => {
+    await updateGoal(id, updates);
+    setGoals(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+  };
+
+  const handleDeleteGoal = async (id) => {
+    await deleteGoal(id);
+    setGoals(prev => prev.filter(g => g.id !== id));
+  };
+
   const loadCategorie = useCallback(async () => {
     const defaults = CATEGORIE.filter(c => c.id !== "entrata");
     try {
@@ -3313,7 +3484,7 @@ export default function FinanzaApp() {
     } catch (e) { console.error("loadCategorie:", e); setCategorieUscita(defaults); }
   }, []);
 
-  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); } }, [authed, loadAll, loadPositions, loadCategorie]);
+  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); loadGoals(); } }, [authed, loadAll, loadPositions, loadCategorie, loadGoals]);
 
   function handleLogin() {
     setAuthed(true);
@@ -3403,9 +3574,9 @@ export default function FinanzaApp() {
       )}
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} />}
-        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} />}
+        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
         {tab === "impostazioni" && (

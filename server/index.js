@@ -785,6 +785,59 @@ app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
   res.status(410).json({ error: "API quotazioni rimossa. Usa i prezzi manuali." });
 });
 
+// Savings Goals
+app.get("/api/goals", requireHousehold, async (req, res) => {
+  try {
+    const col = db.collection("goals");
+    const docs = await col.find({ householdId: req.householdId }).sort({ createdAt: -1 }).toArray();
+    res.json(docs.map(d => { delete d._id; delete d.householdId; return d; }));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const b = req.body;
+    if (!b.nome || !b.targetAmount) return res.status(400).json({ error: "Campi obbligatori: nome, targetAmount" });
+    const doc = {
+      householdId: req.householdId,
+      nome: sanitizeText(b.nome, 100),
+      targetAmount: parseFloat(b.targetAmount),
+      targetDate: b.targetDate || null,
+      currentAmount: parseFloat(b.currentAmount) || 0,
+      createdAt: new Date(),
+    };
+    const result = await db.collection("goals").insertOne(doc);
+    const id = result.insertedId.toString();
+    delete doc.householdId;
+    res.status(201).json({ id, ...doc });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const b = req.body;
+    const update = {};
+    if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 100);
+    if (b.targetAmount !== undefined) update.targetAmount = parseFloat(b.targetAmount);
+    if (b.targetDate !== undefined) update.targetDate = b.targetDate;
+    if (b.currentAmount !== undefined) update.currentAmount = parseFloat(b.currentAmount);
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
+    update.updatedAt = new Date();
+    await db.collection("goals").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/goals/:id", requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const r = await db.collection("goals").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    res.json({ deleted: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
 async function start() {
   try {
     await connectDB();
