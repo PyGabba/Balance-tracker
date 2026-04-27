@@ -34,7 +34,8 @@ function formattaValuta(n) { return new Intl.NumberFormat("it-IT", { style: "cur
 function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day: "numeric", month: "short" }); }
 function evalImporto(val) {
   if (!val) return 0;
-  const s = String(val).replace(",", ".");
+  // Replace Italian comma with dot, allow both , and . in input
+  const s = String(val).replace(/,/g, ".");
   if (/^[0-9.]+$/.test(s)) return parseFloat(s) || 0;
   try {
     const sanitized = s.replace(/[^0-9.+*/\-()]/g, "");
@@ -1204,6 +1205,10 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
                 {op}
               </button>
             ))}
+            <button key="," onClick={(e) => { e.preventDefault(); if (!importoRaw.includes(".")) { const newVal = importoRaw + ","; setImportoRaw(newVal); setImporto(evalImporto(newVal)); importoInputRef.current?.focus(); } }}
+              style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
+              ,
+            </button>
           </div>
           <button onClick={(e) => { e.preventDefault(); setImportoRaw(String(computedImporto)); setImporto(computedImporto); importoInputRef.current?.focus(); }}
             style={{ padding: "10px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
