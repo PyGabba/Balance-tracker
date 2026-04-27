@@ -1194,6 +1194,15 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
             = {formattaValuta(computedImporto)}
           </div>
         )}
+        {/* Calculator keypad */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 10 }}>
+          {["+", "-", "*", "/", "="].map(op => (
+            <button key={op} onClick={() => { const newVal = importoRaw + op; setImportoRaw(newVal); setImporto(evalImporto(newVal)); }}
+              style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
+              {op}
+            </button>
+          ))}
+        </div>
       </div>
       {tipo === "uscita" && (
         <>
