@@ -1205,10 +1205,6 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
                 {op}
               </button>
             ))}
-            <button key="," onClick={(e) => { e.preventDefault(); if (!importoRaw.includes(".")) { const newVal = importoRaw + ","; setImportoRaw(newVal); setImporto(evalImporto(newVal)); importoInputRef.current?.focus(); } }}
-              style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
-              ,
-            </button>
           </div>
           <button onClick={(e) => { e.preventDefault(); setImportoRaw(String(computedImporto)); setImporto(computedImporto); importoInputRef.current?.focus(); }}
             style={{ padding: "10px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
