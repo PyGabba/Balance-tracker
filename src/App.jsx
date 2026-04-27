@@ -32,6 +32,19 @@ const MESI = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov",
 function generaId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function formattaValuta(n) { return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n); }
 function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day: "numeric", month: "short" }); }
+function evalImporto(val) {
+  if (!val) return 0;
+  const s = String(val).replace(",", ".");
+  if (/^[0-9.]+$/.test(s)) return parseFloat(s) || 0;
+  try {
+    const sanitized = s.replace(/[^0-9.+*/\-()]/g, "");
+    if (sanitized && /^[0-9.+*/\-()]+$/.test(sanitized)) {
+      const result = Function(`"use strict"; return (${sanitized})`)();
+      if (typeof result === "number" && isFinite(result)) return Math.round(result * 100) / 100;
+    }
+  } catch {}
+  return 0;
+}
 
 // Storage is now handled by src/api.js (MongoDB + localStorage fallback)
 
@@ -1108,7 +1121,10 @@ function calcolaProssimaData(data, frequenza) {
 
 function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "" }) {
   const [tipo, setTipo] = useState(initialTipo);
-  const [importo, setImporto] = useState(initialImporto);
+  const [importoRaw, setImportoRaw] = useState(initialImporto);
+  const [importo, setImporto] = useState(() => evalImporto(initialImporto));
+  const computedImporto = evalImporto(importoRaw);
+  const isComputed = computedImporto !== importo && computedImporto > 0;
   const [categoria, setCategoria] = useState(() => {
     if (initialCategoria) {
       const match = categorie.find(c => c.id === initialCategoria || c.nome.toLowerCase() === initialCategoria.toLowerCase());
@@ -1134,7 +1150,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
   const [ricorrenza, setRicorrenza] = useState("no");
 
   function handleSubmit() {
-    const val = parseFloat(importo.replace(",", "."));
+    const val = importo; // already computed from evalImporto
     if (!val || val <= 0) return;
     const ricorrenzaData = ricorrenza !== "no" ? {
       frequenza: ricorrenza,
@@ -1171,8 +1187,13 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
       </div>
       <div style={{ marginBottom: 18 }}>
         <label style={labelStyle}>Importo (€)</label>
-        <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)} placeholder="0,00"
+        <input type="text" inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="10,50*2"
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":"#4ECDC4" }} />
+        {isComputed && (
+          <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4 }}>
+            = {formattaValuta(computedImporto)}
+          </div>
+        )}
       </div>
       {tipo === "uscita" && (
         <>
