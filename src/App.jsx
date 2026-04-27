@@ -1196,14 +1196,16 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
           </div>
         )}
         {/* Calculator keypad */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr) 100%", gap: 6, marginTop: 10 }}>
-          {["+", "-", "*"].map(op => (
-            <button key={op} onClick={(e) => { e.preventDefault(); const newVal = importoRaw + op; setImportoRaw(newVal); setImporto(evalImporto(newVal)); importoInputRef.current?.focus(); }}
-              style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
-              {op}
-            </button>
-          ))}
-          <button key="=" onClick={(e) => { e.preventDefault(); setImportoRaw(String(computedImporto)); setImporto(computedImporto); importoInputRef.current?.focus(); }}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+            {["+", "-", "*", "/"].map(op => (
+              <button key={op} onClick={(e) => { e.preventDefault(); const newVal = importoRaw + op; setImportoRaw(newVal); setImporto(evalImporto(newVal)); importoInputRef.current?.focus(); }}
+                style={{ padding: "10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#6C5CE7", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
+                {op}
+              </button>
+            ))}
+          </div>
+          <button onClick={(e) => { e.preventDefault(); setImportoRaw(String(computedImporto)); setImporto(computedImporto); importoInputRef.current?.focus(); }}
             style={{ padding: "10px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
             = {formattaValuta(computedImporto)}
           </button>
