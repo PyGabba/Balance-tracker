@@ -1187,7 +1187,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
       </div>
       <div style={{ marginBottom: 18 }}>
         <label style={labelStyle}>Importo (€)</label>
-        <input type="text" inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="10,50*2"
+        <input type="text" inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":"#4ECDC4" }} />
         {isComputed && (
           <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4 }}>
