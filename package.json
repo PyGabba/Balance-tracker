@@ -15,11 +15,13 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.1.0",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
     "@capacitor/ios": "^8.3.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

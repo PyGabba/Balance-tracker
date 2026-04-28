@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
+import { Camera } from "@capacitor/camera";
+import Tesseract from "tesseract.js";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal } from "./api.js";
 
 const CATEGORIE = [
@@ -280,6 +282,155 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
               Totale: {totalQuota}% {totalQuota !== 100 ? `(dovrebbe essere 100%)` : ""}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Receipt Scanner ───
+function ReceiptScanner({ onScanComplete }) {
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  async function captureAndScan() {
+    try {
+      const permission = await Camera.requestPermissions();
+      if (!permission.camera) {
+        alert("Camera permission required");
+        return;
+      }
+
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        resultType: "base64",
+      });
+
+      if (!photo.base64String) return;
+
+      const imageData = `data:image/jpeg;base64,${photo.base64String}`;
+      setPreviewUrl(imageData);
+      setScanning(true);
+      setProgress(10);
+
+      const result = await Tesseract.recognize(imageData, "eng+ita", {
+        logger: (m) => {
+          if (m.status === "recognizing text") {
+            setProgress(Math.round(m.progress * 80) + 10);
+          }
+        },
+      });
+
+      setProgress(90);
+      const text = result.data.text;
+      const parsed = parseReceiptText(text);
+
+      setProgress(100);
+      setTimeout(() => {
+        setScanning(false);
+        setPreviewUrl(null);
+        onScanComplete(parsed);
+      }, 500);
+    } catch (e) {
+      console.error("Scan error:", e);
+      setScanning(false);
+      setPreviewUrl(null);
+    }
+  }
+
+  function parseReceiptText(text) {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const result = { importo: null, descrizione: "", categoria: "" };
+
+    const totalPatterns = [
+      /(?:totale|total|amount|sum)[\s:]*[\€\$]?\s*([\d.,]+)/i,
+      /(?:€\s*|EUR\s*)\s*([\d.,]+)/i,
+      /^[\€\$]?\s*([\d.,]+)\s*$/m,
+      /(?:sub\s*total|subtotale)[\s:]*[\€\$]?\s*([\d.,]+)/i,
+      /([\d.,]+)\s*[\€\$]\s*$/m,
+    ];
+
+    for (const line of lines.reverse()) {
+      for (const pat of totalPatterns) {
+        const match = line.match(pat);
+        if (match) {
+          const val = parseFloat(match[1].replace(",", "."));
+          if (val > 0 && val < 10000) {
+            result.importo = val;
+            break;
+          }
+        }
+      }
+      if (result.importo) break;
+    }
+
+    if (!result.importo) {
+      const moneyMatch = text.match(/[\€\$]\s*([\d.,]{2,})/);
+      if (moneyMatch) {
+        const val = parseFloat(moneyMatch[1].replace(",", "."));
+        if (val > 0 && val < 10000) result.importo = val;
+      }
+    }
+
+    if (lines.length > 0) {
+      const firstLine = lines[0];
+      if (firstLine.length > 2 && firstLine.length < 50) {
+        result.descrizione = firstLine;
+      }
+    }
+
+    const lowerText = text.toLowerCase();
+    const categoryKeywords = {
+      cibo: ["panino", "pizza", "caffè", "bar", "ristorante", "supermercato", "coop", "carrefour", "esselunga", "md", "lidl", "conad", "bio", "food", "pasta", "frutta"],
+      trasporti: ["benzina", "gasolio", "enel", "energia", "elettrico", "carburante", "q8", "eni", "tamoil", "api", "shell", "totalerg", "bus", "treno", "trenitalia"],
+      casa: ["enel", "acea", "vodafone", "tim", "wind", "fastweb", "internet", "luce", "gas", "acqua", "condominio"],
+      salute: ["farmacia", "medico", "ospedale", "clinica", "analisi", "laboratorio", "dentista", "visita"],
+      svago: ["cinema", "teatro", "concert", "game", "playstation", "xbox", "steam", "netflix", "spotify", "abbonamento"],
+      shopping: ["amazon", "ebay", "zalando", "nike", "adidas", "zara", "h&m", "outlet"],
+      bollette: ["bolletta", "fattura", "pagamento", "rimborso"],
+    };
+
+    for (const [catId, keywords] of Object.entries(categoryKeywords)) {
+      for (const kw of keywords) {
+        if (lowerText.includes(kw)) {
+          result.categoria = catId;
+          break;
+        }
+      }
+      if (result.categoria) break;
+    }
+
+    return result;
+  }
+
+  return (
+    <div>
+      {!scanning && !previewUrl && (
+        <button onClick={captureAndScan} style={{
+          width: "100%", padding: "14px", border: "2px dashed #6C5CE755",
+          borderRadius: 14, cursor: "pointer", background: "#1a1a28",
+          color: "#a78bfa", fontSize: 14, fontWeight: 700,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}>
+          <span style={{ fontSize: 18 }}>📷</span>
+          Scansiona scontrino
+        </button>
+      )}
+      {scanning && (
+        <div style={{ padding: 20, background: "#1a1a28", borderRadius: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 24, marginBottom: 10 }}>🔍</div>
+          <div style={{ fontSize: 14, color: "#a78bfa", marginBottom: 8 }}>Analisi scontrino...</div>
+          <div style={{ height: 4, background: "#252538", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #6C5CE7, #a78bfa)", borderRadius: 2, transition: "width 0.3s" }} />
+          </div>
+          <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>{progress}%</div>
+        </div>
+      )}
+      {previewUrl && !scanning && (
+        <div style={{ marginBottom: 16 }}>
+          <img src={previewUrl} alt="Receipt" style={{ width: "100%", borderRadius: 12, opacity: 0.7 }} />
         </div>
       )}
     </div>
@@ -1151,6 +1302,35 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
   const [ricorrenza, setRicorrenza] = useState("no");
 
+  useEffect(() => {
+    if (initialImporto) setImportoRaw(initialImporto);
+  }, [initialImporto]);
+
+  useEffect(() => {
+    if (initialDescrizione) setDescrizione(initialDescrizione);
+  }, [initialDescrizione]);
+
+  useEffect(() => {
+    if (initialCategoria) {
+      const match = categorie.find(c => c.id === initialCategoria || c.nome.toLowerCase() === initialCategoria.toLowerCase());
+      if (match) setCategoria(match.id);
+    }
+  }, [initialCategoria]);
+
+  function handleReceiptScan(parsed) {
+    if (parsed.importo) {
+      setImportoRaw(String(parsed.importo));
+      setImporto(parsed.importo);
+    }
+    if (parsed.descrizione) {
+      setDescrizione(parsed.descrizione);
+    }
+    if (parsed.categoria) {
+      const match = categorie.find(c => c.id === parsed.categoria);
+      if (match) setCategoria(match.id);
+    }
+  }
+
   function handleSubmit() {
     const val = importo; // already computed from evalImporto
     if (!val || val <= 0) return;
@@ -1177,6 +1357,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
   return (
     <div style={{ padding: "20px 16px" }}>
       <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 20 }}>Nuova transazione</div>
+      <ReceiptScanner onScanComplete={handleReceiptScan} />
       <div style={{ display: "flex", background: "#1a1a28", borderRadius: 14, padding: 4, marginBottom: 20, border: "1px solid #252538" }}>
         {["uscita", "entrata"].map(t => (
           <button key={t} onClick={() => setTipo(t)} style={{
