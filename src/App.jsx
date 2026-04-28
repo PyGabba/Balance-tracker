@@ -441,7 +441,7 @@ function ReceiptScanner({ onScanComplete }) {
         <button onClick={captureAndScan} style={{
           width: "100%", padding: "14px", border: "2px dashed #6C5CE755",
           borderRadius: 14, cursor: "pointer", background: "#1a1a28",
-          color: "#a78bfa", fontSize: 14, fontWeight: 700,
+          color: "#a78bfa", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>
           <span style={{ fontSize: 18 }}>📷</span>
@@ -451,11 +451,11 @@ function ReceiptScanner({ onScanComplete }) {
       {scanning && (
         <div style={{ padding: 20, background: "#1a1a28", borderRadius: 14, textAlign: "center" }}>
           <div style={{ fontSize: 24, marginBottom: 10 }}>🔍</div>
-          <div style={{ fontSize: 14, color: "#a78bfa", marginBottom: 8 }}>Analisi scontrino...</div>
+          <div style={{ fontSize: 14, color: "#a78bfa", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>Analisi scontrino...</div>
           <div style={{ height: 4, background: "#252538", borderRadius: 2, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #6C5CE7, #a78bfa)", borderRadius: 2, transition: "width 0.3s" }} />
           </div>
-          <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>{progress}%</div>
+          <div style={{ fontSize: 11, color: "#666", marginTop: 6, fontFamily: "'DM Sans',sans-serif" }}>{progress}%</div>
         </div>
       )}
       {previewUrl && !scanning && (
