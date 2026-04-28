@@ -1387,7 +1387,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
   return (
     <div style={{ padding: "20px 16px" }}>
       <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 20 }}>Nuova transazione</div>
-      <ReceiptScanner onScanComplete={handleReceiptScan} />
+      <div style={{ marginBottom: 16 }}><ReceiptScanner onScanComplete={handleReceiptScan} /></div>
       <div style={{ display: "flex", background: "#1a1a28", borderRadius: 14, padding: 4, marginBottom: 20, border: "1px solid #252538" }}>
         {["uscita", "entrata"].map(t => (
           <button key={t} onClick={() => setTipo(t)} style={{
