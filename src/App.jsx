@@ -1403,7 +1403,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
         <input type="text" ref={importoInputRef} inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":"#4ECDC4" }} />
         {isComputed && (
-          <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4, fontFamily: "'Space Mono',monospace" }}>
             = {formattaValuta(computedImporto)}
           </div>
         )}
@@ -1418,7 +1418,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
             ))}
           </div>
           <button onClick={(e) => { e.preventDefault(); setImportoRaw(String(computedImporto)); setImporto(computedImporto); importoInputRef.current?.focus(); }}
-            style={{ padding: "10px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
+            style={{ padding: "10px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 18, fontWeight: 700, fontFamily: "'Space Mono',monospace", cursor: "pointer" }}>
             = {formattaValuta(computedImporto)}
           </button>
         </div>
