@@ -748,9 +748,9 @@ function GoalsForm({ onAdd, onCancel }) {
         style={{ ...inputStyle, marginBottom: 8, background: "#1a1a28" }} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <input type="number" inputMode="decimal" value={targetAmount} onChange={e => setTargetAmount(e.target.value)} placeholder="Target €"
-          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
         <input type="number" inputMode="decimal" value={currentAmount} onChange={e => setCurrentAmount(e.target.value)} placeholder="Già risparmiato"
-          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+          style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
         <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder="Data obiettivo"
@@ -775,7 +775,7 @@ function GoalsForm({ onAdd, onCancel }) {
         {contributionType !== "manual" && (
           <input type="number" inputMode="decimal" value={contributionValue} onChange={e => setContributionValue(e.target.value)}
             placeholder={contributionType === "percent" ? "% da salvare" : "€ da salvare"}
-            style={{ width: "100%", padding: "8px 10px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'Space Mono',monospace", outline: "none" }} />
+            style={{ width: "100%", padding: "8px 10px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
         )}
       </div>
       {/* Auto-add toggle */}
