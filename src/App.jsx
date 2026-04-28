@@ -293,51 +293,74 @@ function ReceiptScanner({ onScanComplete }) {
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  async function processImage(imageData) {
+    setPreviewUrl(imageData);
+    setScanning(true);
+    setProgress(10);
+
+    const result = await Tesseract.recognize(imageData, "eng+ita", {
+      logger: (m) => {
+        if (m.status === "recognizing text") {
+          setProgress(Math.round(m.progress * 80) + 10);
+        }
+      },
+    });
+
+    setProgress(90);
+    const text = result.data.text;
+    const parsed = parseReceiptText(text);
+
+    setProgress(100);
+    setTimeout(() => {
+      setScanning(false);
+      setPreviewUrl(null);
+      onScanComplete(parsed);
+    }, 500);
+  }
 
   async function captureAndScan() {
     try {
-      const permission = await Camera.requestPermissions();
-      if (!permission.camera) {
-        alert("Camera permission required");
+      let imageData;
+
+      try {
+        const permission = await Camera.requestPermissions();
+        if (permission.camera) {
+          const photo = await Camera.getPhoto({
+            quality: 80,
+            allowEditing: false,
+            resultType: "base64",
+          });
+          if (photo.base64String) {
+            imageData = `data:image/jpeg;base64,${photo.base64String}`;
+          }
+        }
+      } catch (e) {
+        // Camera not available, fall through to file input
+      }
+
+      if (!imageData) {
+        fileInputRef.current?.click();
         return;
       }
 
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        allowEditing: false,
-        resultType: "base64",
-      });
-
-      if (!photo.base64String) return;
-
-      const imageData = `data:image/jpeg;base64,${photo.base64String}`;
-      setPreviewUrl(imageData);
-      setScanning(true);
-      setProgress(10);
-
-      const result = await Tesseract.recognize(imageData, "eng+ita", {
-        logger: (m) => {
-          if (m.status === "recognizing text") {
-            setProgress(Math.round(m.progress * 80) + 10);
-          }
-        },
-      });
-
-      setProgress(90);
-      const text = result.data.text;
-      const parsed = parseReceiptText(text);
-
-      setProgress(100);
-      setTimeout(() => {
-        setScanning(false);
-        setPreviewUrl(null);
-        onScanComplete(parsed);
-      }, 500);
+      await processImage(imageData);
     } catch (e) {
       console.error("Scan error:", e);
-      setScanning(false);
-      setPreviewUrl(null);
     }
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      await processImage(ev.target.result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   }
 
   function parseReceiptText(text) {
@@ -407,6 +430,13 @@ function ReceiptScanner({ onScanComplete }) {
 
   return (
     <div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        style={{ display: "none" }}
+      />
       {!scanning && !previewUrl && (
         <button onClick={captureAndScan} style={{
           width: "100%", padding: "14px", border: "2px dashed #6C5CE755",
