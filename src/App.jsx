@@ -1553,6 +1553,7 @@ function ViaggiView({ persone, categorie }) {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [tripCats, setTripCats] = useState(categorie);
 
   const [nome, setNome] = useState("");
   const [descrizione, setDescrizione] = useState("");
@@ -1566,7 +1567,14 @@ function ViaggiView({ persone, categorie }) {
   const [settleTo, setSettleTo] = useState("");
   const [settleAmount, setSettleAmount] = useState("");
 
+  const [showCatManager, setShowCatManager] = useState(false);
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCat, setNewCat] = useState({ emoji: "📦", nome: "", colore: "#A8A8A8" });
+
   useEffect(() => { loadTrips(); }, []);
+  useEffect(() => { setTripCats(categorie); }, [categorie]);
 
   async function loadTrips() {
     try { setTrips(await fetchTrips()); } catch (e) { console.error(e); }
@@ -1603,6 +1611,24 @@ function ViaggiView({ persone, categorie }) {
     const p = { id: newPersonName.trim().toLowerCase().replace(/\s+/g, "_"), nome: newPersonName.trim(), emoji: "👤", colore: colors[partecipanti.length % colors.length] };
     setPartecipanti([...partecipanti, p]);
     setNewPersonName("");
+  }
+
+  function handleSaveTripCat(id) {
+    setTripCats(tripCats.map(c => c.id === id ? { ...c, ...editForm } : c));
+    setEditingCatId(null);
+  }
+  function handleDeleteTripCat(id) {
+    setTripCats(tripCats.filter(c => c.id !== id));
+  }
+  function handleAddTripCat() {
+    if (!newCat.nome.trim()) return;
+    const newId = newCat.nome.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") + "_" + Date.now().toString(36);
+    const without = tripCats.filter(c => c.id !== "altro");
+    const altro = tripCats.find(c => c.id === "altro");
+    const updated = [...without, { ...newCat, id: newId }, ...(altro ? [altro] : [])];
+    setTripCats(updated);
+    setShowNewCat(false);
+    setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
   }
 
   function calculateSettle(trip) {
@@ -1648,8 +1674,63 @@ function ViaggiView({ persone, categorie }) {
     <div style={{ padding: "20px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>Viaggi</div>
-        <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538", borderRadius: 10, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? "#6C5CE7" : "#888", fontSize: 16, padding: "4px 8px" }}>⚙</button>
+          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538", borderRadius: 10, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
+        </div>
       </div>
+
+      {showCatManager && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>Categorie viaggi</div>
+          {tripCats.map(c => (
+            <div key={c.id}>
+              {editingCatId === c.id ? (
+                <div style={{ padding: "10px 0", borderBottom: "1px solid #252538" }}>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                    <input value={editForm.emoji || c.emoji} onChange={e => setEditForm(f => ({ ...f, emoji: e.target.value }))}
+                      style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
+                    <input value={editForm.nome || c.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))}
+                      placeholder="Nome categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                    <input type="color" value={editForm.colore || c.colore} onChange={e => setEditForm(f => ({ ...f, colore: e.target.value }))}
+                      style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>Annulla</button>
+                    <button onClick={() => handleSaveTripCat(c.id)} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Salva</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #252538" }}>
+                  <span style={{ fontSize: 16, marginRight: 8 }}>{c.emoji}</span>
+                  <span style={{ flex: 1, color: "#ccc", fontSize: 14 }}>{c.nome}</span>
+                  <div style={{ width: 16, height: 16, borderRadius: 4, background: c.colore, marginRight: 8 }} />
+                  <button onClick={() => { setEditingCatId(c.id); setEditForm(c); }} style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>✏</button>
+                  <button onClick={() => handleDeleteTripCat(c.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>×</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {showNewCat ? (
+            <div style={{ padding: "10px 0" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                <input value={newCat.emoji} onChange={e => setNewCat(c => ({ ...c, emoji: e.target.value }))}
+                  style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
+                <input value={newCat.nome} onChange={e => setNewCat(c => ({ ...c, nome: e.target.value }))}
+                  placeholder="Nuova categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                <input type="color" value={newCat.colore} onChange={e => setNewCat(c => ({ ...c, colore: e.target.value }))}
+                  style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>Annulla</button>
+                <button onClick={handleAddTripCat} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: "1px dashed #333", borderRadius: 10, color: "#666", fontSize: 13, cursor: "pointer" }}>+ Nuova categoria</button>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
@@ -1720,7 +1801,7 @@ function ViaggiView({ persone, categorie }) {
                   </div>
                 )}
 
-                <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={categorie} />
+                <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={tripCats} />
               </div>
             );
           })}
