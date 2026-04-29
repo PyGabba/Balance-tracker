@@ -529,7 +529,7 @@ function TabBar({ tab, setTab, householdId }) {
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
-  const tabs = [...baseTabs, { id: "impostazioni", label: "Account", icon: "⚙" }];
+  const tabs = baseTabs;
 
   const icons = {
     home: (active) => (
@@ -566,13 +566,7 @@ function TabBar({ tab, setTab, householdId }) {
         <path d="M50 2C52 2 54 4 55 8L58 28L84 42C88 44 90 47 90 50C90 53 88 54 84 53L58 48L56 62L68 68C70 69 71 71 71 73C71 75 70 76 68 75L55 71L52 82C51 86 50 88 50 88C50 88 49 86 48 82L45 71L32 75C30 76 29 75 29 73C29 71 30 69 32 68L44 62L42 48L16 53C12 54 10 53 10 50C10 47 12 44 16 42L42 28L45 8C46 4 48 2 50 2Z" fill={active ? "#a78bfa" : "#94a3b8"} />
       </svg>
     ),
-    impostazioni: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-      </svg>
-    ),
-  };
+    };
 
   return (
     <div style={{
@@ -4192,6 +4186,10 @@ export default function FinanzaApp() {
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={() => setTab("impostazioni")} title="Impostazioni" style={{
+            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
+            color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
+          }}>⚙</button>
           <button onClick={() => window.location.reload()} title="Ricarica" style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
