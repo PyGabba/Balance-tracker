@@ -4203,7 +4203,7 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
-        {tab === "viaggi" && <ViaggiView persone={persone} categorie={categorieUscita} onCategorieChange={(cats) => { setTripCats(cats); saveCategorie(cats); }} />}
+        {tab === "viaggi" && <ViaggiView persone={persone} categorie={categorieUscita} onCategorieChange={(cats) => { setCategorieUscita(cats); saveCategorie(cats); }} />}
         {tab === "impostazioni" && (
           <ImpostazioniView
             householdName={householdName}
