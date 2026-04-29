@@ -1548,12 +1548,23 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
 }
 
 // ─── Viaggi (Trips) View ───
-function ViaggiView({ persone, categorie, onCategorieChange }) {
+function ViaggiView({ persone }) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState(null);
-  const [tripCats, setTripCats] = useState(categorie);
+  const defaultTripCats = [
+    { id: "trasporto", emoji: "✈️", nome: "Trasporto", colore: "#74B9FF" },
+    { id: "alloggio", emoji: "🏨", nome: "Alloggio", colore: "#A29BFE" },
+    { id: "cibo", emoji: "🍝", nome: "Cibo", colore: "#55EFC4" },
+    { id: "attivita", emoji: "🎡", nome: "Attività", colore: "#FDCB6E" },
+    { id: "shopping", emoji: "🛍️", nome: "Shopping", colore: "#FF7675" },
+    { id: "altro", emoji: "📦", nome: "Altro", colore: "#A8A8A8" },
+  ];
+  const [tripCats, setTripCats] = useState(() => {
+    const saved = localStorage.getItem("tripCategories");
+    return saved ? JSON.parse(saved) : defaultTripCats;
+  });
 
   const [nome, setNome] = useState("");
   const [descrizione, setDescrizione] = useState("");
@@ -1574,7 +1585,11 @@ function ViaggiView({ persone, categorie, onCategorieChange }) {
   const [newCat, setNewCat] = useState({ emoji: "📦", nome: "", colore: "#A8A8A8" });
 
   useEffect(() => { loadTrips(); }, []);
-  useEffect(() => { setTripCats(categorie); }, [categorie]);
+
+  function saveTripCats(cats) {
+    setTripCats(cats);
+    localStorage.setItem("tripCategories", JSON.stringify(cats));
+  }
 
   async function loadTrips() {
     try { setTrips(await fetchTrips()); } catch (e) { console.error(e); }
@@ -1615,14 +1630,12 @@ function ViaggiView({ persone, categorie, onCategorieChange }) {
 
   function handleSaveTripCat(id) {
     const updated = tripCats.map(c => c.id === id ? { ...c, ...editForm } : c);
-    setTripCats(updated);
+    saveTripCats(updated);
     setEditingCatId(null);
-    onCategorieChange?.(updated);
   }
   function handleDeleteTripCat(id) {
     const updated = tripCats.filter(c => c.id !== id);
-    setTripCats(updated);
-    onCategorieChange?.(updated);
+    saveTripCats(updated);
   }
   function handleAddTripCat() {
     if (!newCat.nome.trim()) return;
@@ -1630,10 +1643,9 @@ function ViaggiView({ persone, categorie, onCategorieChange }) {
     const without = tripCats.filter(c => c.id !== "altro");
     const altro = tripCats.find(c => c.id === "altro");
     const updated = [...without, { ...newCat, id: newId }, ...(altro ? [altro] : [])];
-    setTripCats(updated);
+    saveTripCats(updated);
     setShowNewCat(false);
     setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
-    onCategorieChange?.(updated);
   }
 
   function calculateSettle(trip) {
@@ -4203,7 +4215,7 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
-        {tab === "viaggi" && <ViaggiView persone={persone} categorie={categorieUscita} onCategorieChange={(cats) => { setCategorieUscita(cats); saveCategorie(cats); }} />}
+        {tab === "viaggi" && <ViaggiView persone={persone} />}
         {tab === "impostazioni" && (
           <ImpostazioniView
             householdName={householdName}
