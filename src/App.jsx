@@ -562,9 +562,7 @@ function TabBar({ tab, setTab, householdId }) {
       </svg>
     ),
     viaggi: (active) => (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.3-1.2-.1-1.4.5L2.3 17.5c-.3.7.4 1.4 1.1 1l3.5-2.5 3.5 2.5c.7.3 1.4-.4 1.1-1.1L10 12l5-4c.4-.3.8-.3 1.2-.1l3.2 1.8c.5.2 1-.5.8-1.1l-1-4z"/>
-      </svg>
+      <img src="/airplane_2211365.png" alt="viaggi" style={{ width: 22, height: 22, opacity: active ? 1 : 0.6, filter: active ? "none" : "grayscale(100%)" }} />
     ),
     impostazioni: (active) => (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
