@@ -1812,6 +1812,24 @@ function ViaggiView({ persone }) {
                   </div>
                 )}
 
+                {t.expenses && t.expenses.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>Spese</div>
+                    {t.expenses.map((e, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538", fontFamily: "'DM Sans',sans-serif" }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || "Spesa"}</div>
+                          <div style={{ fontSize: 11, color: "#666" }}>{e.categoria} · {e.pagatoDa}</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
+                          <button onClick={() => handleDeleteExpense(t.id, e.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={tripCats} />
               </div>
             );
