@@ -1548,7 +1548,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
 }
 
 // ─── Viaggi (Trips) View ───
-function ViaggiView({ persone, categorie }) {
+function ViaggiView({ persone, categorie, onCategorieChange }) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -1614,11 +1614,15 @@ function ViaggiView({ persone, categorie }) {
   }
 
   function handleSaveTripCat(id) {
-    setTripCats(tripCats.map(c => c.id === id ? { ...c, ...editForm } : c));
+    const updated = tripCats.map(c => c.id === id ? { ...c, ...editForm } : c);
+    setTripCats(updated);
     setEditingCatId(null);
+    onCategorieChange?.(updated);
   }
   function handleDeleteTripCat(id) {
-    setTripCats(tripCats.filter(c => c.id !== id));
+    const updated = tripCats.filter(c => c.id !== id);
+    setTripCats(updated);
+    onCategorieChange?.(updated);
   }
   function handleAddTripCat() {
     if (!newCat.nome.trim()) return;
@@ -1629,6 +1633,7 @@ function ViaggiView({ persone, categorie }) {
     setTripCats(updated);
     setShowNewCat(false);
     setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
+    onCategorieChange?.(updated);
   }
 
   function calculateSettle(trip) {
@@ -4198,7 +4203,7 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
-        {tab === "viaggi" && <ViaggiView persone={persone} categorie={categorieUscita} />}
+        {tab === "viaggi" && <ViaggiView persone={persone} categorie={categorieUscita} onCategorieChange={(cats) => { setTripCats(cats); saveCategorie(cats); }} />}
         {tab === "impostazioni" && (
           <ImpostazioniView
             householdName={householdName}
