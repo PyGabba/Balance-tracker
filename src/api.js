@@ -537,16 +537,20 @@ export async function deleteGoal(id) {
 }
 
 // ─── Trips API ───
+let cachedTrips = [];
 export async function fetchTrips() {
   if (await checkAPI() && currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/trips`, { headers: authHeaders(), credentials: "include" });
-      if (await checkAuthError(res)) return [];
+      if (await checkAuthError(res)) return cachedTrips;
       if (!res.ok) throw new Error(res.status);
-      return await res.json();
+      cachedTrips = await res.json();
+      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+      return cachedTrips;
     } catch (err) { console.error("fetchTrips:", err); }
   }
-  return [];
+  try { cachedTrips = JSON.parse(localStorage.getItem("trips") || "[]"); } catch {}
+  return cachedTrips;
 }
 
 export async function addTrip(trip) {
@@ -556,10 +560,16 @@ export async function addTrip(trip) {
         method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(trip),
       });
       if (!res.ok) throw new Error(res.status);
-      return await res.json();
+      const newTrip = await res.json();
+      cachedTrips = [newTrip, ...cachedTrips];
+      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+      return newTrip;
     } catch (err) { console.error("addTrip:", err); }
   }
-  return { id: Date.now().toString(36), ...trip, expenses: [], settled: false };
+  const localTrip = { id: Date.now().toString(36), ...trip, expenses: [], settled: false };
+  cachedTrips = [localTrip, ...cachedTrips];
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  return localTrip;
 }
 
 export async function updateTrip(id, updates) {
@@ -569,9 +579,14 @@ export async function updateTrip(id, updates) {
         method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
       });
       if (!res.ok) throw new Error(res.status);
-      return await res.json();
+      const updated = await res.json();
+      cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updated } : t);
+      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+      return updated;
     } catch (err) { console.error("updateTrip:", err); }
   }
+  cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updates } : t);
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
   return { ok: true };
 }
 
@@ -582,9 +597,10 @@ export async function deleteTrip(id) {
         method: "DELETE", headers: authHeaders(), credentials: "include",
       });
       if (!res.ok) throw new Error(res.status);
-      return true;
     } catch (err) { console.error("deleteTrip:", err); }
   }
+  cachedTrips = cachedTrips.filter(t => t.id !== id);
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
   return true;
 }
 
@@ -595,10 +611,16 @@ export async function addTripExpense(tripId, expense) {
         method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(expense),
       });
       if (!res.ok) throw new Error(res.status);
-      return await res.json();
+      const newExp = await res.json();
+      cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: [...(t.expenses || []), newExp] } : t);
+      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+      return newExp;
     } catch (err) { console.error("addTripExpense:", err); }
   }
-  return { id: Date.now().toString(36), ...expense };
+  const localExp = { id: Date.now().toString(36), ...expense };
+  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: [...(t.expenses || []), localExp] } : t);
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  return localExp;
 }
 
 export async function deleteTripExpense(tripId, expenseId) {
@@ -608,8 +630,9 @@ export async function deleteTripExpense(tripId, expenseId) {
         method: "DELETE", headers: authHeaders(), credentials: "include",
       });
       if (!res.ok) throw new Error(res.status);
-      return true;
     } catch (err) { console.error("deleteTripExpense:", err); }
   }
+  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: (t.expenses || []).filter(e => e.id !== expenseId) } : t);
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
   return true;
 }

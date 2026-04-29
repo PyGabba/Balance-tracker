@@ -1600,8 +1600,12 @@ function ViaggiView({ persone }) {
 
   async function handleDeleteTrip(id) {
     if (!confirm("Eliminare questo viaggio?")) return;
-    await deleteTrip(id);
-    setTrips(trips.filter(t => t.id !== id));
+    try {
+      await deleteTrip(id);
+      setTrips(trips.filter(t => t.id !== id));
+    } catch (e) {
+      alert("Errore nell'eliminazione: " + e.message);
+    }
   }
 
   async function handleAddExpense(tripId, expense) {
