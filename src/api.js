@@ -554,16 +554,18 @@ export async function fetchTrips() {
 }
 
 export async function addTrip(trip) {
-  if (await checkAPI() && currentHousehold) {
+  if (currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/trips`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(trip),
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(trip), signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) throw new Error(res.status);
-      const newTrip = await res.json();
-      cachedTrips = [newTrip, ...cachedTrips];
-      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-      return newTrip;
+      if (res.ok) {
+        apiAvailable = true;
+        const newTrip = await res.json();
+        cachedTrips = [newTrip, ...cachedTrips];
+        try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+        return newTrip;
+      }
     } catch (err) { console.error("addTrip:", err); }
   }
   const localTrip = { id: Date.now().toString(36), ...trip, expenses: [], settled: false };
@@ -573,16 +575,18 @@ export async function addTrip(trip) {
 }
 
 export async function updateTrip(id, updates) {
-  if (await checkAPI() && currentHousehold) {
+  if (currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/trips/${id}`, {
-        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
+        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates), signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) throw new Error(res.status);
-      const updated = await res.json();
-      cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updated } : t);
-      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-      return updated;
+      if (res.ok) {
+        apiAvailable = true;
+        const updated = await res.json();
+        cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updated } : t);
+        try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+        return updated;
+      }
     } catch (err) { console.error("updateTrip:", err); }
   }
   cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updates } : t);
@@ -591,12 +595,13 @@ export async function updateTrip(id, updates) {
 }
 
 export async function deleteTrip(id) {
-  if (await checkAPI() && currentHousehold) {
+  // Always try server first, don't skip if offline
+  if (currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/trips/${id}`, {
-        method: "DELETE", headers: authHeaders(), credentials: "include",
+        method: "DELETE", headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) throw new Error(res.status);
+      if (res.ok) apiAvailable = true;
     } catch (err) { console.error("deleteTrip:", err); }
   }
   cachedTrips = cachedTrips.filter(t => t.id !== id);
@@ -605,16 +610,18 @@ export async function deleteTrip(id) {
 }
 
 export async function addTripExpense(tripId, expense) {
-  if (await checkAPI() && currentHousehold) {
+  if (currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/trips/${tripId}/expenses`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(expense),
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(expense), signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) throw new Error(res.status);
-      const newExp = await res.json();
-      cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: [...(t.expenses || []), newExp] } : t);
-      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-      return newExp;
+      if (res.ok) {
+        apiAvailable = true;
+        const newExp = await res.json();
+        cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: [...(t.expenses || []), newExp] } : t);
+        try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+        return newExp;
+      }
     } catch (err) { console.error("addTripExpense:", err); }
   }
   const localExp = { id: Date.now().toString(36), ...expense };
@@ -624,12 +631,12 @@ export async function addTripExpense(tripId, expense) {
 }
 
 export async function deleteTripExpense(tripId, expenseId) {
-  if (await checkAPI() && currentHousehold) {
+  if (currentHousehold) {
     try {
       const res = await fetch(`${API_BASE}/api/trips/${tripId}/expenses/${expenseId}`, {
-        method: "DELETE", headers: authHeaders(), credentials: "include",
+        method: "DELETE", headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) throw new Error(res.status);
+      if (res.ok) apiAvailable = true;
     } catch (err) { console.error("deleteTripExpense:", err); }
   }
   cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: (t.expenses || []).filter(e => e.id !== expenseId) } : t);
