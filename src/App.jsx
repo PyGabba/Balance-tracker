@@ -1845,7 +1845,7 @@ function TripExpenseForm({ trip, onAdd, categorie }) {
       </div>
       <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione spesa" style={{ ...inputStyle, marginBottom: 8 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-        {categorie.slice(0, 6).map(c => (
+        {categorie.map(c => (
           <button key={c.id} onClick={() => setCategoria(c.id)} style={{ padding: "6px 10px", borderRadius: 8, border: categoria === c.id ? `2px solid ${c.colore}` : "1px solid #252538", background: categoria === c.id ? c.colore + "22" : "#1a1a28", color: categoria === c.id ? c.colore : "#666", fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
             {c.emoji} {c.nome}
           </button>
