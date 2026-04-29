@@ -134,7 +134,7 @@ const COOKIE_OPTS = {
   path: "/",
 };
 
-let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol;
+let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
   db = client.db(DB_NAME);
@@ -145,7 +145,10 @@ async function connectDB() {
   blacklistCol = db.collection("blacklist");
   activeTokensCol = db.collection("active_tokens");
   auditCol = db.collection("audit_log");
+  tripsCol = db.collection("trips");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
+  await tripsCol.createIndex({ householdId: 1, startDate: -1 });
+  await tripsCol.createIndex({ householdId: 1 });
   await auditCol.createIndex({ ts: -1 });
   await auditCol.createIndex({ householdId: 1, ts: -1 });
   await auditCol.createIndex({ ts: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // 90-day retention
@@ -843,6 +846,113 @@ app.delete("/api/goals/:id", requireHousehold, async (req, res) => {
     res.json({ deleted: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
+
+// ─── Trips API ───
+app.get("/api/trips", requireHousehold, async (req, res) => {
+  try {
+    const trips = await tripsCol.find({ householdId: req.householdId }).sort({ startDate: -1 }).toArray();
+    res.json(trips);
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/trips", requireHousehold, async (req, res) => {
+  try {
+    const t = req.body;
+    const doc = {
+      householdId: req.householdId,
+      nome: sanitizeText(t.nome, 100),
+      descrizione: sanitizeText(t.descrizione, 500),
+      startDate: t.startDate || null,
+      endDate: t.endDate || null,
+      partecipanti: sanitizePartecipanti(t.partecipanti),
+      expenses: [],
+      settled: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (!doc.nome) return res.status(400).json({ error: "Nome richiesto" });
+    const result = await tripsCol.insertOne(doc);
+    res.json({ id: result.insertedId, ...doc });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.put("/api/trips/:id", requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const t = req.body;
+    const update = {};
+    if (t.nome !== undefined) update.nome = sanitizeText(t.nome, 100);
+    if (t.descrizione !== undefined) update.descrizione = sanitizeText(t.descrizione, 500);
+    if (t.startDate !== undefined) update.startDate = t.startDate;
+    if (t.endDate !== undefined) update.endDate = t.endDate;
+    if (t.partecipanti !== undefined) update.partecipanti = sanitizePartecipanti(t.partecipanti);
+    if (t.settled !== undefined) update.settled = t.settled === true;
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
+    update.updatedAt = new Date();
+    await tripsCol.updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/trips/:id", requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const r = await tripsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    res.json({ deleted: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/trips/:id/expenses", requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (!trip) return res.status(404).json({ error: "Viaggio non trovato" });
+    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+    
+    const e = req.body;
+    const expense = {
+      id: randomUUID(),
+      pagatoDa: sanitizeText(e.pagatoDa, 50),
+      importo: parseFloat(e.importo) || 0,
+      descrizione: sanitizeText(e.descrizione, 200),
+      categoria: sanitizeText(e.categoria, 50) || "altro",
+      data: e.data || new Date().toISOString().slice(0, 10),
+      splits: sanitizeSplits(e.splits),
+    };
+    if (!expense.importo || expense.importo <= 0) return res.status(400).json({ error: "Importo non valido" });
+    
+    await tripsCol.updateOne(
+      { _id: new ObjectId(req.params.id), householdId: req.householdId },
+      { $push: { expenses: expense }, $set: { updatedAt: new Date() } }
+    );
+    res.json(expense);
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/trips/:id/expenses/:expenseId", requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (!trip) return res.status(404).json({ error: "Viaggio non trovato" });
+    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+    
+    await tripsCol.updateOne(
+      { _id: new ObjectId(req.params.id), householdId: req.householdId },
+      { $pull: { expenses: { id: req.params.expenseId } }, $set: { updatedAt: new Date() } }
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+function sanitizePartecipanti(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return [];
+  if (arr.length > 20) return [];
+  return arr.map(p => {
+    if (!p || typeof p !== "object") return null;
+    return { id: sanitizeText(p.id, 50), nome: sanitizeText(p.nome, 100), emoji: p.emoji || "👤", colore: p.colore || "#888" };
+  }).filter(Boolean);
+}
 
 async function start() {
   try {

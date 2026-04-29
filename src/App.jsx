@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -525,6 +525,7 @@ function TabBar({ tab, setTab, householdId }) {
     { id: "home", label: "Home", icon: "⌂" },
     { id: "aggiungi", label: "Aggiungi", icon: "+" },
     { id: "portfolio", label: "Portfolio", icon: "📈" },
+    { id: "viaggi", label: "Viaggi", icon: "✈" },
     { id: "stats", label: "Statistiche", icon: "◔" },
     { id: "export", label: "Esporta", icon: "↓" },
   ];
@@ -558,6 +559,11 @@ function TabBar({ tab, setTab, householdId }) {
     portfolio: (active) => (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    ),
+    viaggi: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active ? "#a78bfa" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.3-1.2-.1-1.4.5L2.3 17.5c-.3.7.4 1.4 1.1 1l3.5-2.5 3.5 2.5c.7.3 1.4-.4 1.1-1.1L10 12l5-4c.4-.3.8-.3 1.2-.1l3.2 1.8c.5.2 1-.5.8-1.1l-1-4z"/>
       </svg>
     ),
     impostazioni: (active) => (
@@ -1537,6 +1543,234 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
         background: tipo==="uscita"?"linear-gradient(135deg,#FF6B6B,#ee5a5a)":"linear-gradient(135deg,#4ECDC4,#3ab8b0)",
         color: "#fff", boxShadow: tipo==="uscita"?"0 4px 20px #FF6B6B44":"0 4px 20px #4ECDC444",
       }}>{salvato ? "✓ Salvato!" : "Salva transazione"}</button>
+    </div>
+  );
+}
+
+// ─── Viaggi (Trips) View ───
+function ViaggiView({ persone, categorie }) {
+  const [trips, setTrips] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [selectedTrip, setSelectedTrip] = useState(null);
+
+  const [nome, setNome] = useState("");
+  const [descrizione, setDescrizione] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [partecipanti, setPartecipanti] = useState([]);
+  const [newPersonName, setNewPersonName] = useState("");
+
+  const [settlingTrip, setSettlingTrip] = useState(null);
+  const [settleFrom, setSettleFrom] = useState("");
+  const [settleTo, setSettleTo] = useState("");
+  const [settleAmount, setSettleAmount] = useState("");
+
+  useEffect(() => { loadTrips(); }, []);
+
+  async function loadTrips() {
+    try { setTrips(await fetchTrips()); } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  async function handleAddTrip() {
+    if (!nome.trim()) return;
+    const allPars = [...persone.map(p => ({ id: p.id, nome: p.nome, emoji: p.emoji, colore: p.colore })), ...partecipanti];
+    const trip = await addTrip({ nome: nome.trim(), descrizione: descrizione.trim(), startDate, endDate, partecipanti: allPars });
+    setTrips([trip, ...trips]);
+    setNome(""); setDescrizione(""); setStartDate(""); setEndDate(""); setPartecipanti([]); setShowAdd(false);
+  }
+
+  async function handleDeleteTrip(id) {
+    if (!confirm("Eliminare questo viaggio?")) return;
+    await deleteTrip(id);
+    setTrips(trips.filter(t => t.id !== id));
+  }
+
+  async function handleAddExpense(tripId, expense) {
+    const exp = await addTripExpense(tripId, expense);
+    setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: [...t.expenses, exp] } : t));
+  }
+
+  async function handleDeleteExpense(tripId, expId) {
+    await deleteTripExpense(tripId, expId);
+    setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: t.expenses.filter(e => e.id !== expId) } : t));
+  }
+
+  function addGuest() {
+    if (!newPersonName.trim()) return;
+    const colors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9"];
+    const p = { id: newPersonName.trim().toLowerCase().replace(/\s+/g, "_"), nome: newPersonName.trim(), emoji: "👤", colore: colors[partecipanti.length % colors.length] };
+    setPartecipanti([...partecipanti, p]);
+    setNewPersonName("");
+  }
+
+  function calculateSettle(trip) {
+    const balances = {};
+    for (const e of trip.expenses) {
+      if (e.splits && e.splits.length > 0) {
+        const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
+        for (const s of e.splits) {
+          if (s.personaId !== e.pagatoDa) {
+            const owed = e.importo * (s.quota / totalQ);
+            balances[s.personaId] = (balances[s.personaId] || 0) - owed;
+            balances[e.pagatoDa] = (balances[e.pagatoDa] || 0) + owed;
+          }
+        }
+      }
+    }
+    const creditors = [], debtors = [];
+    for (const [id, bal] of Object.entries(balances)) {
+      if (bal > 0.01) creditors.push({ id, bal });
+      if (bal < -0.01) debtors.push({ id, bal: -bal });
+    }
+    creditors.sort((a, b) => b.bal - a.bal);
+    debtors.sort((a, b) => b.bal - a.bal);
+    const settlements = [];
+    let i = 0, j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const pay = Math.min(debtors[i].bal, creditors[j].bal);
+      if (pay > 0.01) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
+      debtors[i].bal -= pay;
+      creditors[j].bal -= pay;
+      if (debtors[i].bal < 0.01) i++;
+      if (creditors[j].bal < 0.01) j++;
+    }
+    return settlements;
+  }
+
+  const allColors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
+  const tripColors = {};
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Caricamento...</div>;
+
+  return (
+    <div style={{ padding: "20px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>Viaggi</div>
+        <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538", borderRadius: 10, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
+      </div>
+
+      {showAdd && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12, fontFamily: "'DM Sans',sans-serif" }}>Nuovo viaggio</div>
+          <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome viaggio (es. Weekend Parigi)" style={{ ...inputStyle, marginBottom: 10 }} />
+          <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione" style={{ ...inputStyle, marginBottom: 10 }} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} placeholder="Dal" style={{ ...inputStyle, flex: 1 }} />
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} placeholder="Al" style={{ ...inputStyle, flex: 1 }} />
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Partecipanti extra (oltre {persone.length} persone famiglia)</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[...persone.map(p => ({ ...p, isMembro: true })), ...partecipanti].map(p => (
+                <div key={p.id} style={{ padding: "6px 10px", borderRadius: 10, background: p.colore + "22", border: `1px solid ${p.colore}55`, color: p.colore, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+                  {p.emoji} {p.nome}
+                </div>
+              ))}
+              <button onClick={() => setShowAddExtra?.(!showAddExtra)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px dashed #333", background: "transparent", color: "#666", fontSize: 12 }}>+ Persona</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input type="text" value={newPersonName} onChange={e => setNewPersonName(e.target.value)} placeholder="Nome ospite..." onKeyDown={e => e.key === "Enter" && addGuest()} style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={addGuest} style={{ padding: "8px 14px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>Aggiungi</button>
+            </div>
+          </div>
+          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "12px", background: nome.trim() ? "#6C5CE7" : "#252538", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: nome.trim() ? "pointer" : "default" }}>Crea viaggio</button>
+        </div>
+      )}
+
+      {trips.length === 0 ? (
+        <div style={{ color: "#555", textAlign: "center", padding: 40 }}>Nessun viaggio.<br/>Tocca + per crearne uno.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {trips.map(t => {
+            const allP = [...persone.map(p => ({ ...p, isMembro: true })), ...(t.partecipanti || [])];
+            tripColors[t.id] = tripColors[t.id] || {};
+            allP.forEach((p, i) => { tripColors[t.id][p.id] = allColors[i % allColors.length]; });
+            const total = t.expenses?.reduce((s, e) => s + e.importo, 0) || 0;
+            const settlements = calculateSettle(t);
+            const isSettling = settlingTrip === t.id;
+
+            return (
+              <div key={t.id} style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{t.nome}</div>
+                    <div style={{ fontSize: 12, color: "#666", fontFamily: "'DM Sans',sans-serif" }}>{t.descrizione}</div>
+                    <div style={{ fontSize: 11, color: "#555", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
+                      {t.startDate && t.endDate ? `${t.startDate} → ${t.endDate}` : t.startDate || t.endDate || ""}
+                    </div>
+                  </div>
+                  <button onClick={() => handleDeleteTrip(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 18 }}>×</button>
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
+                  <span style={{ fontSize: 11, color: "#666", marginLeft: 6, fontFamily: "'DM Sans',sans-serif" }}>({t.expenses?.length || 0} spese)</span>
+                </div>
+
+                {settlements.length > 0 && (
+                  <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>Da saldare</div>
+                    {settlements.map((s, i) => (
+                      <div key={i} style={{ fontSize: 12, marginBottom: 4, fontFamily: "'DM Sans',sans-serif" }}>
+                        <span style={{ color: tripColors[t.id][s.da] }}>{s.da}</span> → <span style={{ color: tripColors[t.id][s.a] }}>{s.a}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={categorie} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TripExpenseForm({ trip, onAdd, categorie }) {
+  const [importo, setImporto] = useState("");
+  const [descrizione, setDescrizione] = useState("");
+  const [categoria, setCategoria] = useState("altro");
+  const [pagatoDa, setPagatoDa] = useState(trip.partecipanti?.[0]?.id || "");
+  const [splits, setSplits] = useState([]);
+  const [data, setData] = useState(new Date().toISOString().slice(0, 10));
+  const allPars = [...(trip.partecipanti || [])];
+
+  useEffect(() => {
+    if (allPars.length > 0) {
+      setPagatoDa(allPars[0].id);
+      const each = Math.round(100 / allPars.length);
+      setSplits(allPars.map((p, i) => ({ personaId: p.id, quota: i === allPars.length - 1 ? 100 - each * (allPars.length - 1) : each })));
+    }
+  }, [trip.id]);
+
+  async function handleAdd() {
+    const val = parseFloat(importo.replace(",", "."));
+    if (!val || val <= 0) return;
+    await onAdd({ importo: val, descrizione: descrizione.trim(), categoria, pagatoDa, data, splits: splits.filter(s => s.quota > 0) });
+    setImporto(""); setDescrizione(""); setCategoria("altro");
+  }
+
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #252538" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)} placeholder="€" style={{ ...inputStyle, flex: 1, fontFamily: "'Space Mono',monospace" }} />
+        <select value={pagatoDa} onChange={e => setPagatoDa(e.target.value)} style={{ ...inputStyle, flex: 1, fontFamily: "'DM Sans',sans-serif" }}>
+          {allPars.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+        </select>
+      </div>
+      <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione spesa" style={{ ...inputStyle, marginBottom: 8 }} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        {categorie.slice(0, 6).map(c => (
+          <button key={c.id} onClick={() => setCategoria(c.id)} style={{ padding: "6px 10px", borderRadius: 8, border: categoria === c.id ? `2px solid ${c.colore}` : "1px solid #252538", background: categoria === c.id ? c.colore + "22" : "#1a1a28", color: categoria === c.id ? c.colore : "#666", fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
+            {c.emoji} {c.nome}
+          </button>
+        ))}
+      </div>
+      <button onClick={handleAdd} disabled={!importo} style={{ width: "100%", padding: "10px", background: importo ? "#6C5CE7" : "#252538", border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: importo ? "pointer" : "default" }}>Aggiungi spesa</button>
     </div>
   );
 }
@@ -3883,6 +4117,7 @@ export default function FinanzaApp() {
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
+        {tab === "viaggi" && <ViaggiView persone={persone} categorie={categorieUscita} />}
         {tab === "impostazioni" && (
           <ImpostazioniView
             householdName={householdName}

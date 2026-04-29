@@ -535,3 +535,81 @@ export async function deleteGoal(id) {
   }
   return true;
 }
+
+// ─── Trips API ───
+export async function fetchTrips() {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trips`, { headers: authHeaders(), credentials: "include" });
+      if (await checkAuthError(res)) return [];
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("fetchTrips:", err); }
+  }
+  return [];
+}
+
+export async function addTrip(trip) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trips`, {
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(trip),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("addTrip:", err); }
+  }
+  return { id: Date.now().toString(36), ...trip, expenses: [], settled: false };
+}
+
+export async function updateTrip(id, updates) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trips/${id}`, {
+        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("updateTrip:", err); }
+  }
+  return { ok: true };
+}
+
+export async function deleteTrip(id) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trips/${id}`, {
+        method: "DELETE", headers: authHeaders(), credentials: "include",
+      });
+      if (!res.ok) throw new Error(res.status);
+      return true;
+    } catch (err) { console.error("deleteTrip:", err); }
+  }
+  return true;
+}
+
+export async function addTripExpense(tripId, expense) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trips/${tripId}/expenses`, {
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(expense),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("addTripExpense:", err); }
+  }
+  return { id: Date.now().toString(36), ...expense };
+}
+
+export async function deleteTripExpense(tripId, expenseId) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trips/${tripId}/expenses/${expenseId}`, {
+        method: "DELETE", headers: authHeaders(), credentials: "include",
+      });
+      if (!res.ok) throw new Error(res.status);
+      return true;
+    } catch (err) { console.error("deleteTripExpense:", err); }
+  }
+  return true;
+}
