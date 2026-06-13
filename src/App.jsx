@@ -1764,7 +1764,6 @@ function ViaggiView({ persone }) {
                   {p.emoji} {p.nome}
                 </div>
               ))}
-              <button onClick={() => setShowAddExtra?.(!showAddExtra)} style={{ padding: "6px 10px", borderRadius: 10, border: "1px dashed #333", background: "transparent", color: "#666", fontSize: 12 }}>+ Persona</button>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <input type="text" value={newPersonName} onChange={e => setNewPersonName(e.target.value)} placeholder="Nome ospite..." onKeyDown={e => e.key === "Enter" && addGuest()} style={{ ...inputStyle, flex: 1 }} />
@@ -1780,9 +1779,10 @@ function ViaggiView({ persone }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {trips.map(t => {
-            const allP = [...persone.map(p => ({ ...p, isMembro: true })), ...(t.partecipanti || [])];
+            const allP = t.partecipanti || [];
             tripColors[t.id] = tripColors[t.id] || {};
             allP.forEach((p, i) => { tripColors[t.id][p.id] = allColors[i % allColors.length]; });
+            const nameOf = (id) => allP.find(p => p.id === id)?.nome || id;
             const total = t.expenses?.reduce((s, e) => s + e.importo, 0) || 0;
             const settlements = calculateSettle(t);
             const isSettling = settlingTrip === t.id;
@@ -1810,7 +1810,7 @@ function ViaggiView({ persone }) {
                     <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>Da saldare</div>
                     {settlements.map((s, i) => (
                       <div key={i} style={{ fontSize: 12, marginBottom: 4, fontFamily: "'DM Sans',sans-serif" }}>
-                        <span style={{ color: tripColors[t.id][s.da] }}>{s.da}</span> → <span style={{ color: tripColors[t.id][s.a] }}>{s.a}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
+                        <span style={{ color: tripColors[t.id][s.da] }}>{nameOf(s.da)}</span> → <span style={{ color: tripColors[t.id][s.a] }}>{nameOf(s.a)}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
                       </div>
                     ))}
                   </div>

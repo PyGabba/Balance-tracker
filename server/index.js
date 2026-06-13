@@ -793,7 +793,7 @@ app.get("/api/goals", requireHousehold, async (req, res) => {
   try {
     const col = db.collection("goals");
     const docs = await col.find({ householdId: req.householdId }).sort({ createdAt: -1 }).toArray();
-    res.json(docs.map(d => { delete d._id; delete d.householdId; return d; }));
+    res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -851,7 +851,7 @@ app.delete("/api/goals/:id", requireHousehold, async (req, res) => {
 app.get("/api/trips", requireHousehold, async (req, res) => {
   try {
     const trips = await tripsCol.find({ householdId: req.householdId }).sort({ startDate: -1 }).toArray();
-    res.json(trips);
+    res.json(trips.map(t => { const id = t._id.toString(); delete t._id; delete t.householdId; return { id, ...t }; }));
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -872,7 +872,8 @@ app.post("/api/trips", requireHousehold, async (req, res) => {
     };
     if (!doc.nome) return res.status(400).json({ error: "Nome richiesto" });
     const result = await tripsCol.insertOne(doc);
-    res.json({ id: result.insertedId, ...doc });
+    delete doc.householdId;
+    res.json({ id: result.insertedId.toString(), ...doc });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
