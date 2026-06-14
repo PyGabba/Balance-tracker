@@ -1294,7 +1294,7 @@ const RICORRENZA_OPTIONS = [
 ];
 
 function calcolaProssimaData(data, frequenza) {
-  const d = new Date(data);
+  const d = new Date(data + "T12:00:00");
   if (frequenza === "settimanale") d.setDate(d.getDate() + 7);
   else if (frequenza === "mensile") d.setMonth(d.getMonth() + 1);
   else if (frequenza === "annuale") d.setFullYear(d.getFullYear() + 1);
@@ -2854,9 +2854,10 @@ function PortfolioView() {
 
       {/* P&L Bar Chart */}
       {holdings.length >= 1 && totalValore > 0 && (
-        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538", overflow: "hidden" }}>
           <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Profit & Loss</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 100 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, minWidth: "max-content" }}>
             {holdingsByPL.map(h => {
               const prezzo = manualPrices[h.ticker] || 0;
               const valore = prezzo > 0 ? h.quantita * prezzo : 0;
@@ -2868,13 +2869,14 @@ function PortfolioView() {
               const height = Math.max(2, (Math.abs(pl) / maxPL) * 80);
               const isPositive = pl >= 0;
               return (
-                <div key={h.ticker} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
-                  <div style={{ width: "100%", maxWidth: 28, height, background: isPositive ? "#4ECDC4" : "#FF6B6B", borderRadius: "4px 4px 0 0", transition: "height 0.5s" }} />
-                  <span style={{ fontSize: 9, color: "#888", marginTop: 4 }}>{h.ticker}</span>
-                  <span style={{ fontSize: 8, color: isPositive ? "#4ECDC4" : "#FF6B6B" }}>{isPositive ? "+" : ""}{pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€</span>
+                <div key={h.ticker} style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 44, flexShrink: 0 }}>
+                  <div style={{ width: 28, height, background: isPositive ? "#4ECDC4" : "#FF6B6B", borderRadius: "4px 4px 0 0", transition: "height 0.5s" }} />
+                  <span style={{ fontSize: 9, color: "#888", marginTop: 4, whiteSpace: "nowrap" }}>{h.ticker}</span>
+                  <span style={{ fontSize: 8, color: isPositive ? "#4ECDC4" : "#FF6B6B", whiteSpace: "nowrap" }}>{isPositive ? "+" : ""}{pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€</span>
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       )}
@@ -4046,19 +4048,18 @@ export default function FinanzaApp() {
     if (dovute.length === 0) return;
     const nuove = [];
     for (const t of dovute) {
-      const nuovaTx = {
-        ...t,
-        id: generaId(),
-        data: t.ricorrenza.prossimaData,
-        ricorrenza: {
-          frequenza: t.ricorrenza.frequenza,
-          prossimaData: calcolaProssimaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza),
-        },
-      };
+      const newProssimaData = calcolaProssimaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza);
+      // Child is a plain transaction — no ricorrenza, so it never re-triggers
+      const nuovaTx = { ...t, id: generaId(), data: t.ricorrenza.prossimaData };
       delete nuovaTx._id;
+      delete nuovaTx.ricorrenza;
       try {
         const saved = await addTransaction(nuovaTx);
         nuove.push(saved);
+        // Advance the template's prossimaData so it doesn't fire again this period
+        const updatedRicorrenza = { frequenza: t.ricorrenza.frequenza, prossimaData: newProssimaData };
+        await updateTransaction(t.id, { ricorrenza: updatedRicorrenza });
+        setTransazioni(prev => prev.map(tx => tx.id === t.id ? { ...tx, ricorrenza: updatedRicorrenza } : tx));
       } catch (e) { console.error("Ricorrente error:", e); }
     }
     if (nuove.length > 0) {
@@ -4070,7 +4071,7 @@ export default function FinanzaApp() {
     try {
       const localData = await fetchTransactions((serverData) => {
         setTransazioni(serverData);
-        generaRicorrenti(serverData);
+        // generaRicorrenti already ran on localData below; skip here to avoid race duplicates
       });
       setTransazioni(localData);
       generaRicorrenti(localData);
