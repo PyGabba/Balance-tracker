@@ -2930,9 +2930,18 @@ function parseSplitwiseRows(rawRows, persone) {
     return id;
   }
 
+  // Excel stores dates as serial numbers (days since 1899-12-30).
+  // Splitwise timestamps are near midnight, so round to the nearest day.
+  function excelSerialToISO(v) {
+    const n = parseFloat(v);
+    if (isNaN(n) || n < 20000 || n > 60000) return null;
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000).toISOString().slice(0, 10);
+  }
+
   rawRows.forEach((row, i) => {
     const num = i + 2;
-    const data = String(row["Data"] || row["Date"] || "").trim();
+    let data = String(row["Data"] || row["Date"] || "").trim();
+    if (/^\d+(\.\d+)?$/.test(data)) data = excelSerialToISO(data) || data;
     const descrizione = String(row["Descrizione"] || row["Description"] || "").trim();
 
     // Skip blank rows and the final "Bilancio totale" summary row
