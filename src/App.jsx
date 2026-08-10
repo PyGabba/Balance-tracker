@@ -2458,17 +2458,29 @@ function PortfolioView() {
     })();
   }, []);
 
-  // Aggregate: group by ticker, sum quantities
+  // Aggregate by ticker with average-cost accounting.
+  // Trades are processed chronologically: a sell reduces cost basis by qty × average
+  // cost, and realizes qty × (sell price − average cost) as P&L. Fully closed
+  // positions are kept separately with their realized P&L.
   const holdings = [];
+  const closedHoldings = [];
   const tickerMap = {};
-  for (const p of positions) {
+  const sortedPositions = [...positions].sort((a, b) =>
+    (a.dataAcquisto || "").localeCompare(b.dataAcquisto || "") ||
+    (a.createdAt || "").localeCompare(b.createdAt || "")
+  );
+  for (const p of sortedPositions) {
     if (!tickerMap[p.ticker]) {
-      tickerMap[p.ticker] = { ticker: p.ticker, nome: p.nome || p.ticker, quantita: 0, costoTotale: 0, trades: [] };
+      tickerMap[p.ticker] = { ticker: p.ticker, nome: p.nome || p.ticker, quantita: 0, costoTotale: 0, realizzato: 0, trades: [] };
     }
     const h = tickerMap[p.ticker];
     if (p.tipo === "sell") {
-      h.quantita -= p.quantita;
-      h.costoTotale -= p.quantita * p.prezzoAcquisto;
+      const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
+      const sellQ = Math.min(p.quantita, h.quantita); // guard against overselling
+      h.realizzato += sellQ * (p.prezzoAcquisto - avg);
+      h.costoTotale -= sellQ * avg;
+      h.quantita -= sellQ;
+      if (h.quantita < 0.0001) { h.quantita = 0; h.costoTotale = 0; }
     } else {
       h.quantita += p.quantita;
       h.costoTotale += p.quantita * p.prezzoAcquisto;
@@ -2480,8 +2492,13 @@ function PortfolioView() {
     if (h.quantita > 0.0001) {
       h.prezzoMedio = h.costoTotale / h.quantita;
       holdings.push(h);
+    } else if (h.trades.some(t => t.tipo === "sell")) {
+      h.ultimaData = h.trades[h.trades.length - 1]?.dataAcquisto || "";
+      closedHoldings.push(h);
     }
   }
+  closedHoldings.sort((a, b) => (b.ultimaData || "").localeCompare(a.ultimaData || ""));
+  const totalRealizzato = [...holdings, ...closedHoldings].reduce((s, h) => s + h.realizzato, 0);
 
   async function handleAdd() {
     if (!ticker.trim() || !quantita || !prezzoAcquisto) return;
@@ -2504,6 +2521,14 @@ function PortfolioView() {
     await Promise.all(trades.map(t => deletePosition(t.id)));
     const ids = new Set(trades.map(t => t.id));
     setPositions(prev => prev.filter(p => !ids.has(p.id)));
+  }
+
+  async function handleDeleteTrade(t) {
+    if (!confirm(`Eliminare ${t.tipo === "sell" ? "la vendita" : "l'acquisto"} del ${t.dataAcquisto} (${t.quantita} pz)?`)) return;
+    try {
+      await deletePosition(t.id);
+      setPositions(prev => prev.filter(p => p.id !== t.id));
+    } catch (e) { alert("Errore nell'eliminazione: " + e.message); }
   }
 
   // ── Manual price overrides (MongoDB) ──
@@ -2610,23 +2635,31 @@ function PortfolioView() {
       </div>
 
       {/* Summary card */}
-      {holdings.length > 0 && (
+      {(holdings.length > 0 || closedHoldings.length > 0) && (
         <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "20px", marginBottom: 16, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
           <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Valore portafoglio</div>
           <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: "#eee", marginTop: 4 }}>
             {formattaValuta(totalValore)}
           </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 10, color: "#888" }}>Investito</div>
               <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "'Space Mono',monospace", color: "#aaa" }}>{formattaValuta(totalInvestito)}</div>
             </div>
             <div>
-              <div style={{ fontSize: 10, color: "#888" }}>P&L</div>
+              <div style={{ fontSize: 10, color: "#888" }}>P&L non realizzato</div>
               <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totalPL >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
                 {totalPL >= 0 ? "+" : ""}{formattaValuta(totalPL)} ({totalPLPct >= 0 ? "+" : ""}{totalPLPct.toFixed(1)}%)
               </div>
             </div>
+            {Math.abs(totalRealizzato) > 0.005 && (
+              <div>
+                <div style={{ fontSize: 10, color: "#888" }}>P&L realizzato</div>
+                <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totalRealizzato >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+                  {totalRealizzato >= 0 ? "+" : ""}{formattaValuta(totalRealizzato)}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2749,6 +2782,9 @@ function PortfolioView() {
                     <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#eee", wordBreak: "break-all" }}>
                       {prezzoCorrente > 0 ? formattaValuta(valoreCorrente) : "—"}
                     </div>
+                    {totalValore > 0 && (
+                      <div style={{ fontSize: 9, color: "#666", fontFamily: "'Space Mono',monospace" }}>{(valoreCorrente / totalValore * 100).toFixed(1)}% del portafoglio</div>
+                    )}
                     {prezzoCorrente > 0 && (
                       <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: pl >= 0 ? "#4ECDC4" : "#FF6B6B", wordBreak: "break-all" }}>
                         {pl >= 0 ? "+" : ""}{formattaValuta(pl)}<br/>
@@ -2857,14 +2893,63 @@ function PortfolioView() {
                           </span>
                           <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{t.quantita} pz</span>
                           <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(t.prezzoAcquisto)}</span>
+                          <button onClick={() => handleDeleteTrade(t)} title="Elimina questa operazione" style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
                         </div>
                       ))}
                     </div>
+                    {Math.abs(h.realizzato) > 0.005 && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: "#888", display: "flex", justifyContent: "space-between" }}>
+                        <span>P&L realizzato ({h.ticker})</span>
+                        <span style={{ fontFamily: "'Space Mono',monospace", fontWeight: 700, color: h.realizzato >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+                          {h.realizzato >= 0 ? "+" : ""}{formattaValuta(h.realizzato)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Closed positions */}
+      {closedHoldings.length > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 16, marginTop: 16, border: "1px solid #252538" }}>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12 }}>Posizioni chiuse</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {closedHoldings.map(h => (
+              <div key={h.ticker} style={{ background: "#111119", borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{h.ticker}</span>
+                    <span style={{ fontSize: 10, color: "#666", marginLeft: 6 }}>{h.nome}</span>
+                    <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Chiusa il {h.ultimaData} · {h.trades.length} trades</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: h.realizzato >= 0 ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>
+                    {h.realizzato >= 0 ? "+" : ""}{formattaValuta(h.realizzato)}
+                  </div>
+                  <button onClick={() => setExpandedTicker(expandedTicker === h.ticker ? null : h.ticker)} style={{ background: "none", border: "none", color: "#6C5CE7", cursor: "pointer", fontSize: 11, padding: "2px 4px", flexShrink: 0 }}>
+                    {expandedTicker === h.ticker ? "▲" : "▼"}
+                  </button>
+                  <button onClick={() => handleDeleteHolding(h.trades)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 14, padding: "2px 4px", flexShrink: 0 }}>×</button>
+                </div>
+                {expandedTicker === h.ticker && (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((t, i) => (
+                      <div key={t.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "#1a1a28", borderRadius: 8 }}>
+                        <span style={{ fontSize: 10, color: "#666", minWidth: 60 }}>{t.dataAcquisto}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: t.tipo === "sell" ? "#FF6B6B" : "#4ECDC4", minWidth: 35 }}>{t.tipo === "sell" ? "SELL" : "BUY"}</span>
+                        <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{t.quantita} pz</span>
+                        <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(t.prezzoAcquisto)}</span>
+                        <button onClick={() => handleDeleteTrade(t)} title="Elimina questa operazione" style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
