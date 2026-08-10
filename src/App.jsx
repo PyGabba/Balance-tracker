@@ -828,7 +828,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
     .sort((a, b) => new Date(b.data) - new Date(a.data));
 
   const debitiGlobale = calcolaDebitiMatrix(transazioni, persone);
-  const debitiMese = calcolaDebitiMatrix(txMese, persone);
+  const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
   const allPeople = getAllPersone(transazioni, persone);
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
@@ -1957,7 +1957,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
     ...p,
     speso: usciteMese.filter(t => t.pagatoDa === p.id).reduce((s, t) => s + t.importo, 0),
   }));
-  const debitiMese = calcolaDebitiMatrix(txMese, persone);
+  const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
 
   // ─── Frequency analysis (must be before Trends) ───
   const numTransazioni = usciteMese.length;
