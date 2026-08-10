@@ -58,6 +58,10 @@ function calcolaDebitiMatrix(transazioni, persone) {
   for (const t of transazioni) {
     if (t.tipo === "saldo") {
       if (!t.pagatoDa || !t.ricevutoDa) continue;
+      // Trip settlements are record-only: the underlying trip expenses never
+      // entered the household ledger, so counting them here would create a
+      // spurious opposite debt in the household matrix
+      if (t.categoria === "saldo_viaggio") continue;
       // Payment reduces debt: add in reverse direction so netting cancels it out
       const key = `${t.ricevutoDa}->${t.pagatoDa}`;
       balances[key] = (balances[key] || 0) + t.importo;
@@ -1623,6 +1627,34 @@ function ViaggiView({ persone }) {
     setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: t.expenses.filter(e => e.id !== expId) } : t));
   }
 
+  const [settlingId, setSettlingId] = useState(null);
+
+  async function handleMarkSettled(trip, settlements) {
+    const nameOf = (id) => (trip.partecipanti || []).find(p => p.id === id)?.nome || id;
+    const riepilogo = settlements.map(s => `${nameOf(s.da)} → ${nameOf(s.a)}: ${formattaValuta(s.importo)}`).join("\n");
+    if (!confirm(`Segnare "${trip.nome}" come saldato?\n\nVerranno registrati questi pagamenti:\n${riepilogo}`)) return;
+    setSettlingId(trip.id);
+    try {
+      const oggi = new Date().toISOString().slice(0, 10);
+      for (const s of settlements) {
+        await addTransaction({
+          tipo: "saldo",
+          importo: s.importo,
+          categoria: "saldo_viaggio",
+          descrizione: `Saldo viaggio: ${trip.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
+          data: oggi,
+          pagatoDa: s.da,
+          ricevutoDa: s.a,
+        });
+      }
+      await updateTrip(trip.id, { settled: true });
+      setTrips(trips.map(t => t.id === trip.id ? { ...t, settled: true } : t));
+    } catch (e) {
+      alert("Errore nel salvataggio: " + e.message);
+    }
+    setSettlingId(null);
+  }
+
   function addGuest() {
     if (!newPersonName.trim()) return;
     const colors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9"];
@@ -1796,7 +1828,10 @@ function ViaggiView({ persone }) {
               <div key={t.id} style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>{t.nome}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>
+                      {t.nome}
+                      {t.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>✓ Saldato</span>}
+                    </div>
                     <div style={{ fontSize: 12, color: "#666", fontFamily: "'DM Sans',sans-serif" }}>{t.descrizione}</div>
                     <div style={{ fontSize: 11, color: "#555", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
                       {t.startDate && t.endDate ? `${t.startDate} → ${t.endDate}` : t.startDate || t.endDate || ""}
@@ -1810,7 +1845,7 @@ function ViaggiView({ persone }) {
                   <span style={{ fontSize: 11, color: "#666", marginLeft: 6, fontFamily: "'DM Sans',sans-serif" }}>({t.expenses?.length || 0} spese)</span>
                 </div>
 
-                {settlements.length > 0 && (
+                {!t.settled && settlements.length > 0 && (
                   <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10 }}>
                     <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>Da saldare</div>
                     {settlements.map((s, i) => (
@@ -1818,6 +1853,10 @@ function ViaggiView({ persone }) {
                         <span style={{ color: tripColors[t.id][s.da] }}>{nameOf(s.da)}</span> → <span style={{ color: tripColors[t.id][s.a] }}>{nameOf(s.a)}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
                       </div>
                     ))}
+                    <button onClick={() => handleMarkSettled(t, settlements)} disabled={settlingId === t.id}
+                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === t.id ? "#252538" : "#55EFC422", border: "1px solid #55EFC455", borderRadius: 10, color: "#55EFC4", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: settlingId === t.id ? "default" : "pointer" }}>
+                      {settlingId === t.id ? "Salvataggio..." : "✓ Segna come saldato"}
+                    </button>
                   </div>
                 )}
 
@@ -1835,14 +1874,14 @@ function ViaggiView({ persone }) {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
-                          <button onClick={() => handleDeleteExpense(t.id, e.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>
+                          {!t.settled && <button onClick={() => handleDeleteExpense(t.id, e.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={tripCats} />
+                {!t.settled && <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={tripCats} />}
               </div>
             );
           })}
