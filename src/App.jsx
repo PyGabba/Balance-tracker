@@ -766,7 +766,7 @@ function GoalsForm({ onAdd, onCancel }) {
         <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
           {["manual", "percent", "fixed"].map(tp => (
             <button key={tp} onClick={() => setContributionType(tp)} style={{
-              flex: 1, padding: "6px 0", border: "none", borderRadius: 8, cursor: "pointer",
+              flex: 1, padding: "6px 0", borderRadius: 8, cursor: "pointer",
               fontSize: 11, fontWeight: 600,
               background: contributionType === tp ? "#6C5CE722" : "transparent",
               color: contributionType === tp ? "#a78bfa" : "#666",
