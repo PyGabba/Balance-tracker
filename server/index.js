@@ -57,6 +57,10 @@ async function recordFail(key) {
 
 async function clearLock(key) { await locksCol.deleteOne({ key }); }
 
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET non impostato in produzione. Il server non può avviarsi con il secret di default.");
+  process.exit(1);
+}
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
 const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
 
@@ -584,8 +588,11 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
     }).toArray();
 
     // Also fetch saldo transactions to account for settlements
+    // (trip settlements "saldo_viaggio" are record-only and excluded: their
+    // underlying expenses live in the trips collection, not in this ledger)
     const saldi = await transactionsCol.find({
-      householdId: req.householdId, tipo: "saldo", pagatoDa: { $ne: null }, ricevutoDa: { $ne: null }
+      householdId: req.householdId, tipo: "saldo", pagatoDa: { $ne: null }, ricevutoDa: { $ne: null },
+      categoria: { $ne: "saldo_viaggio" }
     }).toArray();
 
     // Per-person net balance
@@ -855,7 +862,7 @@ app.get("/api/trips", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-app.post("/api/trips", requireHousehold, async (req, res) => {
+app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const t = req.body;
     const doc = {
@@ -877,7 +884,7 @@ app.post("/api/trips", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-app.put("/api/trips/:id", requireHousehold, async (req, res) => {
+app.put("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const t = req.body;
@@ -895,7 +902,7 @@ app.put("/api/trips/:id", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-app.delete("/api/trips/:id", requireHousehold, async (req, res) => {
+app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const r = await tripsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -904,7 +911,7 @@ app.delete("/api/trips/:id", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-app.post("/api/trips/:id/expenses", requireHousehold, async (req, res) => {
+app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -931,7 +938,7 @@ app.post("/api/trips/:id/expenses", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-app.delete("/api/trips/:id/expenses/:expenseId", requireHousehold, async (req, res) => {
+app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
