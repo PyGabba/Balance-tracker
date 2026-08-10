@@ -1571,6 +1571,11 @@ function ViaggiView({ persone }) {
   const [settleFrom, setSettleFrom] = useState("");
   const [settleTo, setSettleTo] = useState("");
   const [settleAmount, setSettleAmount] = useState("");
+  const [expandedExpenses, setExpandedExpenses] = useState({});
+
+  function toggleExpenses(tripId) {
+    setExpandedExpenses(prev => ({ ...prev, [tripId]: !prev[tripId] }));
+  }
 
   const [showCatManager, setShowCatManager] = useState(false);
   const [editingCatId, setEditingCatId] = useState(null);
@@ -1818,8 +1823,11 @@ function ViaggiView({ persone }) {
 
                 {t.expenses && t.expenses.length > 0 && (
                   <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, color: "#888", marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>Spese</div>
-                    {t.expenses.map((e, i) => (
+                    <button onClick={() => toggleExpenses(t.id)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "10px 12px", cursor: "pointer", marginBottom: expandedExpenses[t.id] ? 6 : 0 }}>
+                      <span style={{ fontSize: 12, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>Spese ({t.expenses.length})</span>
+                      <span style={{ fontSize: 11, color: "#6C5CE7", transform: expandedExpenses[t.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
+                    </button>
+                    {expandedExpenses[t.id] && t.expenses.map((e, i) => (
                       <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538", fontFamily: "'DM Sans',sans-serif" }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || "Spesa"}</div>
