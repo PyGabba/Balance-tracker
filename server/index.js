@@ -521,6 +521,12 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
   try {
     const b = req.body;
     if (!b.tipo || !b.importo || !b.data) return res.status(400).json({ error: "Campi obbligatori" });
+    if (!["uscita", "entrata", "saldo", "trasferimento"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido" });
+    if (!Number.isFinite(parseFloat(b.importo))) return res.status(400).json({ error: "Importo non valido" });
+    if (b.tipo === "trasferimento") {
+      if (!b.contoDa || !b.contoA) return res.status(400).json({ error: "Trasferimento: contoDa e contoA obbligatori" });
+      if (b.contoDa === b.contoA) return res.status(400).json({ error: "Trasferimento: i due conti devono essere diversi" });
+    }
     const doc = {
       householdId: req.householdId,
       tipo: b.tipo,
@@ -535,6 +541,8 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
       splitPagante: b.splitPagante != null ? parseInt(b.splitPagante) : null,
       intestataA: b.intestataA || null,
       contoId: b.contoId || null,
+      contoDa: b.contoDa || null,
+      contoA: b.contoA || null,
       createdAt: new Date(),
     };
     const result = await transactionsCol.insertOne(doc);
@@ -559,7 +567,7 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const update = {};
-    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone","contoId"];
+    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone","contoId","contoDa","contoA"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         if (key === "importo") update[key] = parseFloat(req.body[key]);
@@ -910,6 +918,8 @@ app.delete("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res)
     if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
     // Detach the deleted account from its transactions and goals (they stay, unassigned)
     await transactionsCol.updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
+    await transactionsCol.updateMany({ householdId: req.householdId, contoDa: req.params.id }, { $set: { contoDa: null } });
+    await transactionsCol.updateMany({ householdId: req.householdId, contoA: req.params.id }, { $set: { contoA: null } });
     await db.collection("goals").updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
     res.json({ deleted: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
