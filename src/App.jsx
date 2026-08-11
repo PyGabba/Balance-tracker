@@ -861,6 +861,8 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
   const [contributionValue, setContributionValue] = useState("");
   const [autoAdd, setAutoAdd] = useState(false);
   const [contoId, setContoId] = useState("");
+  const [contoDa, setContoDa] = useState("");
+  const [contoA, setContoA] = useState("");
   
   function handleSubmit() {
     if (!nome.trim() || !targetAmount) return;
@@ -954,6 +956,11 @@ function calcolaSaldiConti(conti, transazioni) {
   const saldi = {};
   for (const c of conti) saldi[c.id] = c.saldoIniziale || 0;
   for (const t of transazioni) {
+    if (t.tipo === "trasferimento") {
+      if (t.contoDa && saldi[t.contoDa] !== undefined) saldi[t.contoDa] -= t.importo;
+      if (t.contoA && saldi[t.contoA] !== undefined) saldi[t.contoA] += t.importo;
+      continue;
+    }
     if (!t.contoId || saldi[t.contoId] === undefined) continue;
     if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
     else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
@@ -1415,7 +1422,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {txOrdinate.map(t => (
-            <TransactionRow key={t.id} t={t} persone={persone} categorie={categorie} isEditing={editId === t.id}
+            <TransactionRow key={t.id} t={t} persone={persone} categorie={categorie} conti={conti} isEditing={editId === t.id}
               onTap={() => setEditId(editId === t.id ? null : t.id)}
               onDelete={() => { onDelete(t.id); setEditId(null); }}
               onSave={(updates) => { onEdit(t.id, updates); setEditId(null); }}
@@ -1433,7 +1440,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 }
 
 // ─── Transaction Row with inline edit ───
-function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onSave, onCancel }) {
+function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel }) {
   const _ENTRATA_CAT = { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" };
   const cat = t.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === t.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
   const persona = persone.find(p => p.id === t.pagatoDa);
@@ -1448,6 +1455,7 @@ function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onS
   const [splits, setSplits] = useState(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : persone.map(p => ({ personaId: p.id, quota: Math.round(100 / persone.length) }))));
   const [extraPersone, setExtraPersone] = useState(t.extraPersone || []);
   const [intestataA, setIntestataA] = useState(t.intestataA || persone[0]?.id || "");
+  const [eContoId, setEContoId] = useState(t.contoId || "");
   const [salvato, setSalvato] = useState(false);
 
   useEffect(() => {
@@ -1457,6 +1465,7 @@ function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onS
     setSplits(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : persone.map(p => ({ personaId: p.id, quota: Math.round(100 / persone.length) }))));
     setExtraPersone(t.extraPersone || []);
     setIntestataA(t.intestataA || persone[0]?.id || "");
+    setEContoId(t.contoId || "");
   }, [t, persone]);
 
   function handleSave() {
@@ -1470,12 +1479,32 @@ function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onS
       splits: tipo === "uscita" ? splits : null,
       extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
+      contoId: eContoId || null,
     });
     setSalvato(true);
     setTimeout(() => setSalvato(false), 1000);
   }
 
   const personaIntestata = persone.find(p => p.id === t.intestataA);
+
+  // Transfers: dedicated read-only row (no edit form, only delete)
+  if (t.tipo === "trasferimento") {
+    const cDa = conti.find(c => c.id === t.contoDa);
+    const cA = conti.find(c => c.id === t.contoA);
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538" }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: "#6C5CE722", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || "Giroconto"}</div>
+          <div style={{ fontSize: 11, color: "#666" }}>
+            {formattaData(t.data)} · {cDa ? `${cDa.icona} ${cDa.nome}` : "?"} → {cA ? `${cA.icona} ${cA.nome}` : "?"}
+          </div>
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa", flexShrink: 0 }}>{formattaValuta(t.importo)}</div>
+        <button onClick={() => { if (confirm("Eliminare questo giroconto?")) onDelete(); }} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
+      </div>
+    );
+  }
 
   // Compact row
   if (!isEditing) {
@@ -1491,6 +1520,7 @@ function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onS
           </div>
           <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(t.data)}
+            {(() => { const c = conti.find(x => x.id === t.contoId); return c ? <span title={c.nome} style={{ fontSize: 10 }}>{c.icona}</span> : null; })()}
             {persona && t.tipo === "uscita" && (() => {
               // Ottieni lista partecipanti con quote
               let participants = [];
@@ -1636,6 +1666,28 @@ function TransactionRow({ t, persone, categorie, isEditing, onTap, onDelete, onS
         <label style={labelStyle}>Data</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, background: "#111119", colorScheme: "dark" }} />
       </div>
+      {/* Conto */}
+      {conti.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelStyle}>Conto</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setEContoId("")} style={{
+              padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+              background: eContoId === "" ? "#6C5CE722" : "#111119",
+              border: eContoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
+              color: eContoId === "" ? "#a78bfa" : "#666",
+            }}>Nessuno</button>
+            {conti.map(c => (
+              <button key={c.id} onClick={() => setEContoId(c.id)} style={{
+                padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                background: eContoId === c.id ? "#6C5CE722" : "#111119",
+                border: eContoId === c.id ? "1px solid #6C5CE7" : "1px solid #252538",
+                color: eContoId === c.id ? "#a78bfa" : "#888",
+              }}>{c.icona} {c.nome}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 8 }}>
@@ -1734,6 +1786,18 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
   function handleSubmit() {
     const val = importo; // already computed from evalImporto
     if (!val || val <= 0) return;
+    if (tipo === "trasferimento") {
+      if (!contoDa || !contoA || contoDa === contoA) return;
+      onAggiungi({
+        id: generaId(), tipo: "trasferimento", importo: val,
+        categoria: "trasferimento", descrizione: descrizione.trim(), data,
+        pagatoDa: null, splits: null, extraPersone: null, intestataA: null,
+        contoId: null, contoDa, contoA, ricorrenza: null,
+      });
+      setImportoRaw(""); setImporto(0); setDescrizione(""); setSalvato(true);
+      setTimeout(() => setSalvato(false), 1500);
+      return;
+    }
     const ricorrenzaData = ricorrenza !== "no" ? {
       frequenza: ricorrenza,
       prossimaData: calcolaProssimaData(data, ricorrenza),
@@ -1760,19 +1824,19 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
       <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 20 }}>Nuova transazione</div>
       <div style={{ marginBottom: 16 }}><ReceiptScanner onScanComplete={handleReceiptScan} /></div>
       <div style={{ display: "flex", background: "#1a1a28", borderRadius: 14, padding: 4, marginBottom: 20, border: "1px solid #252538" }}>
-        {["uscita", "entrata"].map(t => (
+        {["uscita", "entrata", ...(conti.length >= 2 ? ["trasferimento"] : [])].map(t => (
           <button key={t} onClick={() => setTipo(t)} style={{
             flex: 1, padding: "10px 0", border: "none", borderRadius: 11, cursor: "pointer",
             fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600,
-            background: tipo===t?(t==="uscita"?"linear-gradient(135deg,#FF6B6B33,#FF6B6B22)":"linear-gradient(135deg,#4ECDC433,#4ECDC422)"):"transparent",
-            color: tipo===t?(t==="uscita"?"#FF6B6B":"#4ECDC4"):"#666",
-          }}>{t === "uscita" ? "▼ Uscita" : "▲ Entrata"}</button>
+            background: tipo===t?(t==="uscita"?"linear-gradient(135deg,#FF6B6B33,#FF6B6B22)":t==="trasferimento"?"linear-gradient(135deg,#6C5CE733,#6C5CE722)":"linear-gradient(135deg,#4ECDC433,#4ECDC422)"):"transparent",
+            color: tipo===t?(t==="uscita"?"#FF6B6B":t==="trasferimento"?"#a78bfa":"#4ECDC4"):"#666",
+          }}>{t === "uscita" ? "▼ Uscita" : t === "entrata" ? "▲ Entrata" : "⇄ Giro"}</button>
         ))}
       </div>
       <div style={{ marginBottom: 18 }}>
         <label style={labelStyle}>Importo (€)</label>
         <input type="text" ref={importoInputRef} inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
-          style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":"#4ECDC4" }} />
+          style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":tipo==="trasferimento"?"#a78bfa":"#4ECDC4" }} />
         {isComputed && (
           <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4, fontFamily: "'Space Mono',monospace" }}>
             = {formattaValuta(computedImporto)}
@@ -1882,7 +1946,39 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         <label style={labelStyle}>Data</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
       </div>
-      {conti.length > 0 && (
+      {tipo === "trasferimento" && (
+        <div style={{ marginBottom: 24 }}>
+          <label style={labelStyle}>Da conto</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {conti.map(c => (
+              <button key={c.id} onClick={() => setContoDa(c.id)} style={{
+                padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                background: contoDa === c.id ? "#FF6B6B22" : "#1a1a28",
+                border: contoDa === c.id ? "1px solid #FF6B6B" : "1px solid #252538",
+                color: contoDa === c.id ? "#FF6B6B" : "#888",
+              }}>{c.icona} {c.nome}</button>
+            ))}
+          </div>
+          <label style={labelStyle}>A conto</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {conti.map(c => (
+              <button key={c.id} onClick={() => setContoA(c.id)} disabled={c.id === contoDa} style={{
+                padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                background: contoA === c.id ? "#4ECDC422" : "#1a1a28",
+                border: contoA === c.id ? "1px solid #4ECDC4" : "1px solid #252538",
+                color: c.id === contoDa ? "#333" : contoA === c.id ? "#4ECDC4" : "#888",
+                opacity: c.id === contoDa ? 0.4 : 1,
+              }}>{c.icona} {c.nome}</button>
+            ))}
+          </div>
+          {contoDa && contoA && contoDa !== contoA && (
+            <div style={{ fontSize: 11, color: "#a78bfa", marginTop: 8 }}>
+              ⇄ {conti.find(c => c.id === contoDa)?.nome} → {conti.find(c => c.id === contoA)?.nome}
+            </div>
+          )}
+        </div>
+      )}
+      {conti.length > 0 && tipo !== "trasferimento" && (
         <div style={{ marginBottom: 24 }}>
           <label style={labelStyle}>Conto</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1903,7 +1999,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
           </div>
         </div>
       )}
-      <div style={{ marginBottom: 24 }}>
+      {tipo !== "trasferimento" && <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Ripeti</label>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {RICORRENZA_OPTIONS.map(opt => (
@@ -1922,13 +2018,13 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
             🔁 Prossima: {calcolaProssimaData(data, ricorrenza)}
           </div>
         )}
-      </div>
+      </div>}
       <button onClick={handleSubmit} style={{
         width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: "pointer",
         fontSize: 16, fontWeight: 700,
-        background: tipo==="uscita"?"linear-gradient(135deg,#FF6B6B,#ee5a5a)":"linear-gradient(135deg,#4ECDC4,#3ab8b0)",
+        background: tipo==="uscita"?"linear-gradient(135deg,#FF6B6B,#ee5a5a)":tipo==="trasferimento"?"linear-gradient(135deg,#6C5CE7,#a855f7)":"linear-gradient(135deg,#4ECDC4,#3ab8b0)",
         color: "#fff", boxShadow: tipo==="uscita"?"0 4px 20px #FF6B6B44":"0 4px 20px #4ECDC444",
-      }}>{salvato ? "✓ Salvato!" : "Salva transazione"}</button>
+      }}>{salvato ? "✓ Salvato!" : tipo === "trasferimento" ? "⇄ Trasferisci" : "Salva transazione"}</button>
     </div>
   );
 }
