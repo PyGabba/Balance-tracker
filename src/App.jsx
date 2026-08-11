@@ -32,7 +32,16 @@ const SPLIT_PRESETS = [
 const MESI = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
 
 function generaId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function formattaValuta(n) { return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n); }
+// Privacy mode: when active, every currency amount renders as dots.
+// Module-level flag read by formattaValuta (used in 100+ places); the root
+// component keeps it in sync with React state so a toggle re-renders everything.
+let importiNascosti = false;
+// For compact custom-formatted amounts (chart labels etc.)
+function importoOscurabile(str) { return importiNascosti ? "••••" : str; }
+function formattaValuta(n) {
+  if (importiNascosti) return "€ ••••";
+  return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n);
+}
 function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day: "numeric", month: "short" }); }
 function evalImporto(val) {
   if (!val) return 0;
@@ -3383,7 +3392,7 @@ function PortfolioView() {
                 <div key={h.ticker} style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 44, flexShrink: 0 }}>
                   <div style={{ width: 28, height, background: isPositive ? "#4ECDC4" : "#FF6B6B", borderRadius: "4px 4px 0 0", transition: "height 0.5s" }} />
                   <span style={{ fontSize: 9, color: "#888", marginTop: 4, whiteSpace: "nowrap" }}>{h.ticker}</span>
-                  <span style={{ fontSize: 8, color: isPositive ? "#4ECDC4" : "#FF6B6B", whiteSpace: "nowrap" }}>{isPositive ? "+" : ""}{pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€</span>
+                  <span style={{ fontSize: 8, color: isPositive ? "#4ECDC4" : "#FF6B6B", whiteSpace: "nowrap" }}>{importoOscurabile(`${isPositive ? "+" : ""}${pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€`)}</span>
                 </div>
               );
             })}
@@ -3885,7 +3894,7 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
                   <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
                     <span>{r.data} · {r.tipo === "saldo" ? "Saldo" : r.categoria}</span>
                     <span style={{ color: r.tipo === "uscita" ? "#FF6B6B" : r.tipo === "saldo" ? "#a78bfa" : "#4ECDC4", fontFamily: "'Space Mono',monospace" }}>
-                      {r.tipo === "uscita" ? "-" : r.tipo === "saldo" ? "↔" : "+"}€{r.importo.toFixed(2)}
+                      {importoOscurabile(`${r.tipo === "uscita" ? "-" : r.tipo === "saldo" ? "↔" : "+"}€${r.importo.toFixed(2)}`)}
                     </span>
                   </div>
                 ))}
@@ -4755,6 +4764,17 @@ export default function FinanzaApp() {
     setGoals(prev => prev.filter(g => g.id !== id));
   };
 
+  const [nascondiImporti, setNascondiImporti] = useState(() => {
+    try { return localStorage.getItem("nascondiImporti") === "1"; } catch { return false; }
+  });
+  importiNascosti = nascondiImporti; // sync module flag on every render
+  const toggleNascondiImporti = () => {
+    setNascondiImporti(v => {
+      try { localStorage.setItem("nascondiImporti", v ? "0" : "1"); } catch {}
+      return !v;
+    });
+  };
+
   const [rootManualPrices, setRootManualPrices] = useState({});
   const loadRootManualPrices = useCallback(async () => {
     try { setRootManualPrices(await fetchManualPrices() || {}); } catch (e) { console.error("loadManualPrices:", e); }
@@ -4892,6 +4912,11 @@ export default function FinanzaApp() {
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={toggleNascondiImporti} title={nascondiImporti ? "Mostra importi" : "Nascondi importi"} style={{
+            background: nascondiImporti ? "#6C5CE722" : "none", border: nascondiImporti ? "1px solid #6C5CE7" : "1px solid #252538",
+            borderRadius: 8, cursor: "pointer", color: nascondiImporti ? "#a78bfa" : "#888",
+            fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
+          }}>{nascondiImporti ? "🙈" : "👁"}</button>
           <button onClick={() => setTab("impostazioni")} title="Impostazioni" style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
