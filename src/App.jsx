@@ -679,7 +679,7 @@ function GoalGauge({ current, target, size = 60 }) {
 }
 
 // Goal row component
-function GoalRow({ goal, onUpdate, onDelete }) {
+function GoalRow({ goal, onUpdate, onDelete, conti = [] }) {
   const [mode, setMode] = useState(null); // null | "versa" | "edit"
   const [amount, setAmount] = useState("");
   const [eNome, setENome] = useState(goal.nome);
@@ -689,6 +689,8 @@ function GoalRow({ goal, onUpdate, onDelete }) {
   const [eCType, setECType] = useState(goal.contributionType || "manual");
   const [eCValue, setECValue] = useState(goal.contributionValue ? String(goal.contributionValue) : "");
   const [eAuto, setEAuto] = useState(goal.autoAdd === true);
+  const [eConto, setEConto] = useState(goal.contoId || "");
+  const conto = conti.find(c => c.id === goal.contoId);
 
   const current = goal.currentAmount || 0;
   const pct = goal.targetAmount > 0 ? (current / goal.targetAmount * 100) : 0;
@@ -705,6 +707,7 @@ function GoalRow({ goal, onUpdate, onDelete }) {
     setECType(goal.contributionType || "manual");
     setECValue(goal.contributionValue ? String(goal.contributionValue) : "");
     setEAuto(goal.autoAdd === true);
+    setEConto(goal.contoId || "");
     setMode(mode === "edit" ? null : "edit");
   }
 
@@ -728,6 +731,7 @@ function GoalRow({ goal, onUpdate, onDelete }) {
       contributionType: eCType,
       contributionValue: eCType !== "manual" ? parseFloat(eCValue.replace(",", ".")) || 0 : 0,
       autoAdd: eAuto,
+      contoId: eConto || null,
     });
     setMode(null);
   }
@@ -743,6 +747,11 @@ function GoalRow({ goal, onUpdate, onDelete }) {
             {isAuto && !done && (
               <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#6C5CE722", color: "#a78bfa" }}>
                 AUTO {goal.contributionType === "percent" ? `${goal.contributionValue}%` : formattaValuta(goal.contributionValue)}
+              </span>
+            )}
+            {conto && (
+              <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: "#252538", color: "#999" }}>
+                {conto.icona} {conto.nome}
               </span>
             )}
           </div>
@@ -784,6 +793,24 @@ function GoalRow({ goal, onUpdate, onDelete }) {
           </div>
           <input type="date" value={eDate} onChange={e => setEDate(e.target.value)}
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#888", fontSize: 12, outline: "none", marginBottom: 8, colorScheme: "dark" }} />
+          {conti.length > 0 && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+              <button onClick={() => setEConto("")} style={{
+                padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 10, fontWeight: 600,
+                background: eConto === "" ? "#6C5CE722" : "transparent",
+                border: eConto === "" ? "1px solid #6C5CE7" : "1px solid #252538",
+                color: eConto === "" ? "#a78bfa" : "#666",
+              }}>Nessun conto</button>
+              {conti.map(c => (
+                <button key={c.id} onClick={() => setEConto(c.id)} style={{
+                  padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 10, fontWeight: 600,
+                  background: eConto === c.id ? "#6C5CE722" : "transparent",
+                  border: eConto === c.id ? "1px solid #6C5CE7" : "1px solid #252538",
+                  color: eConto === c.id ? "#a78bfa" : "#888",
+                }}>{c.icona} {c.nome}</button>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
             {["manual", "percent", "fixed"].map(tp => (
               <button key={tp} onClick={() => setECType(tp)} style={{
@@ -816,7 +843,7 @@ function GoalRow({ goal, onUpdate, onDelete }) {
 }
 
 // Goals form component
-function GoalsForm({ onAdd, onCancel }) {
+function GoalsForm({ onAdd, onCancel, conti = [] }) {
   const [nome, setNome] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [targetDate, setTargetDate] = useState("");
@@ -824,6 +851,7 @@ function GoalsForm({ onAdd, onCancel }) {
   const [contributionType, setContributionType] = useState("manual");
   const [contributionValue, setContributionValue] = useState("");
   const [autoAdd, setAutoAdd] = useState(false);
+  const [contoId, setContoId] = useState("");
   
   function handleSubmit() {
     if (!nome.trim() || !targetAmount) return;
@@ -835,9 +863,10 @@ function GoalsForm({ onAdd, onCancel }) {
       contributionType,
       contributionValue: contributionType !== "manual" ? parseFloat(contributionValue) || 0 : 0,
       autoAdd,
+      contoId: contoId || null,
     });
     setNome(""); setTargetAmount(""); setTargetDate(""); setCurrentAmount("");
-    setContributionType("manual"); setContributionValue(""); setAutoAdd(false);
+    setContributionType("manual"); setContributionValue(""); setAutoAdd(false); setContoId("");
     onCancel?.();
   }
   
@@ -855,6 +884,27 @@ function GoalsForm({ onAdd, onCancel }) {
         <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder="Data obiettivo"
           style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#666", fontSize: 12, outline: "none", colorScheme: "dark" }} />
       </div>
+      {conti.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Conto di appoggio</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setContoId("")} style={{
+              padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600,
+              background: contoId === "" ? "#6C5CE722" : "transparent",
+              border: contoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
+              color: contoId === "" ? "#a78bfa" : "#666",
+            }}>Nessuno</button>
+            {conti.map(c => (
+              <button key={c.id} onClick={() => setContoId(c.id)} style={{
+                padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600,
+                background: contoId === c.id ? "#6C5CE722" : "transparent",
+                border: contoId === c.id ? "1px solid #6C5CE7" : "1px solid #252538",
+                color: contoId === c.id ? "#a78bfa" : "#888",
+              }}>{c.icona} {c.nome}</button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Contribution type */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Risparmio automatico (ogni Entrata)</div>
@@ -890,7 +940,7 @@ function GoalsForm({ onAdd, onCancel }) {
   );
 }
 
-function ContiCard({ conti, transazioni, onAdd, onUpdate, onDelete }) {
+function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
   const [nome, setNome] = useState("");
@@ -909,6 +959,11 @@ function ContiCard({ conti, transazioni, onAdd, onUpdate, onDelete }) {
     else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
   }
   const totale = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
+  // Amount earmarked in savings goals linked to each account
+  const accantonati = {};
+  for (const g of goals) {
+    if (g.contoId && saldi[g.contoId] !== undefined) accantonati[g.contoId] = (accantonati[g.contoId] || 0) + (g.currentAmount || 0);
+  }
 
   function openAdd() { setEditId(null); setNome(""); setIcona("🏦"); setSaldoIniziale(""); setShowAdd(true); }
   function openEdit(c) { setShowAdd(false); setEditId(c.id); setNome(c.nome); setIcona(c.icona || "🏦"); setSaldoIniziale(String(c.saldoIniziale ?? 0)); }
@@ -961,8 +1016,15 @@ function ContiCard({ conti, transazioni, onAdd, onUpdate, onDelete }) {
           border: editId === c.id ? "1px solid #6C5CE755" : "1px solid transparent",
         }}>
           <span style={{ fontSize: 16 }}>{c.icona || "🏦"}</span>
-          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "#ccc", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</span>
-          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: (saldi[c.id] || 0) >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
+            {(accantonati[c.id] || 0) > 0 && (
+              <div style={{ fontSize: 10, color: "#888", marginTop: 1 }}>
+                🎯 {formattaValuta(accantonati[c.id])} in obiettivi · <span style={{ color: "#aaa" }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} liberi</span>
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: (saldi[c.id] || 0) >= 0 ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>
             {formattaValuta(saldi[c.id] || 0)}
           </span>
         </div>
@@ -1086,7 +1148,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       )}
 
       {/* Debt card */}
-      <ContiCard conti={conti} transazioni={transazioni} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} />
+      <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} />
 
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio debiti</div>
@@ -1228,7 +1290,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 
         {/* Add goal form */}
         {showAddGoal && (
-          <GoalsForm onAdd={onAddGoal} onCancel={() => setShowAddGoal(false)} />
+          <GoalsForm onAdd={onAddGoal} onCancel={() => setShowAddGoal(false)} conti={conti} />
         )}
 
         {/* Goals list */}
@@ -1239,7 +1301,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {goals?.map(g => (
-              <GoalRow key={g.id} goal={g} onUpdate={onUpdateGoal} onDelete={onDeleteGoal} />
+              <GoalRow key={g.id} goal={g} onUpdate={onUpdateGoal} onDelete={onDeleteGoal} conti={conti} />
             ))}
           </div>
         )}
@@ -4642,6 +4704,7 @@ export default function FinanzaApp() {
     setConti(prev => prev.filter(c => c.id !== id));
     // Detach locally too, mirroring the server behaviour
     setTransazioni(prev => prev.map(t => t.contoId === id ? { ...t, contoId: null } : t));
+    setGoals(prev => prev.map(g => g.contoId === id ? { ...g, contoId: null } : g));
   };
 
   const loadCategorie = useCallback(async () => {
