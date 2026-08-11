@@ -818,6 +818,7 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
       contributionType: b.contributionType || "manual",
       contributionValue: b.contributionType !== "manual" ? parseFloat(b.contributionValue) || 0 : 0,
       autoAdd: b.autoAdd === true,
+      contoId: b.contoId || null,
       createdAt: new Date(),
     };
     const result = await db.collection("goals").insertOne(doc);
@@ -839,6 +840,7 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
     if (b.contributionType !== undefined) update.contributionType = b.contributionType;
     if (b.contributionValue !== undefined) update.contributionValue = parseFloat(b.contributionValue);
     if (b.autoAdd !== undefined) update.autoAdd = b.autoAdd === true;
+    if (b.contoId !== undefined) update.contoId = b.contoId || null;
     if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
     update.updatedAt = new Date();
     await db.collection("goals").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
@@ -906,8 +908,9 @@ app.delete("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res)
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const r = await db.collection("accounts").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
     if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
-    // Detach the deleted account from its transactions (they stay, unassigned)
+    // Detach the deleted account from its transactions and goals (they stay, unassigned)
     await transactionsCol.updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
+    await db.collection("goals").updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
     res.json({ deleted: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
