@@ -4591,7 +4591,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Widget iPhone</div>
         <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
-          Genera una chiave per mostrare patrimonio, conti e spese del mese in un widget sulla home screen (tramite l'app gratuita Scriptable). La chiave dà accesso in sola lettura ai totali.
+          Genera una chiave per mostrare patrimonio, conti e spese del mese in un widget sulla home screen (tramite l'app gratuita Scriptable), e per aggiungere rapidamente uscite/entrate toccando il widget. La chiave permette anche di aggiungere transazioni: trattala come una password.
         </div>
         {widgetUrl ? (
           <div>
