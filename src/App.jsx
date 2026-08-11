@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -861,8 +861,6 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
   const [contributionValue, setContributionValue] = useState("");
   const [autoAdd, setAutoAdd] = useState(false);
   const [contoId, setContoId] = useState("");
-  const [contoDa, setContoDa] = useState("");
-  const [contoA, setContoA] = useState("");
   
   function handleSubmit() {
     if (!nome.trim() || !targetAmount) return;
@@ -1753,6 +1751,8 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
   const [ricorrenza, setRicorrenza] = useState("no");
   const [contoId, setContoId] = useState("");
+  const [contoDa, setContoDa] = useState("");
+  const [contoA, setContoA] = useState("");
 
   useEffect(() => {
     if (initialImporto) setImportoRaw(initialImporto);
@@ -3510,6 +3510,7 @@ const ALL_COLUMNS = [
   { id: "pagatoDa", label: "Pagato da" },
   { id: "ricevutoDa", label: "Ricevuto da" },
   { id: "partecipanti", label: "Partecipanti e quote" },
+  { id: "conto", label: "Conto" },
 ];
 
 // ─── Splitwise CSV parser ───
@@ -3636,7 +3637,7 @@ function parseSplitwiseRows(rawRows, persone) {
   return { righe, errori };
 }
 
-function ExportView({ transazioni, persone, positions, onImport, onImportComplete, onImportPosition, onImportPositionComplete }) {
+function ExportView({ transazioni, persone, positions, conti = [], onImport, onImportComplete, onImportPosition, onImportPositionComplete }) {
   const oggi = new Date();
   const [meseDa, setMeseDa] = useState(`${oggi.getFullYear()}-${String(oggi.getMonth()+1).padStart(2,"0")}`);
   const [meseA, setMeseA] = useState(meseDa);
@@ -3650,6 +3651,56 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
   const [importPreview, setImportPreview] = useState(null);
   const [importPortfolioPreview, setImportPortfolioPreview] = useState(null);
   const [importFile, setImportFile] = useState(null);
+
+  // Backup state
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [restorePreview, setRestorePreview] = useState(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreDone, setRestoreDone] = useState(null);
+
+  async function handleDownloadBackup() {
+    setBackupBusy(true);
+    try {
+      const data = await downloadBackup();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `backup-finanza-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert("Errore backup: " + e.message); }
+    setBackupBusy(false);
+  }
+
+  async function handleRestoreFile(file) {
+    setRestoreDone(null);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (data.formato !== "balance-tracker-backup") { alert("Questo file non è un backup dell'app."); return; }
+      setRestorePreview({ data, counts: {
+        transazioni: (data.transactions || []).length,
+        conti: (data.accounts || []).length,
+        obiettivi: (data.goals || []).length,
+        viaggi: (data.trips || []).length,
+        posizioni: (data.positions || []).length,
+        prezzi: Object.keys(data.manualPrices || {}).length,
+      }});
+    } catch (e) { alert("File non leggibile: " + e.message); }
+  }
+
+  async function handleConfirmRestore() {
+    if (!restorePreview) return;
+    setRestoreBusy(true);
+    try {
+      const res = await restoreBackup(restorePreview.data);
+      setRestoreDone(res.counts);
+      setRestorePreview(null);
+      setTimeout(() => window.location.reload(), 2500);
+    } catch (e) { alert("Errore ripristino: " + e.message); }
+    setRestoreBusy(false);
+  }
 
   function toggleColonna(id) {
     setColonne(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
@@ -3861,10 +3912,18 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
         const row = {};
         const p = persone.find(p => p.id === t.pagatoDa);
         if (colonne.includes("data")) row["Data"] = t.data;
-        if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "saldo" ? "Saldo" : t.tipo === "uscita" ? "Uscita" : "Entrata";
+        if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "saldo" ? "Saldo" : t.tipo === "trasferimento" ? "Giroconto" : t.tipo === "uscita" ? "Uscita" : "Entrata";
         if (colonne.includes("importo")) row["Importo (€)"] = t.importo;
         if (colonne.includes("categoria")) row["Categoria"] = t.tipo === "saldo" ? "" : (t.categoria || "");
         if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
+        if (colonne.includes("conto")) {
+          if (t.tipo === "trasferimento") {
+            const cDa = conti.find(c => c.id === t.contoDa); const cA = conti.find(c => c.id === t.contoA);
+            row["Conto"] = `${cDa?.nome || "?"} → ${cA?.nome || "?"}`;
+          } else {
+            row["Conto"] = conti.find(c => c.id === t.contoId)?.nome || "";
+          }
+        }
         if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
         if (colonne.includes("ricevutoDa")) {
           const rp = persone.find(x => x.id === t.ricevutoDa);
@@ -4142,6 +4201,51 @@ function ExportView({ transazioni, persone, positions, onImport, onImportComplet
       }}>
         {esportando ? "Generazione file..." : ordinate.length === 0 ? "Nessuna transazione nel periodo" : `Scarica XLSX (${ordinate.length} righe)`}
       </button>
+
+      {/* ─── BACKUP SECTION ─── */}
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginTop: 32, marginBottom: 6 }}>Backup completo</div>
+      <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+        Salva tutti i dati in un file JSON: transazioni, conti, obiettivi, viaggi, portfolio, prezzi e categorie. Riporlo al sicuro ti permette di recuperare tutto.
+      </div>
+      <button onClick={handleDownloadBackup} disabled={backupBusy} style={{
+        width: "100%", padding: "14px", border: "1px solid #4ECDC455", borderRadius: 14, cursor: "pointer",
+        fontSize: 14, fontWeight: 700, background: "#4ECDC411", color: "#4ECDC4",
+        fontFamily: "'DM Sans',sans-serif", marginBottom: 12, opacity: backupBusy ? 0.6 : 1,
+      }}>{backupBusy ? "Preparazione..." : "💾 Scarica backup (JSON)"}</button>
+
+      <label style={{
+        display: "block", padding: "14px 16px", borderRadius: 14, cursor: "pointer",
+        border: "1px dashed #252538", background: "#1a1a28", textAlign: "center",
+        color: "#888", fontSize: 13, marginBottom: 12,
+      }}>
+        ♻️ Ripristina da un file di backup
+        <input type="file" accept=".json,application/json" style={{ display: "none" }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleRestoreFile(f); e.target.value = ""; }} />
+      </label>
+
+      {restorePreview && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #F0A50055" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#F0A500", marginBottom: 8 }}>Contenuto del backup{restorePreview.data.creato ? ` (${restorePreview.data.creato.slice(0, 10)})` : ""}</div>
+          <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7 }}>
+            {restorePreview.counts.transazioni} transazioni · {restorePreview.counts.conti} conti · {restorePreview.counts.obiettivi} obiettivi · {restorePreview.counts.viaggi} viaggi · {restorePreview.counts.posizioni} trade portfolio · {restorePreview.counts.prezzi} prezzi manuali
+          </div>
+          <div style={{ fontSize: 11, color: "#F0A500", marginTop: 10 }}>
+            ⚠️ Il ripristino AGGIUNGE i dati a quelli esistenti, non li sostituisce. Se stai ripristinando su dati già presenti, otterrai duplicati — è pensato per recuperare tutto su una casa vuota.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={() => setRestorePreview(null)} style={{ padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: "#888", fontSize: 13, cursor: "pointer" }}>Annulla</button>
+            <button onClick={handleConfirmRestore} disabled={restoreBusy} style={{ flex: 1, padding: "10px", background: "linear-gradient(135deg,#F0A500,#e08e00)", border: "none", borderRadius: 10, color: "#111", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: restoreBusy ? 0.6 : 1 }}>
+              {restoreBusy ? "Ripristino in corso..." : "Conferma ripristino"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {restoreDone && (
+        <div style={{ background: "#4ECDC411", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #4ECDC455", fontSize: 13, color: "#4ECDC4" }}>
+          ✓ Ripristino completato: {restoreDone.transactions} transazioni, {restoreDone.accounts} conti, {restoreDone.goals} obiettivi, {restoreDone.trips} viaggi, {restoreDone.positions} trade. Ricarico l'app...
+        </div>
+      )}
     </div>
   );
 }
@@ -5038,7 +5142,7 @@ export default function FinanzaApp() {
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
-        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
+        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
         {tab === "viaggi" && <ViaggiView persone={persone} />}
         {tab === "impostazioni" && (

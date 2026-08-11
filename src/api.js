@@ -536,6 +536,28 @@ export async function deleteGoal(id) {
   return true;
 }
 
+// ─── Backup completo ───
+export async function downloadBackup() {
+  if (await checkAPI() && currentHousehold) {
+    const res = await fetch(`${API_BASE}/api/backup`, { headers: authHeaders(), credentials: "include" });
+    if (!res.ok) throw new Error("Errore " + res.status);
+    return await res.json();
+  }
+  throw new Error("Server non raggiungibile");
+}
+
+export async function restoreBackup(data) {
+  if (await checkAPI() && currentHousehold) {
+    const res = await fetch(`${API_BASE}/api/backup/restore`, {
+      method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(data),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || "Errore " + res.status);
+    return json;
+  }
+  throw new Error("Server non raggiungibile");
+}
+
 // ─── Accounts (conti) ───
 export async function fetchAccounts() {
   if (await checkAPI() && currentHousehold) {
