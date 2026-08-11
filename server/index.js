@@ -3,7 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from "mongodb";
-import { createHmac, randomUUID } from "crypto";
+import { createHmac, randomUUID, randomBytes } from "crypto";
 import dotenv from "dotenv";
 // Yahoo Finance disabled — manual prices only
 import jwt from "jsonwebtoken";
@@ -1072,6 +1072,99 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
     await auditCol.insertOne({ householdId: hid, action: "backup_restore", counts, at: new Date() });
     res.json({ ok: true, counts });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore durante il ripristino" }); }
+});
+
+// ─── Widget iPhone: chiave dedicata + endpoint read-only ───
+// La chiave permette a un widget (es. Scriptable) di leggere un riassunto dei
+// dati senza login interattivo. È revocabile e dà accesso in sola lettura a
+// numeri aggregati, mai a operazioni di scrittura.
+app.post("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const key = randomBytes(24).toString("base64url");
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { widgetKey: key, widgetKeyCreatedAt: new Date() } });
+    await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_created", at: new Date() });
+    res.json({ key });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { widgetKey: "", widgetKeyCreatedAt: "" } });
+    await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_revoked", at: new Date() });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+const widgetLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+app.get("/api/widget", widgetLimiter, async (req, res) => {
+  try {
+    const key = req.query.key;
+    if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
+    const household = await householdsCol.findOne({ widgetKey: key });
+    if (!household) return res.status(401).json({ error: "Chiave non valida" });
+    const hid = household.householdId;
+
+    const [transactions, accounts, positions, priceDocs] = await Promise.all([
+      transactionsCol.find({ householdId: hid }).toArray(),
+      db.collection("accounts").find({ householdId: hid }).toArray(),
+      db.collection("positions").find({ householdId: hid }).toArray(),
+      quotesCol.find({ householdId: hid, manualPrice: { $exists: true } }).toArray(),
+    ]);
+
+    // Saldi conti (stessa logica del client)
+    const saldi = {};
+    for (const c of accounts) saldi[c._id.toString()] = c.saldoIniziale || 0;
+    for (const t of transactions) {
+      if (t.tipo === "trasferimento") {
+        if (t.contoDa && saldi[t.contoDa] !== undefined) saldi[t.contoDa] -= t.importo;
+        if (t.contoA && saldi[t.contoA] !== undefined) saldi[t.contoA] += t.importo;
+        continue;
+      }
+      if (!t.contoId || saldi[t.contoId] === undefined) continue;
+      if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
+      else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
+    }
+    const conti = accounts.map(c => ({ nome: c.nome, icona: c.icona || "🏦", saldo: Math.round((saldi[c._id.toString()] || 0) * 100) / 100 }));
+    const totConti = conti.reduce((s, c) => s + c.saldo, 0);
+
+    // Portfolio a costo medio, prezzo manuale o costo di carico
+    const prices = {};
+    for (const d of priceDocs) prices[d.ticker] = d.manualPrice;
+    const holdings = {};
+    const sorted = [...positions].sort((a, b) => (a.dataAcquisto || "").localeCompare(b.dataAcquisto || ""));
+    for (const p of sorted) {
+      if (!holdings[p.ticker]) holdings[p.ticker] = { q: 0, c: 0 };
+      const h = holdings[p.ticker];
+      if (p.tipo === "sell") {
+        const avg = h.q > 0.0001 ? h.c / h.q : 0;
+        const sq = Math.min(p.quantita, h.q);
+        h.c -= sq * avg; h.q -= sq;
+        if (h.q < 0.0001) { h.q = 0; h.c = 0; }
+      } else { h.q += p.quantita; h.c += p.quantita * p.prezzoAcquisto; }
+    }
+    let totInvestimenti = 0;
+    for (const k of Object.keys(holdings)) {
+      const h = holdings[k];
+      if (h.q <= 0.0001) continue;
+      totInvestimenti += (prices[k] > 0) ? h.q * prices[k] : h.c;
+    }
+
+    // Mese corrente
+    const now = new Date();
+    const meseKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const txMese = transactions.filter(t => (t.data || "").startsWith(meseKey));
+    const speseMese = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
+    const entrateMese = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
+
+    res.json({
+      aggiornato: new Date().toISOString(),
+      patrimonio: Math.round((totConti + totInvestimenti) * 100) / 100,
+      conti,
+      investimenti: Math.round(totInvestimenti * 100) / 100,
+      speseMese: Math.round(speseMese * 100) / 100,
+      entrateMese: Math.round(entrateMese * 100) / 100,
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
 // ─── Trips API ───
