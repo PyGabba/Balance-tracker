@@ -1074,6 +1074,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const [settleAmount, setSettleAmount] = useState("");
   const [search, setSearch] = useState("");
   const [showAddGoal, setShowAddGoal] = useState(false);
+  const [showStoricoSaldi, setShowStoricoSaldi] = useState(false);
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
@@ -1250,8 +1251,11 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           if (saldati.length === 0) return null;
           return (
             <div style={{ borderTop: "1px solid #252538", paddingTop: 10, marginTop: 10 }}>
-              <div style={{ fontSize: 10, color: "#777", marginBottom: 6, letterSpacing: 0.5, textTransform: "uppercase" }}>Storico saldi</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <button onClick={() => setShowStoricoSaldi(v => !v)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: showStoricoSaldi ? 8 : 0 }}>
+                <span style={{ fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase" }}>Storico saldi ({saldati.length})</span>
+                <span style={{ fontSize: 10, color: "#6C5CE7", transform: showStoricoSaldi ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
+              </button>
+              {showStoricoSaldi && <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {saldati.map((t, i) => {
                   const pDa = allPeople.find(p => p.id === t.pagatoDa) || { nome: t.pagatoDa, emoji: "👤" };
                   const pA = allPeople.find(p => p.id === t.ricevutoDa) || { nome: t.ricevutoDa, emoji: "👤" };
@@ -1265,7 +1269,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                     </div>
                   );
                 })}
-              </div>
+              </div>}
             </div>
           );
         })()}
