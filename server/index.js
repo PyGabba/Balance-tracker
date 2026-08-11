@@ -534,6 +534,7 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
       extraPersone: sanitizeExtraPersone(b.extraPersone),
       splitPagante: b.splitPagante != null ? parseInt(b.splitPagante) : null,
       intestataA: b.intestataA || null,
+      contoId: b.contoId || null,
       createdAt: new Date(),
     };
     const result = await transactionsCol.insertOne(doc);
@@ -558,7 +559,7 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const update = {};
-    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone"];
+    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone","contoId"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         if (key === "importo") update[key] = parseFloat(req.body[key]);
@@ -850,6 +851,63 @@ app.delete("/api/goals/:id", requireHousehold, async (req, res) => {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const r = await db.collection("goals").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
     if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    res.json({ deleted: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// ─── Accounts (conti) API ───
+app.get("/api/accounts", requireHousehold, async (req, res) => {
+  try {
+    const docs = await db.collection("accounts").find({ householdId: req.householdId }).sort({ createdAt: 1 }).toArray();
+    res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const b = req.body;
+    if (!b.nome) return res.status(400).json({ error: "Campo obbligatorio: nome" });
+    const saldoIniziale = parseFloat(b.saldoIniziale);
+    const doc = {
+      householdId: req.householdId,
+      nome: sanitizeText(b.nome, 60),
+      icona: sanitizeText(b.icona, 8) || "🏦",
+      saldoIniziale: Number.isFinite(saldoIniziale) ? saldoIniziale : 0,
+      createdAt: new Date(),
+    };
+    const result = await db.collection("accounts").insertOne(doc);
+    const id = result.insertedId.toString();
+    delete doc.householdId;
+    res.status(201).json({ id, ...doc });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.put("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const b = req.body;
+    const update = {};
+    if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 60);
+    if (b.icona !== undefined) update.icona = sanitizeText(b.icona, 8) || "🏦";
+    if (b.saldoIniziale !== undefined) {
+      const v = parseFloat(b.saldoIniziale);
+      if (!Number.isFinite(v)) return res.status(400).json({ error: "saldoIniziale non valido" });
+      update.saldoIniziale = v;
+    }
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
+    update.updatedAt = new Date();
+    await db.collection("accounts").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const r = await db.collection("accounts").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    // Detach the deleted account from its transactions (they stay, unassigned)
+    await transactionsCol.updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
     res.json({ deleted: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
