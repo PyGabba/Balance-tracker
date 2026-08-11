@@ -536,6 +536,33 @@ export async function deleteGoal(id) {
   return true;
 }
 
+// ─── Categorie viaggi (sincronizzate) ───
+export async function fetchTripCategories() {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trip-categories`, { headers: authHeaders(), credentials: "include" });
+      if (await checkAuthError(res)) return null;
+      if (!res.ok) throw new Error(res.status);
+      const json = await res.json();
+      return json.categorie || null;
+    } catch (err) { console.error("fetchTripCategories:", err); }
+  }
+  return null;
+}
+
+export async function saveTripCategories(categorie) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/trip-categories`, {
+        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify({ categorie }),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return true;
+    } catch (err) { console.error("saveTripCategories:", err); }
+  }
+  return false;
+}
+
 // ─── Backup completo ───
 export async function downloadBackup() {
   if (await checkAPI() && currentHousehold) {
