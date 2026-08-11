@@ -1167,6 +1167,43 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
+// Aggiunta rapida di una transazione dal widget. Stessa chiave dell'endpoint
+// di lettura, ma con superficie di scrittura minima e volutamente rigida:
+// solo tipo/importo/descrizione/data, categoria fissa lato server, nessun
+// accesso a split, persone, conti o eliminazioni.
+const widgetWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
+app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
+  try {
+    const key = req.query.key;
+    if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
+    const household = await householdsCol.findOne({ widgetKey: key });
+    if (!household) return res.status(401).json({ error: "Chiave non valida" });
+
+    const b = req.body || {};
+    if (!["uscita", "entrata"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido (uscita/entrata)" });
+    const importo = parseFloat(b.importo);
+    if (!Number.isFinite(importo) || importo <= 0 || importo > 1000000) return res.status(400).json({ error: "Importo non valido" });
+    let data = typeof b.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.data) ? b.data : null;
+    if (!data) data = new Date().toISOString().slice(0, 10);
+
+    const doc = {
+      householdId: household.householdId,
+      tipo: b.tipo,
+      importo,
+      categoria: b.tipo === "entrata" ? "entrata" : "altro",
+      descrizione: sanitizeText(String(b.descrizione || "Da widget"), 140),
+      data,
+      pagatoDa: null, splits: null, extraPersone: null, intestataA: null,
+      contoId: null, contoDa: null, contoA: null,
+      viaWidget: true,
+      createdAt: new Date(),
+    };
+    await transactionsCol.insertOne(doc);
+    await auditCol.insertOne({ householdId: household.householdId, action: "widget_transaction_added", tipo: b.tipo, importo, at: new Date() });
+    res.status(201).json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
 // ─── Trips API ───
 app.get("/api/trips", requireHousehold, async (req, res) => {
   try {
