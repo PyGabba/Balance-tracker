@@ -940,6 +940,46 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
   );
 }
 
+// Balance per account: initial balance + entrate − uscite assigned to it
+function calcolaSaldiConti(conti, transazioni) {
+  const saldi = {};
+  for (const c of conti) saldi[c.id] = c.saldoIniziale || 0;
+  for (const t of transazioni) {
+    if (!t.contoId || saldi[t.contoId] === undefined) continue;
+    if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
+    else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
+  }
+  return saldi;
+}
+
+// Portfolio value with average-cost accounting (manual price, fallback to cost basis)
+function calcolaValorePortfolio(positions, manualPrices) {
+  const map = {};
+  const sorted = [...positions].sort((a, b) =>
+    (a.dataAcquisto || "").localeCompare(b.dataAcquisto || "") ||
+    (a.createdAt || "").localeCompare(b.createdAt || "")
+  );
+  for (const p of sorted) {
+    if (!map[p.ticker]) map[p.ticker] = { quantita: 0, costoTotale: 0 };
+    const h = map[p.ticker];
+    if (p.tipo === "sell") {
+      const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
+      const q = Math.min(p.quantita, h.quantita);
+      h.costoTotale -= q * avg; h.quantita -= q;
+      if (h.quantita < 0.0001) { h.quantita = 0; h.costoTotale = 0; }
+    } else { h.quantita += p.quantita; h.costoTotale += p.quantita * p.prezzoAcquisto; }
+  }
+  let valore = 0, investito = 0;
+  for (const k of Object.keys(map)) {
+    const h = map[k];
+    if (h.quantita <= 0.0001) continue;
+    const prezzo = (manualPrices && manualPrices[k]) || 0;
+    investito += h.costoTotale;
+    valore += prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
+  }
+  return { valore, investito };
+}
+
 function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -949,15 +989,8 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }
   const [saving, setSaving] = useState(false);
   const ICONE = ["🏦", "💳", "💵", "🐖", "📱", "💰"];
 
-  // Balance = initial balance + entrate − uscite assigned to the account.
   // Saldo (person-to-person) transactions are intentionally excluded.
-  const saldi = {};
-  for (const c of conti) saldi[c.id] = c.saldoIniziale || 0;
-  for (const t of transazioni) {
-    if (!t.contoId || saldi[t.contoId] === undefined) continue;
-    if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
-    else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
-  }
+  const saldi = calcolaSaldiConti(conti, transazioni);
   const totale = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
   // Amount earmarked in savings goals linked to each account
   const accantonati = {};
@@ -1067,7 +1100,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }
   );
 }
 
-function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto }) {
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {} }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [settlingKey, setSettlingKey] = useState(null);
@@ -1147,6 +1180,43 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           </div>
         </div>
       )}
+
+      {/* Patrimonio (net worth) card */}
+      {(conti.length > 0 || positions.length > 0) && (() => {
+        const saldi = calcolaSaldiConti(conti, transazioni);
+        const totConti = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
+        const { valore: totInvestimenti } = calcolaValorePortfolio(positions, manualPrices);
+        const patrimonio = totConti + totInvestimenti;
+        const accantonati = (goals || []).reduce((s, g) => s + (g.contoId ? (g.currentAmount || 0) : 0), 0);
+        return (
+          <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #16281f 100%)", borderRadius: 20, padding: "18px 20px", marginBottom: 16, border: "1px solid #2a4a3a", boxShadow: "0 8px 32px #0005" }}>
+            <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Patrimonio</div>
+            <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: patrimonio >= 0 ? "#eee" : "#FF6B6B", marginTop: 4 }}>
+              {formattaValuta(patrimonio)}
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
+              {conti.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: "#888" }}>💰 Conti</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totConti >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{formattaValuta(totConti)}</div>
+                </div>
+              )}
+              {positions.length > 0 && totInvestimenti > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: "#888" }}>📈 Investimenti</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(totInvestimenti)}</div>
+                </div>
+              )}
+              {accantonati > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: "#888" }}>🎯 In obiettivi</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#F0A500" }}>{formattaValuta(accantonati)}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Debt card */}
       <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} />
@@ -4685,6 +4755,11 @@ export default function FinanzaApp() {
     setGoals(prev => prev.filter(g => g.id !== id));
   };
 
+  const [rootManualPrices, setRootManualPrices] = useState({});
+  const loadRootManualPrices = useCallback(async () => {
+    try { setRootManualPrices(await fetchManualPrices() || {}); } catch (e) { console.error("loadManualPrices:", e); }
+  }, []);
+
   const [conti, setConti] = useState([]);
   const loadConti = useCallback(async () => {
     try {
@@ -4719,7 +4794,9 @@ export default function FinanzaApp() {
     } catch (e) { console.error("loadCategorie:", e); setCategorieUscita(defaults); }
   }, []);
 
-  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); loadGoals(); loadConti(); } }, [authed, loadAll, loadPositions, loadCategorie, loadGoals, loadConti]);
+  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); loadGoals(); loadConti(); loadRootManualPrices(); } }, [authed, loadAll, loadPositions, loadCategorie, loadGoals, loadConti, loadRootManualPrices]);
+  // Keep the Patrimonio card fresh: re-read manual prices when returning to home
+  useEffect(() => { if (authed && tab === "home") loadRootManualPrices(); }, [tab, authed, loadRootManualPrices]);
 
   function handleLogin() {
     setAuthed(true);
@@ -4837,7 +4914,7 @@ export default function FinanzaApp() {
       )}
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
