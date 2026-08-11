@@ -1074,6 +1074,19 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore durante il ripristino" }); }
 });
 
+// Rispecchia le categorie di default del client, usate dal widget quando la
+// casa non ha personalizzato le proprie.
+const WIDGET_DEFAULT_CATEGORIE = [
+  { id: "cibo", nome: "Cibo", emoji: "🍕" },
+  { id: "trasporti", nome: "Trasporti", emoji: "🚗" },
+  { id: "casa", nome: "Casa", emoji: "🏠" },
+  { id: "salute", nome: "Salute", emoji: "💊" },
+  { id: "svago", nome: "Svago", emoji: "🎮" },
+  { id: "shopping", nome: "Shopping", emoji: "🛍️" },
+  { id: "bollette", nome: "Bollette", emoji: "💡" },
+  { id: "altro", nome: "Altro", emoji: "📦" },
+];
+
 // ─── Widget iPhone: chiave dedicata + endpoint read-only ───
 // La chiave permette a un widget (es. Scriptable) di leggere un riassunto dei
 // dati senza login interattivo. È revocabile e dà accesso in sola lettura a
@@ -1160,6 +1173,9 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
       aggiornato: new Date().toISOString(),
       patrimonio: Math.round((totConti + totInvestimenti) * 100) / 100,
       conti,
+      contiCompleti: accounts.map(c => ({ id: c._id.toString(), nome: c.nome, icona: c.icona || "🏦" })),
+      persone: household.persone || [],
+      categorie: household.categorieUscita || WIDGET_DEFAULT_CATEGORIE,
       investimenti: Math.round(totInvestimenti * 100) / 100,
       speseMese: Math.round(speseMese * 100) / 100,
       entrateMese: Math.round(entrateMese * 100) / 100,
@@ -1178,6 +1194,9 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
     const household = await householdsCol.findOne({ widgetKey: key });
     if (!household) return res.status(401).json({ error: "Chiave non valida" });
+    const hid = household.householdId;
+    const persone = household.persone || [];
+    const personeIds = new Set(persone.map(p => p.id));
 
     const b = req.body || {};
     if (!["uscita", "entrata"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido (uscita/entrata)" });
@@ -1186,20 +1205,52 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     let data = typeof b.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.data) ? b.data : null;
     if (!data) data = new Date().toISOString().slice(0, 10);
 
+    // Categoria: solo per uscite, validata contro le categorie reali della casa
+    let categoria = b.tipo === "entrata" ? "entrata" : "altro";
+    if (b.tipo === "uscita" && b.categoria) {
+      const cats = household.categorieUscita || WIDGET_DEFAULT_CATEGORIE;
+      const found = cats.find(c => c.id === b.categoria);
+      if (found) categoria = found.id;
+    }
+
+    // Persona: chi ha pagato (uscita) o a chi è intestata (entrata) — deve
+    // esistere davvero nella casa, altrimenti viene ignorata silenziosamente
+    let pagatoDa = null, intestataA = null;
+    if (b.tipo === "uscita" && b.pagatoDa && personeIds.has(b.pagatoDa)) pagatoDa = b.pagatoDa;
+    if (b.tipo === "entrata" && b.intestataA && personeIds.has(b.intestataA)) intestataA = b.intestataA;
+
+    // Split: solo per uscite, solo se pagatoDa è valido, quote validate e
+    // ricondotte a persone reali della casa (silenziosamente scartate altrimenti)
+    let splits = null;
+    if (b.tipo === "uscita" && pagatoDa && Array.isArray(b.splits) && b.splits.length > 0 && b.splits.length <= persone.length) {
+      const cleaned = b.splits
+        .filter(s => s && personeIds.has(s.personaId) && Number.isFinite(parseFloat(s.quota)))
+        .map(s => ({ personaId: s.personaId, quota: Math.max(0, Math.min(100, parseFloat(s.quota))) }));
+      const somma = cleaned.reduce((s, x) => s + x.quota, 0);
+      if (cleaned.length > 0 && Math.abs(somma - 100) < 1) splits = cleaned;
+    }
+
+    // Conto: deve appartenere davvero alla casa
+    let contoId = null;
+    if (b.contoId && ObjectId.isValid(b.contoId)) {
+      const acc = await db.collection("accounts").findOne({ _id: new ObjectId(b.contoId), householdId: hid });
+      if (acc) contoId = b.contoId;
+    }
+
     const doc = {
-      householdId: household.householdId,
+      householdId: hid,
       tipo: b.tipo,
       importo,
-      categoria: b.tipo === "entrata" ? "entrata" : "altro",
+      categoria,
       descrizione: sanitizeText(String(b.descrizione || "Da widget"), 140),
       data,
-      pagatoDa: null, splits: null, extraPersone: null, intestataA: null,
-      contoId: null, contoDa: null, contoA: null,
+      pagatoDa, splits, extraPersone: null, intestataA,
+      contoId, contoDa: null, contoA: null,
       viaWidget: true,
       createdAt: new Date(),
     };
     await transactionsCol.insertOne(doc);
-    await auditCol.insertOne({ householdId: household.householdId, action: "widget_transaction_added", tipo: b.tipo, importo, at: new Date() });
+    await auditCol.insertOne({ householdId: hid, action: "widget_transaction_added", tipo: b.tipo, importo, at: new Date() });
     res.status(201).json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
