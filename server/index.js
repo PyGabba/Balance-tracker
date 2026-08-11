@@ -711,6 +711,39 @@ app.put("/api/categorie", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
+// ─── Trip categories (sincronizzate sulla casa, come categorieUscita) ───
+app.get("/api/trip-categories", requireHousehold, async (req, res) => {
+  res.json({ categorie: req.household.tripCategories || null });
+});
+
+app.put("/api/trip-categories", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const { categorie } = req.body || {};
+    if (!Array.isArray(categorie) || categorie.length === 0)
+      return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
+    if (categorie.length > 100)
+      return res.status(400).json({ error: "Massimo 100 categorie" });
+    const ALLOWED_CAT_KEYS = new Set(["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"]);
+    const sanitized = categorie.map(c => {
+      if (c && typeof c === "object" && !Array.isArray(c)) {
+        const safe = {};
+        for (const k of ALLOWED_CAT_KEYS) {
+          if (c[k] !== undefined) safe[k] = sanitizeText(String(c[k]), 100);
+        }
+        return safe;
+      }
+      return null;
+    }).filter(Boolean);
+    if (sanitized.length === 0)
+      return res.status(400).json({ error: "Nessuna categoria valida" });
+    await householdsCol.updateOne(
+      { householdId: req.householdId },
+      { $set: { tripCategories: sanitized, updatedAt: new Date() } }
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
 // ─── Stock Positions ───
 // Collection: positions { householdId, ticker, nome, quantita, prezzoAcquisto, dataAcquisto, valuta, note, createdAt }
 
