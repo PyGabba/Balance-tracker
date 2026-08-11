@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -4502,6 +4502,31 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
 
+  // Widget key state
+  const [widgetUrl, setWidgetUrl] = useState(null);
+  const [widgetBusy, setWidgetBusy] = useState(false);
+
+  async function handleCreateWidgetKey() {
+    setWidgetBusy(true);
+    try {
+      const key = await createWidgetKey();
+      setWidgetUrl(`${getApiBase()}/api/widget?key=${key}`);
+      toast("Chiave widget generata. Copiala ora: non sarà più mostrata.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setWidgetBusy(false);
+  }
+
+  async function handleRevokeWidgetKey() {
+    if (!confirm("Revocare la chiave widget? I widget configurati smetteranno di funzionare.")) return;
+    setWidgetBusy(true);
+    try {
+      await revokeWidgetKey();
+      setWidgetUrl(null);
+      toast("Chiave revocata.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setWidgetBusy(false);
+  }
+
   // Category editor state
   const [editingCatId, setEditingCatId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -4559,6 +4584,39 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
               <span style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{p.nome}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Widget iPhone card */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Widget iPhone</div>
+        <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
+          Genera una chiave per mostrare patrimonio, conti e spese del mese in un widget sulla home screen (tramite l'app gratuita Scriptable). La chiave dà accesso in sola lettura ai totali.
+        </div>
+        {widgetUrl ? (
+          <div>
+            <div style={{ fontSize: 10, color: "#F0A500", marginBottom: 6 }}>⚠️ Copia ora questo URL: non sarà più mostrato. Incollalo nello script Scriptable.</div>
+            <div onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast("URL copiato!", "success"); }} style={{
+              background: "#111119", border: "1px solid #4ECDC455", borderRadius: 10, padding: "10px 12px",
+              fontSize: 10, fontFamily: "'Space Mono',monospace", color: "#4ECDC4", wordBreak: "break-all", cursor: "pointer", marginBottom: 10,
+            }}>{widgetUrl}</div>
+            <button onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast("URL copiato!", "success"); }} style={{
+              width: "100%", padding: "10px", background: "#4ECDC422", border: "1px solid #4ECDC455", borderRadius: 10,
+              color: "#4ECDC4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8,
+            }}>📋 Copia URL</button>
+          </div>
+        ) : (
+          <button onClick={handleCreateWidgetKey} disabled={widgetBusy} style={{
+            width: "100%", padding: "12px", background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 10,
+            color: "#a78bfa", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8, opacity: widgetBusy ? 0.6 : 1,
+          }}>{widgetBusy ? "Generazione..." : "🔑 Genera chiave widget"}</button>
+        )}
+        <button onClick={handleRevokeWidgetKey} disabled={widgetBusy} style={{
+          width: "100%", padding: "10px", background: "none", border: "1px solid #FF6B6B33", borderRadius: 10,
+          color: "#FF6B6B99", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+        }}>Revoca chiave esistente</button>
+        <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
+          Rigenerare la chiave invalida quella precedente. Se pensi che l'URL sia finito in mani sbagliate, revoca o rigenera.
         </div>
       </div>
 

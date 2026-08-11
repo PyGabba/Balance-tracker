@@ -563,6 +563,22 @@ export async function saveTripCategories(categorie) {
   return false;
 }
 
+// ─── Widget key ───
+export async function createWidgetKey() {
+  const res = await fetch(`${API_BASE}/api/widget-key`, { method: "POST", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error("Errore " + res.status);
+  const json = await res.json();
+  return json.key;
+}
+
+export async function revokeWidgetKey() {
+  const res = await fetch(`${API_BASE}/api/widget-key`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error("Errore " + res.status);
+  return true;
+}
+
+export function getApiBase() { return API_BASE || window.location.origin; }
+
 // ─── Backup completo ───
 export async function downloadBackup() {
   if (await checkAPI() && currentHousehold) {
