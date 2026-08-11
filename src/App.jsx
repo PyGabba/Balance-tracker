@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount } from "./api.js";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -795,7 +795,122 @@ function GoalsForm({ onAdd, onCancel }) {
   );
 }
 
-function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal }) {
+function ContiCard({ conti, transazioni, onAdd, onUpdate, onDelete }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [nome, setNome] = useState("");
+  const [icona, setIcona] = useState("🏦");
+  const [saldoIniziale, setSaldoIniziale] = useState("");
+  const [saving, setSaving] = useState(false);
+  const ICONE = ["🏦", "💳", "💵", "🐖", "📱", "💰"];
+
+  // Balance = initial balance + entrate − uscite assigned to the account.
+  // Saldo (person-to-person) transactions are intentionally excluded.
+  const saldi = {};
+  for (const c of conti) saldi[c.id] = c.saldoIniziale || 0;
+  for (const t of transazioni) {
+    if (!t.contoId || saldi[t.contoId] === undefined) continue;
+    if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
+    else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
+  }
+  const totale = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
+
+  function openAdd() { setEditId(null); setNome(""); setIcona("🏦"); setSaldoIniziale(""); setShowAdd(true); }
+  function openEdit(c) { setShowAdd(false); setEditId(c.id); setNome(c.nome); setIcona(c.icona || "🏦"); setSaldoIniziale(String(c.saldoIniziale ?? 0)); }
+  function closeForm() { setShowAdd(false); setEditId(null); }
+
+  async function handleSave() {
+    if (!nome.trim()) return;
+    setSaving(true);
+    try {
+      const payload = { nome: nome.trim(), icona, saldoIniziale: parseFloat(saldoIniziale.replace(",", ".")) || 0 };
+      if (editId) await onUpdate(editId, payload);
+      else await onAdd(payload);
+      closeForm();
+    } catch (e) { alert("Errore: " + e.message); }
+    setSaving(false);
+  }
+
+  async function handleDelete(c) {
+    const nTx = transazioni.filter(t => t.contoId === c.id).length;
+    if (!confirm(`Eliminare il conto "${c.nome}"?${nTx > 0 ? `\n${nTx} transazioni resteranno senza conto.` : ""}`)) return;
+    await onDelete(c.id);
+    closeForm();
+  }
+
+  const formOpen = showAdd || editId;
+
+  return (
+    <div style={{ background: "#1a1a28", borderRadius: 20, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: conti.length > 0 || formOpen ? 10 : 0 }}>
+        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Conti</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {conti.length > 1 && (
+            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totale >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{formattaValuta(totale)}</span>
+          )}
+          <button onClick={() => formOpen ? closeForm() : openAdd()} style={{
+            background: formOpen ? "#6C5CE722" : "none", border: formOpen ? "1px solid #6C5CE7" : "1px solid #252538",
+            borderRadius: 8, cursor: "pointer", color: formOpen ? "#6C5CE7" : "#888", fontSize: 14, padding: "2px 8px",
+          }}>{formOpen ? "✕" : "+"}</button>
+        </div>
+      </div>
+
+      {conti.length === 0 && !formOpen && (
+        <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>Nessun conto. Tocca + per aggiungerne uno (es. banca, contanti) e assegnalo alle transazioni.</div>
+      )}
+
+      {conti.map(c => (
+        <div key={c.id} onClick={() => editId === c.id ? null : openEdit(c)} style={{
+          display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 12, cursor: "pointer",
+          background: editId === c.id ? "#6C5CE711" : "#111119", marginBottom: 6,
+          border: editId === c.id ? "1px solid #6C5CE755" : "1px solid transparent",
+        }}>
+          <span style={{ fontSize: 16 }}>{c.icona || "🏦"}</span>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "#ccc", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: (saldi[c.id] || 0) >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
+            {formattaValuta(saldi[c.id] || 0)}
+          </span>
+        </div>
+      ))}
+
+      {formOpen && (
+        <div style={{ marginTop: 10, padding: 12, background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
+          <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
+            {editId ? "Modifica conto" : "Nuovo conto"}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            {ICONE.map(ic => (
+              <button key={ic} onClick={() => setIcona(ic)} style={{
+                fontSize: 16, padding: "6px 8px", borderRadius: 8, cursor: "pointer",
+                background: icona === ic ? "#6C5CE722" : "transparent",
+                border: icona === ic ? "1px solid #6C5CE7" : "1px solid #252538",
+              }}>{ic}</button>
+            ))}
+          </div>
+          <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Es: Conto Intesa, Contanti..."
+            style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+          <input type="text" inputMode="decimal" value={saldoIniziale} onChange={e => setSaldoIniziale(e.target.value)} placeholder="Saldo iniziale (es. 1500)"
+            style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={handleSave} disabled={saving || !nome.trim()} style={{
+              flex: 1, padding: "10px", background: nome.trim() ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538", border: "none",
+              borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", opacity: saving ? 0.6 : 1,
+            }}>{saving ? "Salvataggio..." : "Salva"}</button>
+            {editId && (
+              <button onClick={() => handleDelete(conti.find(c => c.id === editId))} style={{
+                padding: "10px 14px", background: "none", border: "1px solid #FF6B6B55", borderRadius: 10,
+                color: "#FF6B6B", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+              }}>Elimina</button>
+            )}
+          </div>
+          {editId && <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>Il saldo mostrato è: saldo iniziale + entrate − uscite assegnate a questo conto.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [settlingKey, setSettlingKey] = useState(null);
@@ -876,6 +991,8 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       )}
 
       {/* Debt card */}
+      <ContiCard conti={conti} transazioni={transazioni} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} />
+
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio debiti</div>
         {/* Month debts */}
@@ -1305,7 +1422,7 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "" }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "" }) {
   const [tipo, setTipo] = useState(initialTipo);
   const [importoRaw, setImportoRaw] = useState(initialImporto);
   const importoInputRef = useRef(null);
@@ -1335,6 +1452,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
   const [ricorrenza, setRicorrenza] = useState("no");
+  const [contoId, setContoId] = useState("");
 
   useEffect(() => {
     if (initialImporto) setImportoRaw(initialImporto);
@@ -1380,6 +1498,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
       splits: tipo === "uscita" ? splits : null,
       extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
+      contoId: contoId || null,
       ricorrenza: ricorrenzaData,
     });
     setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setSalvato(true);
@@ -1515,6 +1634,27 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, initia
         <label style={labelStyle}>Data</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
       </div>
+      {conti.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <label style={labelStyle}>Conto</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setContoId("")} style={{
+              padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+              background: contoId === "" ? "#6C5CE722" : "#1a1a28",
+              border: contoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
+              color: contoId === "" ? "#a78bfa" : "#666",
+            }}>Nessuno</button>
+            {conti.map(c => (
+              <button key={c.id} onClick={() => setContoId(c.id)} style={{
+                padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                background: contoId === c.id ? "#6C5CE722" : "#1a1a28",
+                border: contoId === c.id ? "1px solid #6C5CE7" : "1px solid #252538",
+                color: contoId === c.id ? "#a78bfa" : "#888",
+              }}>{c.icona} {c.nome}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Ripeti</label>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -4376,6 +4516,31 @@ export default function FinanzaApp() {
     setGoals(prev => prev.filter(g => g.id !== id));
   };
 
+  const [conti, setConti] = useState([]);
+  const loadConti = useCallback(async () => {
+    try {
+      const data = await fetchAccounts();
+      setConti(data || []);
+    } catch (e) { console.error("loadConti:", e); }
+  }, []);
+
+  const handleAddConto = async (conto) => {
+    const saved = await addAccount(conto);
+    setConti(prev => [...prev, saved]);
+  };
+
+  const handleUpdateConto = async (id, updates) => {
+    await updateAccount(id, updates);
+    setConti(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  };
+
+  const handleDeleteConto = async (id) => {
+    await deleteAccount(id);
+    setConti(prev => prev.filter(c => c.id !== id));
+    // Detach locally too, mirroring the server behaviour
+    setTransazioni(prev => prev.map(t => t.contoId === id ? { ...t, contoId: null } : t));
+  };
+
   const loadCategorie = useCallback(async () => {
     const defaults = CATEGORIE.filter(c => c.id !== "entrata");
     try {
@@ -4384,7 +4549,7 @@ export default function FinanzaApp() {
     } catch (e) { console.error("loadCategorie:", e); setCategorieUscita(defaults); }
   }, []);
 
-  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); loadGoals(); } }, [authed, loadAll, loadPositions, loadCategorie, loadGoals]);
+  useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); loadGoals(); loadConti(); } }, [authed, loadAll, loadPositions, loadCategorie, loadGoals, loadConti]);
 
   function handleLogin() {
     setAuthed(true);
@@ -4497,8 +4662,8 @@ export default function FinanzaApp() {
       )}
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} />}
-        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} />}
+        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}

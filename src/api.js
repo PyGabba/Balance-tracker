@@ -536,6 +536,58 @@ export async function deleteGoal(id) {
   return true;
 }
 
+// ─── Accounts (conti) ───
+export async function fetchAccounts() {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/accounts`, { headers: authHeaders(), credentials: "include" });
+      if (await checkAuthError(res)) return [];
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("fetchAccounts:", err); }
+  }
+  return [];
+}
+
+export async function addAccount(account) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/accounts`, {
+        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(account),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("addAccount:", err); }
+  }
+  return { id: Date.now().toString(36), ...account };
+}
+
+export async function updateAccount(id, updates) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/accounts/${id}`, {
+        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (err) { console.error("updateAccount:", err); }
+  }
+  return { ok: true };
+}
+
+export async function deleteAccount(id) {
+  if (await checkAPI() && currentHousehold) {
+    try {
+      const res = await fetch(`${API_BASE}/api/accounts/${id}`, {
+        method: "DELETE", headers: authHeaders(), credentials: "include",
+      });
+      if (!res.ok) throw new Error(res.status);
+      return true;
+    } catch (err) { console.error("deleteAccount:", err); }
+  }
+  return true;
+}
+
 // ─── Trips API ───
 let cachedTrips = [];
 export async function fetchTrips() {
