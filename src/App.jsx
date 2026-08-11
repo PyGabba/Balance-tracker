@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories } from "./api.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio } from "./lib/finance.js";
+import { toast, ToastHost } from "./components/Toast.jsx";
 
 const CATEGORIE = [
   { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
@@ -59,73 +61,6 @@ function evalImporto(val) {
 }
 
 // Storage is now handled by src/api.js (MongoDB + localStorage fallback)
-
-// ─── Multi-person debt calculator ───
-// Returns array: [{ da: personaId, a: personaId, importo: number }]
-function calcolaDebitiMatrix(transazioni, persone) {
-  const balances = {};
-  for (const t of transazioni) {
-    if (t.tipo === "saldo") {
-      if (!t.pagatoDa || !t.ricevutoDa) continue;
-      // Trip settlements are record-only: the underlying trip expenses never
-      // entered the household ledger, so counting them here would create a
-      // spurious opposite debt in the household matrix
-      if (t.categoria === "saldo_viaggio") continue;
-      // Payment reduces debt: add in reverse direction so netting cancels it out
-      const key = `${t.ricevutoDa}->${t.pagatoDa}`;
-      balances[key] = (balances[key] || 0) + t.importo;
-      continue;
-    }
-    if (t.tipo !== "uscita" || !t.pagatoDa) continue;
-    const payer = t.pagatoDa;
-    let shares = [];
-
-    if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
-      shares = t.splits;
-    } else if (t.splitPagante != null) {
-      // Old format backward compat
-      const other = persone.find(p => p.id !== payer);
-      if (other) shares = [{ personaId: payer, quota: t.splitPagante }, { personaId: other.id, quota: 100 - t.splitPagante }];
-    }
-    if (!shares.length) continue;
-    const totalQ = shares.reduce((s, sh) => s + (sh.quota || 0), 0);
-    if (totalQ === 0) continue;
-    for (const sh of shares) {
-      if (sh.personaId === payer) continue;
-      const owed = t.importo * (sh.quota / totalQ);
-      const key = `${sh.personaId}->${payer}`;
-      balances[key] = (balances[key] || 0) + owed;
-    }
-  }
-  // Convert directional pair balances → per-person net balance
-  const netPerPerson = {};
-  for (const [key, amount] of Object.entries(balances)) {
-    const [da, a] = key.split("->");
-    netPerPerson[da] = (netPerPerson[da] || 0) - amount; // owes → negative
-    netPerPerson[a]  = (netPerPerson[a]  || 0) + amount; // owed → positive
-  }
-
-  // Greedy creditor/debtor matching — minimises number of transactions
-  const creditors = [], debtors = [];
-  for (const [id, bal] of Object.entries(netPerPerson)) {
-    if (bal >  0.01) creditors.push({ id, bal });
-    if (bal < -0.01) debtors.push({ id, bal: -bal });
-  }
-  creditors.sort((a, b) => b.bal - a.bal);
-  debtors.sort((a, b) => b.bal - a.bal);
-
-  const debiti = [];
-  let i = 0, j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const pay = Math.min(debtors[i].bal, creditors[j].bal);
-    debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
-    debtors[i].bal   -= pay;
-    creditors[j].bal -= pay;
-    if (debtors[i].bal   < 0.01) i++;
-    if (creditors[j].bal < 0.01) j++;
-  }
-  return debiti;
-}
 
 // Convenience: get all known people from transactions (household + extras)
 function getAllPersone(transazioni, householdPersone) {
@@ -949,51 +884,6 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
   );
 }
 
-// Balance per account: initial balance + entrate − uscite assigned to it
-function calcolaSaldiConti(conti, transazioni) {
-  const saldi = {};
-  for (const c of conti) saldi[c.id] = c.saldoIniziale || 0;
-  for (const t of transazioni) {
-    if (t.tipo === "trasferimento") {
-      if (t.contoDa && saldi[t.contoDa] !== undefined) saldi[t.contoDa] -= t.importo;
-      if (t.contoA && saldi[t.contoA] !== undefined) saldi[t.contoA] += t.importo;
-      continue;
-    }
-    if (!t.contoId || saldi[t.contoId] === undefined) continue;
-    if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
-    else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
-  }
-  return saldi;
-}
-
-// Portfolio value with average-cost accounting (manual price, fallback to cost basis)
-function calcolaValorePortfolio(positions, manualPrices) {
-  const map = {};
-  const sorted = [...positions].sort((a, b) =>
-    (a.dataAcquisto || "").localeCompare(b.dataAcquisto || "") ||
-    (a.createdAt || "").localeCompare(b.createdAt || "")
-  );
-  for (const p of sorted) {
-    if (!map[p.ticker]) map[p.ticker] = { quantita: 0, costoTotale: 0 };
-    const h = map[p.ticker];
-    if (p.tipo === "sell") {
-      const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
-      const q = Math.min(p.quantita, h.quantita);
-      h.costoTotale -= q * avg; h.quantita -= q;
-      if (h.quantita < 0.0001) { h.quantita = 0; h.costoTotale = 0; }
-    } else { h.quantita += p.quantita; h.costoTotale += p.quantita * p.prezzoAcquisto; }
-  }
-  let valore = 0, investito = 0;
-  for (const k of Object.keys(map)) {
-    const h = map[k];
-    if (h.quantita <= 0.0001) continue;
-    const prezzo = (manualPrices && manualPrices[k]) || 0;
-    investito += h.costoTotale;
-    valore += prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
-  }
-  return { valore, investito };
-}
-
 function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -1024,7 +914,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }
       if (editId) await onUpdate(editId, payload);
       else await onAdd(payload);
       closeForm();
-    } catch (e) { alert("Errore: " + e.message); }
+    } catch (e) { toast("Errore: " + e.message, "error"); }
     setSaving(false);
   }
 
@@ -2043,10 +1933,29 @@ function ViaggiView({ persone }) {
     { id: "shopping", emoji: "🛍️", nome: "Shopping", colore: "#FF7675" },
     { id: "altro", emoji: "📦", nome: "Altro", colore: "#A8A8A8" },
   ];
+  // Categorie sincronizzate sulla casa; localStorage resta come cache/fallback offline
   const [tripCats, setTripCats] = useState(() => {
-    const saved = localStorage.getItem("tripCategories");
-    return saved ? JSON.parse(saved) : defaultTripCats;
+    try {
+      const saved = localStorage.getItem("tripCategories");
+      return saved ? JSON.parse(saved) : defaultTripCats;
+    } catch { return defaultTripCats; }
   });
+
+  useEffect(() => {
+    (async () => {
+      const remote = await fetchTripCategories();
+      if (remote && remote.length > 0) {
+        setTripCats(remote);
+        try { localStorage.setItem("tripCategories", JSON.stringify(remote)); } catch {}
+      } else {
+        // Migrazione one-shot: il server non ha ancora nulla, spingiamo le locali
+        try {
+          const saved = localStorage.getItem("tripCategories");
+          if (saved) await saveTripCategories(JSON.parse(saved));
+        } catch {}
+      }
+    })();
+  }, []);
 
   const [nome, setNome] = useState("");
   const [descrizione, setDescrizione] = useState("");
@@ -2073,9 +1982,11 @@ function ViaggiView({ persone }) {
 
   useEffect(() => { loadTrips(); }, []);
 
-  function saveTripCats(cats) {
+  async function saveTripCats(cats) {
     setTripCats(cats);
-    localStorage.setItem("tripCategories", JSON.stringify(cats));
+    try { localStorage.setItem("tripCategories", JSON.stringify(cats)); } catch {}
+    const ok = await saveTripCategories(cats);
+    if (!ok) toast("Categorie salvate solo su questo dispositivo (server non raggiungibile)", "error");
   }
 
   async function loadTrips() {
@@ -2097,7 +2008,7 @@ function ViaggiView({ persone }) {
       await deleteTrip(id);
       setTrips(trips.filter(t => t.id !== id));
     } catch (e) {
-      alert("Errore nell'eliminazione: " + e.message);
+      toast("Errore nell'eliminazione: " + e.message, "error");
     }
   }
 
@@ -2134,7 +2045,7 @@ function ViaggiView({ persone }) {
       await updateTrip(trip.id, { settled: true });
       setTrips(trips.map(t => t.id === trip.id ? { ...t, settled: true } : t));
     } catch (e) {
-      alert("Errore nel salvataggio: " + e.message);
+      toast("Errore nel salvataggio: " + e.message, "error");
     }
     setSettlingId(null);
   }
@@ -2167,39 +2078,7 @@ function ViaggiView({ persone }) {
     setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
   }
 
-  function calculateSettle(trip) {
-    const balances = {};
-    for (const e of trip.expenses) {
-      if (e.splits && e.splits.length > 0) {
-        const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
-        for (const s of e.splits) {
-          if (s.personaId !== e.pagatoDa) {
-            const owed = e.importo * (s.quota / totalQ);
-            balances[s.personaId] = (balances[s.personaId] || 0) - owed;
-            balances[e.pagatoDa] = (balances[e.pagatoDa] || 0) + owed;
-          }
-        }
-      }
-    }
-    const creditors = [], debtors = [];
-    for (const [id, bal] of Object.entries(balances)) {
-      if (bal > 0.01) creditors.push({ id, bal });
-      if (bal < -0.01) debtors.push({ id, bal: -bal });
-    }
-    creditors.sort((a, b) => b.bal - a.bal);
-    debtors.sort((a, b) => b.bal - a.bal);
-    const settlements = [];
-    let i = 0, j = 0;
-    while (i < debtors.length && j < creditors.length) {
-      const pay = Math.min(debtors[i].bal, creditors[j].bal);
-      if (pay > 0.01) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
-      debtors[i].bal -= pay;
-      creditors[j].bal -= pay;
-      if (debtors[i].bal < 0.01) i++;
-      if (creditors[j].bal < 0.01) j++;
-    }
-    return settlements;
-  }
+  const calculateSettle = calcolaSettleViaggio;
 
   const allColors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
   const tripColors = {};
@@ -3012,7 +2891,7 @@ function PortfolioView() {
     try {
       await deletePosition(t.id);
       setPositions(prev => prev.filter(p => p.id !== t.id));
-    } catch (e) { alert("Errore nell'eliminazione: " + e.message); }
+    } catch (e) { toast("Errore nell'eliminazione: " + e.message, "error"); }
   }
 
   // ── Manual price overrides (MongoDB) ──
@@ -3669,7 +3548,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       a.download = `backup-finanza-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { alert("Errore backup: " + e.message); }
+    } catch (e) { toast("Errore backup: " + e.message, "error"); }
     setBackupBusy(false);
   }
 
@@ -3678,7 +3557,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      if (data.formato !== "balance-tracker-backup") { alert("Questo file non è un backup dell'app."); return; }
+      if (data.formato !== "balance-tracker-backup") { toast("Questo file non è un backup dell'app.", "error"); return; }
       setRestorePreview({ data, counts: {
         transazioni: (data.transactions || []).length,
         conti: (data.accounts || []).length,
@@ -3687,7 +3566,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
         posizioni: (data.positions || []).length,
         prezzi: Object.keys(data.manualPrices || {}).length,
       }});
-    } catch (e) { alert("File non leggibile: " + e.message); }
+    } catch (e) { toast("File non leggibile: " + e.message, "error"); }
   }
 
   async function handleConfirmRestore() {
@@ -3698,7 +3577,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       setRestoreDone(res.counts);
       setRestorePreview(null);
       setTimeout(() => window.location.reload(), 2500);
-    } catch (e) { alert("Errore ripristino: " + e.message); }
+    } catch (e) { toast("Errore ripristino: " + e.message, "error"); }
     setRestoreBusy(false);
   }
 
@@ -3844,7 +3723,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       }
 
     } catch (err) {
-      alert("Errore nel parsing del file: " + err.message);
+      toast("Errore nel parsing del file: " + err.message, "error");
     } finally {
       setImportando(false);
     }
@@ -3880,7 +3759,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
     const errParts = [];
     if (failTx > 0) errParts.push(`${failTx} transazioni`);
     if (failPos > 0) errParts.push(`${failPos} posizioni`);
-    alert(`Import completato: ${parts.join(" e ")} importate${errParts.length ? `, errori: ${errParts.join(", ")}` : ""}.`);
+    toast(`Import completato: ${parts.join(" e ")} importate${errParts.length ? `, errori: ${errParts.join(", ")}` : ""}.`, "success");
   }
 
   // Filter transactions by month range
@@ -3977,7 +3856,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       XLSX.writeFile(wb, `finanza_${sheetName}.xlsx`);
     } catch (err) {
       console.error("Export error:", err);
-      alert("Errore durante l'esportazione: " + err.message);
+      toast("Errore durante l'esportazione: " + err.message, "error");
     } finally {
       setEsportando(false);
     }
@@ -5105,6 +4984,7 @@ export default function FinanzaApp() {
 
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+      <ToastHost />
       {/* Fixed header */}
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
