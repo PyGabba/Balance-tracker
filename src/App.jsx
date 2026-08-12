@@ -4246,7 +4246,6 @@ function LoginScreen({ onLogin }) {
     }
   }
 
-  // Auto-submit when PIN reaches PIN_LEN digits
   const submitRef = useRef(null);
   submitRef.current = async (p) => {
     setLoginLoading(true); setLoginErrore(""); setLoginFromCache(false); setLoginSubtitle("");
@@ -4277,9 +4276,18 @@ function LoginScreen({ onLogin }) {
     }
   };
 
+  // Auto-submit quando il PIN raggiunge PIN_LEN cifre — con un piccolo
+  // ritardo: se l'utente continua a digitare (PIN più lungo, 7-8 cifre),
+  // l'effetto viene ripulito prima di scattare e non tenta un login con
+  // cifre incomplete. Senza questo ritardo, un PIN più lungo di 6 non era
+  // di fatto digitabile: l'auto-submit falliva sulle prime 6 cifre e
+  // cancellava tutto prima che l'utente arrivasse alla settima.
   useEffect(() => {
     if (pin.length === PIN_LEN && !loginLoading) {
-      submitRef.current(pin);
+      const t = setTimeout(() => {
+        submitRef.current(pin);
+      }, 350);
+      return () => clearTimeout(t);
     }
   }, [pin]);
 
@@ -4382,7 +4390,7 @@ function LoginScreen({ onLogin }) {
               </div>
             )}
 
-            <PinDots value={pin} maxLen={PIN_LEN} shake={pinShake} />
+            <PinDots value={pin} maxLen={Math.max(PIN_LEN, pin.length)} shake={pinShake} />
 
             {loginErrore && (
               <div style={{ textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
