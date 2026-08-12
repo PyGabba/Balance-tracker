@@ -12,18 +12,35 @@ import rateLimit from "express-rate-limit";
 import nodemailer from "nodemailer";
 dotenv.config();
 
-// ─── Email alert ───
-async function sendLockoutAlert(ip, deviceId) {
-  if (!process.env.GMAIL_APP_PASSWORD) return;
-  const transporter = nodemailer.createTransport({
+// ─── Email ───
+const GMAIL_USER = "pygabba@gmail.com";
+function getTransporter() {
+  if (!process.env.GMAIL_APP_PASSWORD) return null;
+  return nodemailer.createTransport({
     service: "gmail",
-    auth: { user: "pygabba@gmail.com", pass: process.env.GMAIL_APP_PASSWORD },
+    auth: { user: GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
   });
+}
+
+async function sendLockoutAlert(ip, deviceId) {
+  const transporter = getTransporter();
+  if (!transporter) return;
   await transporter.sendMail({
-    from: "pygabba@gmail.com",
-    to: "pygabba@gmail.com",
+    from: GMAIL_USER,
+    to: GMAIL_USER,
     subject: "⚠️ Balance Tracker: accesso bloccato",
     text: `10 tentativi di PIN errati rilevati.\nIP: ${ip}\nDevice ID: ${deviceId || "sconosciuto"}\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`,
+  });
+}
+
+async function sendPinResetCode(toEmail, code, householdNome) {
+  const transporter = getTransporter();
+  if (!transporter) throw new Error("Servizio email non configurato");
+  await transporter.sendMail({
+    from: GMAIL_USER,
+    to: toEmail,
+    subject: "Codice per reimpostare il PIN",
+    text: `Ciao,\n\nHai richiesto di reimpostare il PIN per il gruppo "${householdNome}".\n\nIl tuo codice è: ${code}\n\nScade tra 15 minuti. Se non hai richiesto tu questo codice, ignora questa email: il tuo PIN resta invariato.`,
   });
 }
 
@@ -159,6 +176,8 @@ async function connectDB() {
   try { await householdsCol.dropIndex("pin_1"); } catch {}
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ pinLookup: 1 }, { unique: true, sparse: true });
+  await householdsCol.createIndex({ email: 1 }, { unique: true, sparse: true });
+  await db.collection("pinResets").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   await householdsCol.createIndex({ householdId: 1 }, { unique: true });
   try { await locksCol.dropIndex("ip_1"); } catch {}
   await locksCol.createIndex({ key: 1 }, { unique: true });
@@ -413,11 +432,17 @@ app.post("/api/auth/logout", requireHousehold, async (req, res) => {
 
 app.post("/api/auth/register", registerLimiter, async (req, res) => {
   try {
-    const { nome, persone, pin } = req.body || {};
+    const { nome, persone, pin, email } = req.body || {};
     if (!nome || !pin || !Array.isArray(persone) || persone.length === 0)
       return res.status(400).json({ error: "Campi obbligatori: nome, persone, pin" });
     if (!/^\d{6,8}$/.test(pin))
       return res.status(400).json({ error: "Il PIN deve essere di 6-8 cifre" });
+    let emailNorm = null;
+    if (email) {
+      emailNorm = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm) || emailNorm.length > 200)
+        return res.status(400).json({ error: "Email non valida" });
+    }
 
     // Build householdId: slug from nome + random suffix
     const slug = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -434,7 +459,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     }));
 
     const pinHash = await hashPin(pin);
-    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), createdAt: new Date() };
+    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), email: emailNorm, createdAt: new Date() };
     await householdsCol.insertOne(doc);
     const { token, jti } = signToken(householdId);
     await storeToken(jti, householdId);
@@ -442,7 +467,8 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     res.cookie("token", token, COOKIE_OPTS);
     res.status(201).json({ householdId, nome, persone: personeFormatted });
   } catch (e) {
-    if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
+    if (e.code === 11000 && e.message?.includes("pinLookup")) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
+    if (e.code === 11000 && e.message?.includes("email")) return res.status(409).json({ error: "Email già collegata a un altro gruppo" });
     console.error("Register error:", e.message); // never log e directly — req.body may appear in stack
     res.status(500).json({ error: "Errore durante la registrazione" });
   }
@@ -468,6 +494,98 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ok: true });
   } catch (e) { console.error("PIN change error:", e.message); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
+});
+
+// ─── Recupero PIN dimenticato ───
+const forgotPinLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
+  // Risposta generica sempre uguale, email esista o meno: non si conferma
+  // né si smentisce l'esistenza di un account legato a quell'indirizzo.
+  const GENERIC_OK = { ok: true, message: "Se l'email è collegata a un account, riceverai un codice a breve." };
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Email non valida" });
+
+    const household = await householdsCol.findOne({ email });
+    if (!household) return res.json(GENERIC_OK); // non riveliamo se l'email esiste
+
+    const code = String(Math.floor(100000 + Math.random() * 900000)); // 6 cifre
+    const codeHash = await bcrypt.hash(code, 10);
+    await db.collection("pinResets").deleteMany({ householdId: household.householdId }); // invalida richieste precedenti
+    await db.collection("pinResets").insertOne({
+      householdId: household.householdId, codeHash, attempts: 0,
+      createdAt: new Date(), expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    });
+    try {
+      await sendPinResetCode(email, code, household.nome);
+    } catch (mailErr) {
+      console.error("Invio email reset fallito:", mailErr.message);
+      // Non sveliamo all'esterno se l'invio è fallito per non far trapelare l'esistenza dell'account
+    }
+    audit("pin_reset_requested", { householdId: household.householdId, ip: clientIp(req) });
+    res.json(GENERIC_OK);
+  } catch (e) { console.error("Forgot-pin request error:", e.message); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const code = String(req.body?.code || "").trim();
+    const newPin = req.body?.newPin;
+    if (!email || !code || !newPin) return res.status(400).json({ error: "Campi obbligatori: email, codice, nuovo PIN" });
+    if (!/^\d{6,8}$/.test(newPin)) return res.status(400).json({ error: "Il nuovo PIN deve essere di 6-8 cifre" });
+
+    const household = await householdsCol.findOne({ email });
+    if (!household) return res.status(400).json({ error: "Codice non valido o scaduto" });
+
+    const reset = await db.collection("pinResets").findOne({ householdId: household.householdId });
+    if (!reset || reset.expiresAt < new Date()) return res.status(400).json({ error: "Codice non valido o scaduto" });
+    if (reset.attempts >= 5) {
+      await db.collection("pinResets").deleteOne({ _id: reset._id });
+      return res.status(429).json({ error: "Troppi tentativi. Richiedi un nuovo codice." });
+    }
+
+    const valid = await bcrypt.compare(code, reset.codeHash);
+    if (!valid) {
+      await db.collection("pinResets").updateOne({ _id: reset._id }, { $inc: { attempts: 1 } });
+      return res.status(400).json({ error: "Codice non corretto" });
+    }
+
+    const pinHash = await hashPin(newPin);
+    const pinLookup = pinLookupKey(newPin);
+    await householdsCol.updateOne(
+      { householdId: household.householdId },
+      { $set: { pinHash, pinLookup, requiresPinChange: false, updatedAt: new Date() }, $unset: { pin: "" } }
+    );
+    await db.collection("pinResets").deleteOne({ _id: reset._id });
+    await revokeAllTokens(household.householdId); // disconnette ogni sessione precedente, per sicurezza
+
+    const { token, jti } = signToken(household.householdId);
+    await storeToken(jti, household.householdId);
+    audit("pin_reset_completed", { householdId: household.householdId, ip: clientIp(req) });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.json({ id: household.householdId, nome: household.nome, persone: household.persone });
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
+    console.error("Forgot-pin confirm error:", e.message); res.status(500).json({ error: "Errore" });
+  }
+});
+
+// Aggiungere/aggiornare l'email di recupero da account già autenticato
+// (fondamentale per le case create prima che questa funzione esistesse).
+app.put("/api/auth/recovery-email", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200)
+      return res.status(400).json({ error: "Email non valida" });
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { email, updatedAt: new Date() } });
+    audit("recovery_email_set", { householdId: req.householdId, ip: clientIp(req) });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 11000) return res.status(409).json({ error: "Email già collegata a un altro gruppo" });
+    console.error("Set recovery email error:", e.message); res.status(500).json({ error: "Errore" });
+  }
 });
 
 app.delete("/api/auth/household", requireHousehold, async (req, res) => {
@@ -496,7 +614,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
 
 // ─── GET household info ───
 app.get("/api/household", requireHousehold, (req, res) => {
-  res.json({ id: req.household.id, nome: req.household.nome, persone: req.household.persone });
+  res.json({ id: req.household.id, nome: req.household.nome, persone: req.household.persone, hasRecoveryEmail: !!req.household.email });
 });
 
 // ─── GET transactions ───
