@@ -4392,16 +4392,28 @@ function LoginScreen({ onLogin }) {
 
             <NumPad onDigit={onDigit} onDelete={onDelete} disabled={loginLoading} />
 
-            {/* Show Accedi for legacy 4-5 digit PINs and for 7-8 digit PINs */}
-            {(pin.length >= 4 && pin.length < PIN_LEN || pin.length > PIN_LEN) && (
-              <button
-                onClick={() => submitRef.current(pin)}
-                disabled={loginLoading}
-                style={{ ...sBtn, marginTop: 20, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: loginLoading ? 0.6 : 1 }}
-              >
-                {loginLoading ? "Accesso..." : "Accedi"}
-              </button>
-            )}
+            {/* Spazio sempre riservato: mostrare/nascondere il pulsante con
+                opacity invece di montarlo/smontarlo evita che il tastierino
+                si sposti mentre l'utente sta ancora digitando il PIN. */}
+            {(() => {
+              const showAccedi = (pin.length >= 4 && pin.length < PIN_LEN) || pin.length > PIN_LEN;
+              return (
+                <div style={{ minHeight: 72 }}>
+                  <button
+                    onClick={() => submitRef.current(pin)}
+                    disabled={loginLoading || !showAccedi}
+                    style={{
+                      ...sBtn, marginTop: 20, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff",
+                      opacity: showAccedi ? (loginLoading ? 0.6 : 1) : 0,
+                      pointerEvents: showAccedi ? "auto" : "none",
+                      transition: "opacity 0.2s ease",
+                    }}
+                  >
+                    {loginLoading ? "Accesso..." : "Accedi"}
+                  </button>
+                </div>
+              );
+            })()}
           </>
         ) : regSuccesso ? (
           <div style={{ textAlign: "center", padding: 20 }}>
