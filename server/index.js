@@ -317,7 +317,13 @@ app.delete("/api/admin/blacklist/:key(*)", adminLimiter, requireAdmin, async (re
 
 async function findHousehold(hid) {
   const dbH = await householdsCol.findOne({ householdId: hid });
-  if (dbH) return { id: dbH.householdId, nome: dbH.nome, persone: dbH.persone, categorieUscita: dbH.categorieUscita || null, requiresPinChange: dbH.requiresPinChange || false };
+  if (dbH) return {
+    id: dbH.householdId, nome: dbH.nome, persone: dbH.persone,
+    categorieUscita: dbH.categorieUscita || null,
+    tripCategories: dbH.tripCategories || null,
+    requiresPinChange: dbH.requiresPinChange || false,
+    email: dbH.email || null,
+  };
   return null;
 }
 
