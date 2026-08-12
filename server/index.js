@@ -19,6 +19,9 @@ function getTransporter() {
   return nodemailer.createTransport({
     service: "gmail",
     auth: { user: GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+    connectionTimeout: 10000, // niente attese infinite se Gmail/SMTP non risponde
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
   });
 }
 
@@ -523,12 +526,14 @@ app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
       householdId: household.householdId, codeHash, attempts: 0,
       createdAt: new Date(), expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     });
-    try {
-      await sendPinResetCode(email, code, household.nome);
-    } catch (mailErr) {
+    // Invio in background, senza "await": l'SMTP di Gmail può essere lento o
+    // bloccarsi (nessun timeout di default in nodemailer), e non deve mai
+    // tenere in sospeso la risposta HTTP — altrimenti il client resta
+    // bloccato su "Invio..." indefinitamente.
+    sendPinResetCode(email, code, household.nome).catch(mailErr => {
       console.error("Invio email reset fallito:", mailErr.message);
       // Non sveliamo all'esterno se l'invio è fallito per non far trapelare l'esistenza dell'account
-    }
+    });
     audit("pin_reset_requested", { householdId: household.householdId, ip: clientIp(req) });
     res.json(GENERIC_OK);
   } catch (e) { console.error("Forgot-pin request error:", e.message); res.status(500).json({ error: "Errore" }); }
