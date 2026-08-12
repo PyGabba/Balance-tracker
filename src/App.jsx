@@ -1418,6 +1418,29 @@ function FilterChip({ active, onClick, children }) {
   );
 }
 
+// Ricostruisce lo stato iniziale degli split per il form di modifica di una
+// transazione esistente. A differenza del form di "nuova spesa" (dove un
+// default equo tra tutti è un suggerimento ragionevole), qui la spesa ha già
+// uno stato reale salvato e va rispettato:
+// - splits presenti → usali così come sono
+// - vecchio formato a 2 persone (splitPagante) → converti
+// - nessuno split ma pagatoDa presente → spesa "solo mia": il pagante è
+//   l'unico partecipante, al 100%, non un default equo tra tutti
+// - nessun pagante → nessun partecipante
+function initialSplits(t, persone) {
+  if (t.splits) return t.splits;
+  if (t.splitPagante != null) {
+    const payer = t.pagatoDa || persone[0]?.id;
+    const otherId = persone.find(p => p.id !== payer)?.id || persone[1]?.id;
+    return [
+      { personaId: payer, quota: t.splitPagante },
+      { personaId: otherId, quota: 100 - t.splitPagante },
+    ];
+  }
+  if (t.pagatoDa) return [{ personaId: t.pagatoDa, quota: 100 }];
+  return [];
+}
+
 // ─── Transaction Row with inline edit ───
 function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel }) {
   const _ENTRATA_CAT = { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" };
@@ -1431,7 +1454,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
   const [descrizione, setDescrizione] = useState(t.descrizione || "");
   const [data, setData] = useState(t.data);
   const [pagatoDa, setPagatoDa] = useState(t.pagatoDa || persone[0]?.id || "");
-  const [splits, setSplits] = useState(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : []));
+  const [splits, setSplits] = useState(() => initialSplits(t, persone));
   const [extraPersone, setExtraPersone] = useState(t.extraPersone || []);
   const [intestataA, setIntestataA] = useState(t.intestataA || persone[0]?.id || "");
   const [eContoId, setEContoId] = useState(t.contoId || "");
@@ -1441,7 +1464,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
     setTipo(t.tipo); setImporto(String(t.importo)); setCategoria(t.categoria || "altro");
     setDescrizione(t.descrizione || ""); setData(t.data);
     setPagatoDa(t.pagatoDa || persone[0]?.id || "");
-    setSplits(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : []));
+    setSplits(initialSplits(t, persone));
     setExtraPersone(t.extraPersone || []);
     setIntestataA(t.intestataA || persone[0]?.id || "");
     setEContoId(t.contoId || "");
