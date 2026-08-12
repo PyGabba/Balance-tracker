@@ -3,7 +3,7 @@ import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold } from "./api.js";
-import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio } from "./lib/finance.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
 const CATEGORIE = [
@@ -1010,6 +1010,10 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const [settlingKey, setSettlingKey] = useState(null);
   const [settleAmount, setSettleAmount] = useState("");
   const [search, setSearch] = useState("");
+  const FILTRI_VUOTI = { tipo: "", categoria: "", personaId: "", contoId: "", minImporto: "", maxImporto: "" };
+  const [filtri, setFiltri] = useState(FILTRI_VUOTI);
+  const [showFiltri, setShowFiltri] = useState(false);
+  const [tuttiIMesi, setTuttiIMesi] = useState(false);
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [showStoricoSaldi, setShowStoricoSaldi] = useState(false);
 
@@ -1026,16 +1030,12 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const entrate = entrateNormali + entrateExternaSaldi;
   const uscite = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
-  const txOrdinate = [...txMese]
-    .filter(t => t.tipo !== "saldo")
-    .filter(t => {
-      if (!search.trim()) return true;
-      const q = search.trim().toLowerCase();
-      const cat = categorie.find(c => c.id === t.categoria);
-      return (t.descrizione || "").toLowerCase().includes(q)
-        || (cat?.nome || "").toLowerCase().includes(q);
-    })
+  const nFiltriAttivi = contaFiltriAttivi(filtri);
+  const ricercaAttiva = !!search.trim() || nFiltriAttivi > 0;
+  const baseTx = (ricercaAttiva && tuttiIMesi ? transazioni : txMese).filter(t => t.tipo !== "saldo");
+  const txOrdinate = filtraTransazioni(baseTx, { ...filtri, query: search }, categorie)
     .sort((a, b) => new Date(b.data) - new Date(a.data));
+  const totaleRisultati = ricercaAttiva ? txOrdinate.reduce((s, t) => s + (t.tipo === "uscita" ? -t.importo : t.tipo === "entrata" ? t.importo : 0), 0) : 0;
 
   const debitiGlobale = calcolaDebitiMatrix(transazioni, persone);
   const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
@@ -1287,25 +1287,102 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 
       {/* Transactions for selected month */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 13, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Transazioni di {MESI[meseVis.getMonth()]}</div>
+        <div style={{ fontSize: 13, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{ricercaAttiva && tuttiIMesi ? "Risultati ricerca" : `Transazioni di ${MESI[meseVis.getMonth()]}`}</div>
         <div style={{ fontSize: 12, color: "#666", fontFamily: "'Space Mono',monospace" }}>{txOrdinate.length}</div>
       </div>
-      <div style={{ position: "relative", marginBottom: 12 }}>
+      <div style={{ position: "relative", marginBottom: 8 }}>
         <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#555", pointerEvents: "none" }}>🔍</span>
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Cerca transazioni..."
-          style={{ ...inputStyle, paddingLeft: 36, paddingTop: 10, paddingBottom: 10, fontSize: 13 }}
+          style={{ ...inputStyle, paddingLeft: 36, paddingRight: 70, paddingTop: 10, paddingBottom: 10, fontSize: 13 }}
         />
         {search && (
-          <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 2 }}>✕</button>
+          <button onClick={() => setSearch("")} style={{ position: "absolute", right: 44, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 2 }}>✕</button>
         )}
+        <button onClick={() => setShowFiltri(!showFiltri)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: showFiltri || nFiltriAttivi > 0 ? "#6C5CE722" : "none", border: "1px solid " + (showFiltri || nFiltriAttivi > 0 ? "#6C5CE766" : "transparent"), borderRadius: 8, color: nFiltriAttivi > 0 ? "#a78bfa" : "#777", cursor: "pointer", fontSize: 13, padding: "4px 7px", display: "flex", alignItems: "center", gap: 3 }}>
+          ⚙{nFiltriAttivi > 0 && <span style={{ fontSize: 10, fontWeight: 800, fontFamily: "'Space Mono',monospace" }}>{nFiltriAttivi}</span>}
+        </button>
       </div>
+
+      {/* Advanced filters panel */}
+      {showFiltri && (
+        <div style={{ background: "#1a1a28", borderRadius: 14, padding: 12, marginBottom: 8, border: "1px solid #252538", display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* Tipo */}
+          <div>
+            <div style={filterLabelStyle}>Tipo</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[{ id: "", label: "Tutte" }, { id: "uscita", label: "▼ Uscite" }, { id: "entrata", label: "▲ Entrate" }, { id: "trasferimento", label: "⇄ Giroconti" }].map(o => (
+                <FilterChip key={o.id || "all"} active={filtri.tipo === o.id} onClick={() => setFiltri({ ...filtri, tipo: o.id })}>{o.label}</FilterChip>
+              ))}
+            </div>
+          </div>
+          {/* Categoria */}
+          <div>
+            <div style={filterLabelStyle}>Categoria</div>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+              <FilterChip active={!filtri.categoria} onClick={() => setFiltri({ ...filtri, categoria: "" })}>Tutte</FilterChip>
+              {categorie.filter(c => c.id !== "entrata").map(c => (
+                <FilterChip key={c.id} active={filtri.categoria === c.id} onClick={() => setFiltri({ ...filtri, categoria: filtri.categoria === c.id ? "" : c.id })}>{c.emoji} {c.nome}</FilterChip>
+              ))}
+            </div>
+          </div>
+          {/* Persona */}
+          <div>
+            <div style={filterLabelStyle}>Persona</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <FilterChip active={!filtri.personaId} onClick={() => setFiltri({ ...filtri, personaId: "" })}>Tutte</FilterChip>
+              {persone.map(p => (
+                <FilterChip key={p.id} active={filtri.personaId === p.id} onClick={() => setFiltri({ ...filtri, personaId: filtri.personaId === p.id ? "" : p.id })}>{p.emoji} {p.nome}</FilterChip>
+              ))}
+            </div>
+          </div>
+          {/* Conto */}
+          {conti.length > 0 && (
+            <div>
+              <div style={filterLabelStyle}>Conto</div>
+              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+                <FilterChip active={!filtri.contoId} onClick={() => setFiltri({ ...filtri, contoId: "" })}>Tutti</FilterChip>
+                {conti.map(c => (
+                  <FilterChip key={c.id} active={filtri.contoId === c.id} onClick={() => setFiltri({ ...filtri, contoId: filtri.contoId === c.id ? "" : c.id })}>{c.icona} {c.nome}</FilterChip>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Importo */}
+          <div>
+            <div style={filterLabelStyle}>Importo (€)</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="text" inputMode="decimal" value={filtri.minImporto} onChange={e => setFiltri({ ...filtri, minImporto: e.target.value })} placeholder="Min" style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: "'Space Mono',monospace" }} />
+              <span style={{ color: "#555", fontSize: 12 }}>—</span>
+              <input type="text" inputMode="decimal" value={filtri.maxImporto} onChange={e => setFiltri({ ...filtri, maxImporto: e.target.value })} placeholder="Max" style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: "'Space Mono',monospace" }} />
+            </div>
+          </div>
+          {nFiltriAttivi > 0 && (
+            <button onClick={() => setFiltri(FILTRI_VUOTI)} style={{ background: "none", border: "1px solid #FF6B6B44", borderRadius: 10, color: "#FF6B6B", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>✕ Azzera filtri</button>
+          )}
+        </div>
+      )}
+
+      {/* Search scope toggle + results summary */}
+      {ricercaAttiva && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            <FilterChip active={!tuttiIMesi} onClick={() => setTuttiIMesi(false)}>📅 {MESI[meseVis.getMonth()]}</FilterChip>
+            <FilterChip active={tuttiIMesi} onClick={() => setTuttiIMesi(true)}>🗓 Tutti i mesi</FilterChip>
+          </div>
+          {txOrdinate.length > 0 && (
+            <div style={{ fontSize: 11, color: "#888", fontFamily: "'Space Mono',monospace" }}>
+              Netto: <span style={{ fontWeight: 700, color: totaleRisultati >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{totaleRisultati >= 0 ? "+" : ""}{formattaValuta(totaleRisultati)}</span>
+            </div>
+          )}
+        </div>
+      )}
       {txOrdinate.length === 0 ? (
         <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>
-          {search.trim() ? `Nessun risultato per "${search}"` : <>Nessuna transazione in {nomeMese}.<br/>Premi + per iniziare!</>}
+          {ricercaAttiva ? <>Nessun risultato{search.trim() ? ` per "${search}"` : ""}{nFiltriAttivi > 0 ? " con i filtri attivi" : ""}.{!tuttiIMesi && <><br/><span style={{ fontSize: 12 }}>Prova a cercare in tutti i mesi.</span></>}</> : <>Nessuna transazione in {nomeMese}.<br/>Premi + per iniziare!</>}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1324,6 +1401,20 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       {editId && <div onClick={() => setEditId(null)} style={{ position: "fixed", inset: 0, background: "#0006", zIndex: 5 }} />}
       </div>
     </div>
+  );
+}
+
+// ─── Filter chip (search & advanced filters) ───
+const filterLabelStyle = { fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 };
+function FilterChip({ active, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{
+      background: active ? "#6C5CE722" : "#12121e",
+      border: "1px solid " + (active ? "#6C5CE7" : "#252538"),
+      borderRadius: 10, color: active ? "#a78bfa" : "#999",
+      cursor: "pointer", fontSize: 12, fontWeight: active ? 700 : 500,
+      padding: "6px 10px", whiteSpace: "nowrap", flexShrink: 0, transition: "all 0.15s",
+    }}>{children}</button>
   );
 }
 
