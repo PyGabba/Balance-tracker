@@ -204,23 +204,37 @@ export async function register({ nome, persone, pin, email }) {
 
 // ─── Recupero PIN dimenticato ───
 export async function requestPinReset(email) {
-  const res = await fetch(`${API_BASE}/api/auth/forgot-pin/request`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/auth/forgot-pin/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    if (err.name === "AbortError" || err.name === "TimeoutError") throw new Error("Il server non risponde, riprova tra qualche secondo");
+    throw err;
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || "Richiesta fallita");
   return json;
 }
 
 export async function confirmPinReset({ email, code, newPin }) {
-  const res = await fetch(`${API_BASE}/api/auth/forgot-pin/confirm`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ email, code, newPin }),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/auth/forgot-pin/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email, code, newPin }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    if (err.name === "AbortError" || err.name === "TimeoutError") throw new Error("Il server non risponde, riprova tra qualche secondo");
+    throw err;
+  }
   const raw = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(raw.error || "Reimpostazione fallita");
   const { token: _token, ...sessionData } = raw; // token is in httpOnly cookie
