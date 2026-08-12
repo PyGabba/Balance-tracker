@@ -4644,6 +4644,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
   // Email di recupero
   const [hasRecoveryEmail, setHasRecoveryEmail] = useState(null); // null = ancora in caricamento
+  const [recoveryEmailErrDetail, setRecoveryEmailErrDetail] = useState("");
   const [recoveryEmailInput, setRecoveryEmailInput] = useState("");
   const [recoveryEmailBusy, setRecoveryEmailBusy] = useState(false);
   const [editingRecoveryEmail, setEditingRecoveryEmail] = useState(false);
@@ -4652,20 +4653,17 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
   function loadRecoveryEmailStatus() {
     setHasRecoveryEmail(null);
+    setRecoveryEmailErrDetail("");
     let done = false;
     (async () => {
       try {
-        const h = await fetchHousehold();
-        // h === null significa "richiesta fallita" (fetchHousehold ritorna
-        // null su risposta non-ok), da distinguere da "email non impostata"
-        // (h.hasRecoveryEmail === false): il primo è un errore da segnalare,
-        // il secondo è uno stato reale da mostrare con l'invito a impostarla.
-        if (!done) setHasRecoveryEmail(h ? !!h.hasRecoveryEmail : "error");
+        const h = await fetchHousehold(); // ora rifiuta (throw) su risposta non-ok, non torna più null silenziosamente
+        if (!done) setHasRecoveryEmail(!!h.hasRecoveryEmail);
       } catch (e) {
-        if (!done) setHasRecoveryEmail("error");
+        if (!done) { setHasRecoveryEmail("error"); setRecoveryEmailErrDetail(e.message || "Errore sconosciuto"); }
       }
     })();
-    const t = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? "error" : prev); } }, 8000);
+    const t = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? "error" : prev); setRecoveryEmailErrDetail(prev => prev || "Timeout: nessuna risposta dal server dopo 8s"); } }, 8000);
     return () => { done = true; clearTimeout(t); };
   }
 
@@ -4778,7 +4776,10 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
           <div style={{ fontSize: 12, color: "#666" }}>Caricamento...</div>
         ) : hasRecoveryEmail === "error" ? (
           <>
-            <div style={{ fontSize: 12, color: "#F0A500", marginBottom: 10 }}>⚠️ Non siamo riusciti a verificare se hai già un'email impostata (problema di rete o server). Non è detto che manchi davvero — riprova prima di reinserirla.</div>
+            <div style={{ fontSize: 12, color: "#F0A500", marginBottom: 6 }}>⚠️ Non siamo riusciti a verificare se hai già un'email impostata. Non è detto che manchi davvero — riprova prima di reinserirla.</div>
+            {recoveryEmailErrDetail && (
+              <div style={{ fontSize: 10, color: "#888", fontFamily: "'Space Mono',monospace", marginBottom: 10, wordBreak: "break-word" }}>{recoveryEmailErrDetail}</div>
+            )}
             <button onClick={loadRecoveryEmailStatus} style={{
               padding: "10px 14px", background: "#F0A50022", border: "1px solid #F0A50055", borderRadius: 10,
               color: "#F0A500", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",

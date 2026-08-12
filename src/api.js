@@ -243,7 +243,10 @@ export async function setRecoveryEmail(email) {
 
 export async function fetchHousehold() {
   const res = await fetch(`${API_BASE}/api/household`, { headers: authHeaders(), credentials: "include" });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`HTTP ${res.status}${body.error ? " — " + body.error : ""}`);
+  }
   return await res.json();
 }
 
