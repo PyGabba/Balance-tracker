@@ -4186,7 +4186,7 @@ function LoginScreen({ onLogin }) {
   const [loginErrore, setLoginErrore] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [pinShake, setPinShake] = useState(false);
-  const PIN_LEN = 6; // auto-submit at 6 digits (minimum PIN length)
+  const PIN_LEN = 6; // lunghezza minima di riferimento per i puntini (non aziona più l'auto-submit)
 
   // Register state
   const [regNome, setRegNome] = useState("");
@@ -4276,18 +4276,13 @@ function LoginScreen({ onLogin }) {
     }
   };
 
-  // Auto-submit quando il PIN raggiunge PIN_LEN cifre — con un piccolo
-  // ritardo: se l'utente continua a digitare (PIN più lungo, 7-8 cifre),
-  // l'effetto viene ripulito prima di scattare e non tenta un login con
-  // cifre incomplete. Senza questo ritardo, un PIN più lungo di 6 non era
-  // di fatto digitabile: l'auto-submit falliva sulle prime 6 cifre e
-  // cancellava tutto prima che l'utente arrivasse alla settima.
+  // Auto-submit solo all'ottava cifra (lunghezza massima): non possiamo
+  // sapere quante cifre ha il PIN dell'utente finché non l'ha finito di
+  // digitare, quindi per ogni lunghezza inferiore si aspetta il tocco
+  // esplicito sul pulsante "Accedi".
   useEffect(() => {
-    if (pin.length === PIN_LEN && !loginLoading) {
-      const t = setTimeout(() => {
-        submitRef.current(pin);
-      }, 350);
-      return () => clearTimeout(t);
+    if (pin.length === 8 && !loginLoading) {
+      submitRef.current(pin);
     }
   }, [pin]);
 
@@ -4404,7 +4399,7 @@ function LoginScreen({ onLogin }) {
                 opacity invece di montarlo/smontarlo evita che il tastierino
                 si sposti mentre l'utente sta ancora digitando il PIN. */}
             {(() => {
-              const showAccedi = (pin.length >= 4 && pin.length < PIN_LEN) || pin.length > PIN_LEN;
+              const showAccedi = pin.length >= 4 && pin.length < 8;
               return (
                 <div style={{ minHeight: 72 }}>
                   <button
