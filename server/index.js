@@ -47,6 +47,23 @@ async function sendPinResetCode(toEmail, code, householdNome) {
   });
 }
 
+// Verifica all'avvio se l'invio email è davvero configurato e funzionante,
+// così un problema (password errata, 2FA non attiva, ecc.) si vede subito
+// nei log di boot invece di scoprirlo solo quando un utente prova il reset.
+async function verifyEmailSetup() {
+  if (!process.env.GMAIL_APP_PASSWORD) {
+    console.warn("⚠️  GMAIL_APP_PASSWORD non impostata: invio email (reset PIN, alert lockout) DISABILITATO.");
+    return;
+  }
+  try {
+    await getTransporter().verify();
+    console.log("✓ Servizio email (Gmail) configurato correttamente.");
+  } catch (e) {
+    console.error(`⚠️  Servizio email configurato ma NON funzionante: ${e.code || ""} ${e.message}`.trim());
+    console.error("   Cause comuni: password per le app di Gmail scaduta/revocata, verifica in due passaggi disattivata, o IP del server bloccato da Google.");
+  }
+}
+
 // ─── Lockout by IP and device ID — persisted in MongoDB, survives restarts ───
 const MAX_FAILS = 10;
 const LOCK_MINUTES = 10;
@@ -531,7 +548,7 @@ app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
     // tenere in sospeso la risposta HTTP — altrimenti il client resta
     // bloccato su "Invio..." indefinitamente.
     sendPinResetCode(email, code, household.nome).catch(mailErr => {
-      console.error("Invio email reset fallito:", mailErr.message);
+      console.error(`Invio email reset fallito [${mailErr.code || "?"}]: ${mailErr.message}${mailErr.response ? " — " + mailErr.response : ""}`);
       // Non sveliamo all'esterno se l'invio è fallito per non far trapelare l'esistenza dell'account
     });
     audit("pin_reset_requested", { householdId: household.householdId, ip: clientIp(req) });
@@ -1496,6 +1513,7 @@ async function start() {
   try {
     await connectDB();
     app.listen(PORT, () => console.log(`Finanza Tracker API on :${PORT}`));
+    verifyEmailSetup().catch(() => {}); // diagnostico, non deve mai bloccare l'avvio
     import("./keep-alive.js").catch(() => {});
   } catch (e) { console.error(e); process.exit(1); }
 }
