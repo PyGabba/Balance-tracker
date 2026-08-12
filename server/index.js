@@ -9,58 +9,70 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import nodemailer from "nodemailer";
 dotenv.config();
 
-// ─── Email ───
-const GMAIL_USER = "pygabba@gmail.com";
-function getTransporter() {
-  if (!process.env.GMAIL_APP_PASSWORD) return null;
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
-    connectionTimeout: 10000, // niente attese infinite se Gmail/SMTP non risponde
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
+// ─── Email (SendGrid via HTTPS API) ───
+// Render (e molti altri host cloud) blocca le porte SMTP in uscita
+// (465/587) per prevenire abusi da spam — nodemailer via Gmail SMTP va
+// quindi in ETIMEDOUT lì, a prescindere da quanto sia corretta la password.
+// SendGrid invia via una normale chiamata HTTPS (porta 443), la stessa
+// usata da tutto il resto dell'app: nessun blocco di rete possibile.
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || "pygabba@gmail.com"; // deve corrispondere al "Single Sender" verificato su SendGrid
+
+async function sendEmail(to, subject, text) {
+  if (!SENDGRID_API_KEY) throw new Error("Servizio email non configurato (manca SENDGRID_API_KEY)");
+  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${SENDGRID_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: FROM_EMAIL },
+      subject,
+      content: [{ type: "text/plain", value: text }],
+    }),
+    signal: AbortSignal.timeout(10000),
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`SendGrid HTTP ${res.status}: ${body.slice(0, 300)}`);
+  }
 }
 
 async function sendLockoutAlert(ip, deviceId) {
-  const transporter = getTransporter();
-  if (!transporter) return;
-  await transporter.sendMail({
-    from: GMAIL_USER,
-    to: GMAIL_USER,
-    subject: "⚠️ Balance Tracker: accesso bloccato",
-    text: `10 tentativi di PIN errati rilevati.\nIP: ${ip}\nDevice ID: ${deviceId || "sconosciuto"}\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`,
-  });
+  try {
+    await sendEmail(FROM_EMAIL, "⚠️ Balance Tracker: accesso bloccato",
+      `10 tentativi di PIN errati rilevati.\nIP: ${ip}\nDevice ID: ${deviceId || "sconosciuto"}\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`);
+  } catch (e) { console.error("Invio alert lockout fallito:", e.message); }
 }
 
 async function sendPinResetCode(toEmail, code, householdNome) {
-  const transporter = getTransporter();
-  if (!transporter) throw new Error("Servizio email non configurato");
-  await transporter.sendMail({
-    from: GMAIL_USER,
-    to: toEmail,
-    subject: "Codice per reimpostare il PIN",
-    text: `Ciao,\n\nHai richiesto di reimpostare il PIN per il gruppo "${householdNome}".\n\nIl tuo codice è: ${code}\n\nScade tra 15 minuti. Se non hai richiesto tu questo codice, ignora questa email: il tuo PIN resta invariato.`,
-  });
+  await sendEmail(toEmail, "Codice per reimpostare il PIN",
+    `Ciao,\n\nHai richiesto di reimpostare il PIN per il gruppo "${householdNome}".\n\nIl tuo codice è: ${code}\n\nScade tra 15 minuti. Se non hai richiesto tu questo codice, ignora questa email: il tuo PIN resta invariato.`);
 }
 
-// Verifica all'avvio se l'invio email è davvero configurato e funzionante,
-// così un problema (password errata, 2FA non attiva, ecc.) si vede subito
-// nei log di boot invece di scoprirlo solo quando un utente prova il reset.
+// Verifica all'avvio se l'invio email è davvero configurato e funzionante:
+// una chiamata leggera all'API di SendGrid che valida la chiave senza
+// spedire nulla, così un problema si vede subito nei log di boot invece di
+// scoprirlo solo quando un utente prova il reset.
 async function verifyEmailSetup() {
-  if (!process.env.GMAIL_APP_PASSWORD) {
-    console.warn("⚠️  GMAIL_APP_PASSWORD non impostata: invio email (reset PIN, alert lockout) DISABILITATO.");
+  if (!SENDGRID_API_KEY) {
+    console.warn("⚠️  SENDGRID_API_KEY non impostata: invio email (reset PIN, alert lockout) DISABILITATO.");
     return;
   }
   try {
-    await getTransporter().verify();
-    console.log("✓ Servizio email (Gmail) configurato correttamente.");
+    const res = await fetch("https://api.sendgrid.com/v3/user/account", {
+      headers: { "Authorization": `Bearer ${SENDGRID_API_KEY}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} — ${body.slice(0, 200)}`);
+    }
+    console.log(`✓ Servizio email (SendGrid) configurato correttamente. Mittente: ${FROM_EMAIL}`);
   } catch (e) {
-    console.error(`⚠️  Servizio email configurato ma NON funzionante: ${e.code || ""} ${e.message}`.trim());
-    console.error("   Cause comuni: password per le app di Gmail scaduta/revocata, verifica in due passaggi disattivata, o IP del server bloccato da Google.");
+    console.error(`⚠️  Servizio email configurato ma NON funzionante: ${e.message}`);
+    console.error("   Cause comuni: API key errata o revocata, oppure FROM_EMAIL non è un mittente verificato su SendGrid (serve la Single Sender Verification).");
   }
 }
 
@@ -543,10 +555,9 @@ app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
       householdId: household.householdId, codeHash, attempts: 0,
       createdAt: new Date(), expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     });
-    // Invio in background, senza "await": l'SMTP di Gmail può essere lento o
-    // bloccarsi (nessun timeout di default in nodemailer), e non deve mai
-    // tenere in sospeso la risposta HTTP — altrimenti il client resta
-    // bloccato su "Invio..." indefinitamente.
+    // Invio in background, senza "await": anche una chiamata HTTPS può
+    // essere lenta, e non deve mai tenere in sospeso la risposta al client
+    // — altrimenti resta bloccato su "Invio..." indefinitamente.
     sendPinResetCode(email, code, household.nome).catch(mailErr => {
       console.error(`Invio email reset fallito [${mailErr.code || "?"}]: ${mailErr.message}${mailErr.response ? " — " + mailErr.response : ""}`);
       // Non sveliamo all'esterno se l'invio è fallito per non far trapelare l'esistenza dell'account
