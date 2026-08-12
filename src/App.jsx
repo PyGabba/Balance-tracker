@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -4193,10 +4193,21 @@ function LoginScreen({ onLogin }) {
   const [regPersone, setRegPersone] = useState([{ nome: "", emoji: "😀" }, { nome: "", emoji: "😊" }]);
   const [regPin, setRegPin] = useState("");
   const [regPinConferma, setRegPinConferma] = useState("");
+  const [regEmail, setRegEmail] = useState("");
   const [regErrore, setRegErrore] = useState("");
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccesso, setRegSuccesso] = useState(false);
   const [emojiPickerIdx, setEmojiPickerIdx] = useState(null); // which persona's picker is open
+
+  // Forgot-PIN state: "email" (chiedi indirizzo) → "code" (codice + nuovo PIN)
+  const [forgotStep, setForgotStep] = useState(null); // null | "email" | "code"
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotCode, setForgotCode] = useState("");
+  const [forgotNewPin, setForgotNewPin] = useState("");
+  const [forgotNewPinConferma, setForgotNewPinConferma] = useState("");
+  const [forgotErrore, setForgotErrore] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState("");
 
   const [loginFromCache, setLoginFromCache] = useState(false);
   const [loginSubtitle, setLoginSubtitle] = useState("");
@@ -4303,9 +4314,10 @@ function LoginScreen({ onLogin }) {
     if (personeValide.length === 0) return setRegErrore("Aggiungi almeno una persona");
     if (regPin.length < 6) return setRegErrore("Il PIN deve essere di almeno 6 cifre");
     if (regPin !== regPinConferma) return setRegErrore("I PIN non coincidono");
+    if (regEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim())) return setRegErrore("Email non valida");
     setRegLoading(true);
     try {
-      await register({ nome: regNome.trim(), persone: personeValide.map(p => ({ nome: p.nome.trim(), emoji: p.emoji })), pin: regPin });
+      await register({ nome: regNome.trim(), persone: personeValide.map(p => ({ nome: p.nome.trim(), emoji: p.emoji })), pin: regPin, email: regEmail.trim() || undefined });
       setRegSuccesso(true);
       setTimeout(() => onLogin(), 1200);
     } catch (err) {
@@ -4317,6 +4329,41 @@ function LoginScreen({ onLogin }) {
   function removePersona(i) { setRegPersone(p => p.filter((_, idx) => idx !== i)); setEmojiPickerIdx(null); }
   function updatePersonaNome(i, val) { setRegPersone(p => p.map((x, idx) => idx === i ? { ...x, nome: val } : x)); }
   function updatePersonaEmoji(i, emoji) { setRegPersone(p => p.map((x, idx) => idx === i ? { ...x, emoji } : x)); setEmojiPickerIdx(null); }
+
+  function openForgotPin() {
+    setForgotStep("email"); setForgotEmail(""); setForgotCode(""); setForgotNewPin("");
+    setForgotNewPinConferma(""); setForgotErrore(""); setForgotMsg("");
+  }
+  function closeForgotPin() { setForgotStep(null); }
+
+  async function handleForgotRequest() {
+    setForgotErrore("");
+    if (!forgotEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim()))
+      return setForgotErrore("Inserisci un'email valida");
+    setForgotLoading(true);
+    try {
+      const res = await requestPinReset(forgotEmail.trim());
+      setForgotMsg(res.message || "Se l'email è collegata a un account, riceverai un codice a breve.");
+      setForgotStep("code");
+    } catch (err) {
+      setForgotErrore(err.message || "Richiesta fallita");
+    } finally { setForgotLoading(false); }
+  }
+
+  async function handleForgotConfirm() {
+    setForgotErrore("");
+    if (!/^\d{6}$/.test(forgotCode.trim())) return setForgotErrore("Inserisci il codice a 6 cifre ricevuto via email");
+    if (!/^\d{6,8}$/.test(forgotNewPin)) return setForgotErrore("Il nuovo PIN deve essere di 6-8 cifre");
+    if (forgotNewPin !== forgotNewPinConferma) return setForgotErrore("I PIN non coincidono");
+    setForgotLoading(true);
+    try {
+      await confirmPinReset({ email: forgotEmail.trim(), code: forgotCode.trim(), newPin: forgotNewPin });
+      closeForgotPin();
+      onLogin();
+    } catch (err) {
+      setForgotErrore(err.message || "Reimpostazione fallita");
+    } finally { setForgotLoading(false); }
+  }
 
   const sBtn = { width: "100%", padding: "16px", border: "none", borderRadius: 16, fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginTop: 16, transition: "all 0.3s", cursor: "pointer" };
   const smallInput = { ...inputStyle, padding: "12px 14px", fontSize: 14, background: "#111119" };
@@ -4417,6 +4464,12 @@ function LoginScreen({ onLogin }) {
                 </div>
               );
             })()}
+
+            <div style={{ textAlign: "center", marginTop: 4 }}>
+              <button onClick={openForgotPin} style={{ background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", textDecoration: "underline" }}>
+                Hai dimenticato il PIN?
+              </button>
+            </div>
           </>
         ) : regSuccesso ? (
           <div style={{ textAlign: "center", padding: 20 }}>
@@ -4500,6 +4553,15 @@ function LoginScreen({ onLogin }) {
                 }} />
             </div>
 
+            <div style={{ marginBottom: 6 }}>
+              <label style={labelStyle}>Email di recupero (opzionale)</label>
+              <input type="email" inputMode="email" value={regEmail}
+                onChange={e => setRegEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleRegister()}
+                placeholder="tuaemail@esempio.com" style={smallInput} />
+              <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>Se dimentichi il PIN, potrai reimpostarlo tramite questa email. Senza, non c'è modo di recuperare l'accesso.</div>
+            </div>
+
             {regErrore && <div style={{ marginTop: 10, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{regErrore}</div>}
 
             <button onClick={handleRegister} disabled={regLoading} style={{
@@ -4508,6 +4570,69 @@ function LoginScreen({ onLogin }) {
           </>
         )}
       </div>}
+
+      {forgotStep && (
+        <div style={{
+          position: "fixed", inset: 0, background: "#000000cc", zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }}>
+          <div style={{ background: "#1a1a28", borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, border: "1px solid #252538" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#eee" }}>PIN dimenticato</div>
+              <button onClick={closeForgotPin} style={{ background: "none", border: "none", color: "#666", fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
+
+            {forgotStep === "email" ? (
+              <>
+                <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+                  Inserisci l'email di recupero collegata al tuo gruppo. Se corrisponde, ti invieremo un codice per reimpostare il PIN.
+                </div>
+                <input type="email" inputMode="email" autoFocus value={forgotEmail}
+                  onChange={e => setForgotEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleForgotRequest()}
+                  placeholder="tuaemail@esempio.com" style={{ ...smallInput, marginBottom: 12 }} />
+                {forgotErrore && <div style={{ color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginBottom: 10, textAlign: "center" }}>{forgotErrore}</div>}
+                <button onClick={handleForgotRequest} disabled={forgotLoading} style={{
+                  ...sBtn, marginTop: 4, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: forgotLoading ? 0.6 : 1,
+                }}>{forgotLoading ? "Invio..." : "Invia codice"}</button>
+              </>
+            ) : (
+              <>
+                {forgotMsg && <div style={{ fontSize: 12, color: "#4ECDC4", marginBottom: 14, textAlign: "center" }}>{forgotMsg}</div>}
+
+                <label style={labelStyle}>Codice ricevuto via email</label>
+                <input type="text" inputMode="numeric" maxLength={6} value={forgotCode}
+                  onChange={e => setForgotCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="123456" style={{ ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 6, textAlign: "center", marginBottom: 12 }} />
+
+                <label style={labelStyle}>Nuovo PIN (6-8 cifre)</label>
+                <input type="password" inputMode="numeric" maxLength={8} value={forgotNewPin}
+                  onChange={e => setForgotNewPin(e.target.value.replace(/\D/g, ""))}
+                  placeholder="••••••" style={{ ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 8, textAlign: "center", marginBottom: 12 }} />
+
+                <label style={labelStyle}>Conferma nuovo PIN</label>
+                <input type="password" inputMode="numeric" maxLength={8} value={forgotNewPinConferma}
+                  onChange={e => setForgotNewPinConferma(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={e => e.key === "Enter" && handleForgotConfirm()}
+                  placeholder="••••••" style={{
+                    ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 8, textAlign: "center", marginBottom: 6,
+                    borderColor: forgotNewPinConferma && forgotNewPin !== forgotNewPinConferma ? "#FF6B6B" : "#252538",
+                  }} />
+
+                {forgotErrore && <div style={{ color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginTop: 6, textAlign: "center" }}>{forgotErrore}</div>}
+
+                <button onClick={handleForgotConfirm} disabled={forgotLoading} style={{
+                  ...sBtn, background: "linear-gradient(135deg, #4ECDC4, #3ab8b0)", color: "#0a0a12", opacity: forgotLoading ? 0.6 : 1,
+                }}>{forgotLoading ? "Reimpostazione..." : "Reimposta PIN e accedi"}</button>
+
+                <button onClick={() => setForgotStep("email")} style={{ width: "100%", background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", marginTop: 10, textDecoration: "underline" }}>
+                  Non hai ricevuto il codice? Riprova
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4516,6 +4641,36 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
   const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
+
+  // Email di recupero
+  const [hasRecoveryEmail, setHasRecoveryEmail] = useState(null); // null = ancora in caricamento
+  const [recoveryEmailInput, setRecoveryEmailInput] = useState("");
+  const [recoveryEmailBusy, setRecoveryEmailBusy] = useState(false);
+  const [editingRecoveryEmail, setEditingRecoveryEmail] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const h = await fetchHousehold();
+      setHasRecoveryEmail(h ? !!h.hasRecoveryEmail : false);
+    })();
+  }, []);
+
+  async function handleSaveRecoveryEmail() {
+    const email = recoveryEmailInput.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast("Inserisci un'email valida", "error");
+      return;
+    }
+    setRecoveryEmailBusy(true);
+    try {
+      await setRecoveryEmail(email);
+      setHasRecoveryEmail(true);
+      setEditingRecoveryEmail(false);
+      setRecoveryEmailInput("");
+      toast("Email di recupero salvata.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setRecoveryEmailBusy(false);
+  }
 
   // Widget key state
   const [widgetUrl, setWidgetUrl] = useState(null);
@@ -4600,6 +4755,45 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Email di recupero PIN */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Email di recupero PIN</div>
+        {hasRecoveryEmail === null ? (
+          <div style={{ fontSize: 12, color: "#666" }}>Caricamento...</div>
+        ) : hasRecoveryEmail && !editingRecoveryEmail ? (
+          <>
+            <div style={{ fontSize: 12, color: "#4ECDC4", marginBottom: 10 }}>✓ Email impostata. Se dimentichi il PIN, potrai reimpostarlo da "Hai dimenticato il PIN?" nella schermata di accesso.</div>
+            <button onClick={() => setEditingRecoveryEmail(true)} style={{
+              padding: "10px 14px", background: "none", border: "1px solid #252538", borderRadius: 10,
+              color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+            }}>Cambia email</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
+              {hasRecoveryEmail ? "Inserisci la nuova email di recupero." : "Senza un'email di recupero, un PIN dimenticato significa perdere l'accesso ai tuoi dati senza possibilità di recuperarli. Impostane una ora."}
+            </div>
+            <input type="email" inputMode="email" value={recoveryEmailInput} onChange={e => setRecoveryEmailInput(e.target.value)}
+              placeholder="tuaemail@esempio.com" style={{
+                width: "100%", boxSizing: "border-box", padding: "10px 12px", background: "#111119", border: "1px solid #252538",
+                borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: "none", marginBottom: 10,
+              }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              {editingRecoveryEmail && (
+                <button onClick={() => { setEditingRecoveryEmail(false); setRecoveryEmailInput(""); }} style={{
+                  padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: "#888", fontSize: 13, cursor: "pointer",
+                }}>Annulla</button>
+              )}
+              <button onClick={handleSaveRecoveryEmail} disabled={recoveryEmailBusy} style={{
+                flex: 1, padding: "10px", background: recoveryEmailInput.trim() ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
+                border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                fontFamily: "'DM Sans',sans-serif", opacity: recoveryEmailBusy ? 0.6 : 1,
+              }}>{recoveryEmailBusy ? "Salvataggio..." : "Salva email"}</button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Widget iPhone card */}

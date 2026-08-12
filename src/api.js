@@ -181,12 +181,12 @@ export async function login(pin) {
   throw serverError || new Error("Login fallito");
 }
 
-export async function register({ nome, persone, pin }) {
+export async function register({ nome, persone, pin, email }) {
   const res = await fetch(`${API_BASE}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ nome, persone, pin }),
+    body: JSON.stringify({ nome, persone, pin, email: email || undefined }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -200,6 +200,51 @@ export async function register({ nome, persone, pin }) {
   savePinHash(pin);
   apiAvailable = true;
   return data;
+}
+
+// ─── Recupero PIN dimenticato ───
+export async function requestPinReset(email) {
+  const res = await fetch(`${API_BASE}/api/auth/forgot-pin/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Richiesta fallita");
+  return json;
+}
+
+export async function confirmPinReset({ email, code, newPin }) {
+  const res = await fetch(`${API_BASE}/api/auth/forgot-pin/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, code, newPin }),
+  });
+  const raw = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(raw.error || "Reimpostazione fallita");
+  const { token: _token, ...sessionData } = raw; // token is in httpOnly cookie
+  currentHousehold = sessionData;
+  saveSession(sessionData);
+  savePersistentSession(sessionData);
+  savePinHash(newPin);
+  apiAvailable = true;
+  return sessionData;
+}
+
+export async function setRecoveryEmail(email) {
+  const res = await fetch(`${API_BASE}/api/auth/recovery-email`, {
+    method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify({ email }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Errore");
+  return json;
+}
+
+export async function fetchHousehold() {
+  const res = await fetch(`${API_BASE}/api/household`, { headers: authHeaders(), credentials: "include" });
+  if (!res.ok) return null;
+  return await res.json();
 }
 
 export async function changePin(newPin) {
