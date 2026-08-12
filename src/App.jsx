@@ -4649,10 +4649,22 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
   const [editingRecoveryEmail, setEditingRecoveryEmail] = useState(false);
 
   useEffect(() => {
+    let done = false;
     (async () => {
-      const h = await fetchHousehold();
-      setHasRecoveryEmail(h ? !!h.hasRecoveryEmail : false);
+      try {
+        const h = await fetchHousehold();
+        if (!done) setHasRecoveryEmail(h ? !!h.hasRecoveryEmail : false);
+      } catch (e) {
+        // Rete assente o richiesta fallita: non lasciare la card bloccata su
+        // "Caricamento..." — mostriamo il form per impostare l'email, che è
+        // il fallback più utile (nel peggiore dei casi l'utente la reinvia).
+        if (!done) setHasRecoveryEmail(false);
+      }
     })();
+    // Guardia extra: se dopo 8s la richiesta non è ancora tornata (promise
+    // rimasta appesa per un motivo qualunque), sblocca comunque la UI.
+    const t = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? false : prev); } }, 8000);
+    return () => { done = true; clearTimeout(t); };
   }, []);
 
   async function handleSaveRecoveryEmail() {
