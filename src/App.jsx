@@ -1431,7 +1431,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
   const [descrizione, setDescrizione] = useState(t.descrizione || "");
   const [data, setData] = useState(t.data);
   const [pagatoDa, setPagatoDa] = useState(t.pagatoDa || persone[0]?.id || "");
-  const [splits, setSplits] = useState(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : persone.map(p => ({ personaId: p.id, quota: Math.round(100 / persone.length) }))));
+  const [splits, setSplits] = useState(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : []));
   const [extraPersone, setExtraPersone] = useState(t.extraPersone || []);
   const [intestataA, setIntestataA] = useState(t.intestataA || persone[0]?.id || "");
   const [eContoId, setEContoId] = useState(t.contoId || "");
@@ -1441,7 +1441,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
     setTipo(t.tipo); setImporto(String(t.importo)); setCategoria(t.categoria || "altro");
     setDescrizione(t.descrizione || ""); setData(t.data);
     setPagatoDa(t.pagatoDa || persone[0]?.id || "");
-    setSplits(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : persone.map(p => ({ personaId: p.id, quota: Math.round(100 / persone.length) }))));
+    setSplits(t.splits || (t.splitPagante != null ? [{ personaId: t.pagatoDa || persone[0]?.id, quota: t.splitPagante }, { personaId: persone.find(p=>p.id!==(t.pagatoDa||persone[0]?.id))?.id || persone[1]?.id, quota: 100 - (t.splitPagante||0) }] : []));
     setExtraPersone(t.extraPersone || []);
     setIntestataA(t.intestataA || persone[0]?.id || "");
     setEContoId(t.contoId || "");
