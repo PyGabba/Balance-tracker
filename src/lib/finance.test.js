@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio } from "./finance.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./finance.js";
 
 const persone = [
   { id: "g", nome: "Gabriele" },
@@ -142,5 +142,89 @@ describe("calcolaSettleViaggio", () => {
       ],
     });
     expect(settlements).toEqual([{ da: "b", a: "a", importo: 75 }]);
+  });
+});
+
+describe("filtraTransazioni", () => {
+  const categorie = [
+    { id: "cibo", nome: "Cibo", emoji: "🍕" },
+    { id: "trasporti", nome: "Trasporti", emoji: "🚗" },
+  ];
+  const tx = [
+    { id: 1, tipo: "uscita", importo: 45.5, categoria: "cibo", descrizione: "Cena sushi", data: "2026-08-01", pagatoDa: "g", splits: [{ personaId: "g", quota: 50 }, { personaId: "m", quota: 50 }] },
+    { id: 2, tipo: "uscita", importo: 120, categoria: "trasporti", descrizione: "Benzina", data: "2026-08-03", pagatoDa: "m", splits: [{ personaId: "m", quota: 100 }], contoId: "conto1" },
+    { id: 3, tipo: "entrata", importo: 1500, categoria: "entrata", descrizione: "Stipendio agosto", data: "2026-08-05", intestataA: "g" },
+    { id: 4, tipo: "trasferimento", importo: 200, descrizione: "Giroconto risparmi", data: "2026-08-06", contoDa: "conto1", contoA: "conto2" },
+    { id: 5, tipo: "uscita", importo: 8.9, categoria: "cibo", descrizione: "Caffè", data: "2026-08-07", pagatoDa: "g", splits: [{ personaId: "g", quota: 100 }] },
+  ];
+
+  it("senza filtri restituisce tutto", () => {
+    expect(filtraTransazioni(tx, {}, categorie)).toHaveLength(5);
+  });
+
+  it("query su descrizione, case-insensitive", () => {
+    expect(filtraTransazioni(tx, { query: "SUSHI" }, categorie).map(t => t.id)).toEqual([1]);
+  });
+
+  it("query accent-insensitive", () => {
+    expect(filtraTransazioni(tx, { query: "caffe" }, categorie).map(t => t.id)).toEqual([5]);
+  });
+
+  it("query matcha anche il nome categoria", () => {
+    expect(filtraTransazioni(tx, { query: "cibo" }, categorie).map(t => t.id)).toEqual([1, 5]);
+  });
+
+  it("query multi-parola in AND", () => {
+    expect(filtraTransazioni(tx, { query: "cena cibo" }, categorie).map(t => t.id)).toEqual([1]);
+    expect(filtraTransazioni(tx, { query: "cena benzina" }, categorie)).toHaveLength(0);
+  });
+
+  it("filtro tipo", () => {
+    expect(filtraTransazioni(tx, { tipo: "entrata" }, categorie).map(t => t.id)).toEqual([3]);
+  });
+
+  it("filtro categoria", () => {
+    expect(filtraTransazioni(tx, { categoria: "cibo" }, categorie)).toHaveLength(2);
+  });
+
+  it("filtro persona: pagatoDa, intestataA e splits", () => {
+    // g paga 1 e 5, è intestatario di 3, partecipa allo split di 1
+    expect(filtraTransazioni(tx, { personaId: "g" }, categorie).map(t => t.id)).toEqual([1, 3, 5]);
+    // m paga 2 e partecipa allo split di 1
+    expect(filtraTransazioni(tx, { personaId: "m" }, categorie).map(t => t.id)).toEqual([1, 2]);
+  });
+
+  it("splits con quota 0 non contano come partecipazione", () => {
+    const t0 = [{ id: 9, tipo: "uscita", importo: 10, pagatoDa: "g", splits: [{ personaId: "g", quota: 100 }, { personaId: "m", quota: 0 }] }];
+    expect(filtraTransazioni(t0, { personaId: "m" }, categorie)).toHaveLength(0);
+  });
+
+  it("filtro conto include i giroconti (contoDa/contoA)", () => {
+    expect(filtraTransazioni(tx, { contoId: "conto1" }, categorie).map(t => t.id)).toEqual([2, 4]);
+    expect(filtraTransazioni(tx, { contoId: "conto2" }, categorie).map(t => t.id)).toEqual([4]);
+  });
+
+  it("range importo, anche con virgola decimale", () => {
+    expect(filtraTransazioni(tx, { minImporto: "100" }, categorie).map(t => t.id)).toEqual([2, 3, 4]);
+    expect(filtraTransazioni(tx, { maxImporto: "45,5" }, categorie).map(t => t.id)).toEqual([1, 5]);
+    expect(filtraTransazioni(tx, { minImporto: 100, maxImporto: 300 }, categorie).map(t => t.id)).toEqual([2, 4]);
+  });
+
+  it("filtri combinati", () => {
+    expect(filtraTransazioni(tx, { tipo: "uscita", personaId: "g", maxImporto: 10 }, categorie).map(t => t.id)).toEqual([5]);
+  });
+
+  it("input non valido nel range viene ignorato", () => {
+    expect(filtraTransazioni(tx, { minImporto: "abc" }, categorie)).toHaveLength(5);
+  });
+});
+
+describe("contaFiltriAttivi", () => {
+  it("conta solo i filtri valorizzati", () => {
+    expect(contaFiltriAttivi({})).toBe(0);
+    expect(contaFiltriAttivi({ tipo: "", categoria: "", minImporto: "" })).toBe(0);
+    expect(contaFiltriAttivi({ tipo: "uscita", categoria: "cibo" })).toBe(2);
+    expect(contaFiltriAttivi({ personaId: "g", contoId: "c1", minImporto: "10", maxImporto: "20" })).toBe(4);
+    expect(contaFiltriAttivi({ minImporto: "abc" })).toBe(0);
   });
 });

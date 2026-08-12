@@ -117,6 +117,57 @@ export function calcolaValorePortfolio(positions, manualPrices) {
 
 // Pareggio spese di un viaggio: bilanci per partecipante dalle quote, poi
 // matching greedy per minimizzare il numero di pagamenti.
+// Ricerca e filtri avanzati sulle transazioni.
+// filtri: { query, tipo, categoria, personaId, contoId, minImporto, maxImporto }
+// - query: match case/accent-insensitive su descrizione + nome categoria (AND fra parole)
+// - personaId: match su pagatoDa, intestataA, ricevutoDa o partecipazione negli splits
+// - contoId: match su contoId oppure contoDa/contoA (giroconti)
+function normalizza(s) {
+  return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function parseImporto(v) {
+  if (v == null || v === "") return null;
+  const n = parseFloat(String(v).replace(",", "."));
+  return Number.isNaN(n) ? null : n;
+}
+
+export function filtraTransazioni(transazioni, filtri = {}, categorie = []) {
+  const parole = normalizza(filtri.query || "").trim().split(/\s+/).filter(Boolean);
+  const min = parseImporto(filtri.minImporto);
+  const max = parseImporto(filtri.maxImporto);
+
+  return transazioni.filter(t => {
+    if (filtri.tipo && t.tipo !== filtri.tipo) return false;
+    if (filtri.categoria && t.categoria !== filtri.categoria) return false;
+    if (filtri.contoId && t.contoId !== filtri.contoId && t.contoDa !== filtri.contoId && t.contoA !== filtri.contoId) return false;
+    if (filtri.personaId) {
+      const pid = filtri.personaId;
+      const inSplits = Array.isArray(t.splits) && t.splits.some(s => s.personaId === pid && (s.quota || 0) > 0);
+      if (t.pagatoDa !== pid && t.intestataA !== pid && t.ricevutoDa !== pid && !inSplits) return false;
+    }
+    if (min != null && t.importo < min) return false;
+    if (max != null && t.importo > max) return false;
+    if (parole.length > 0) {
+      const cat = categorie.find(c => c.id === t.categoria);
+      const testo = normalizza(`${t.descrizione || ""} ${cat?.nome || ""} ${t.categoria || ""}`);
+      if (!parole.every(p => testo.includes(p))) return false;
+    }
+    return true;
+  });
+}
+
+export function contaFiltriAttivi(filtri = {}) {
+  let n = 0;
+  if (filtri.tipo) n++;
+  if (filtri.categoria) n++;
+  if (filtri.personaId) n++;
+  if (filtri.contoId) n++;
+  if (parseImporto(filtri.minImporto) != null) n++;
+  if (parseImporto(filtri.maxImporto) != null) n++;
+  return n;
+}
+
 export function calcolaSettleViaggio(trip) {
   const balances = {};
   for (const e of trip.expenses) {
