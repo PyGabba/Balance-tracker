@@ -4648,24 +4648,26 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
   const [recoveryEmailBusy, setRecoveryEmailBusy] = useState(false);
   const [editingRecoveryEmail, setEditingRecoveryEmail] = useState(false);
 
-  useEffect(() => {
+  useEffect(() => { loadRecoveryEmailStatus(); }, []);
+
+  function loadRecoveryEmailStatus() {
+    setHasRecoveryEmail(null);
     let done = false;
     (async () => {
       try {
         const h = await fetchHousehold();
-        if (!done) setHasRecoveryEmail(h ? !!h.hasRecoveryEmail : false);
+        // h === null significa "richiesta fallita" (fetchHousehold ritorna
+        // null su risposta non-ok), da distinguere da "email non impostata"
+        // (h.hasRecoveryEmail === false): il primo è un errore da segnalare,
+        // il secondo è uno stato reale da mostrare con l'invito a impostarla.
+        if (!done) setHasRecoveryEmail(h ? !!h.hasRecoveryEmail : "error");
       } catch (e) {
-        // Rete assente o richiesta fallita: non lasciare la card bloccata su
-        // "Caricamento..." — mostriamo il form per impostare l'email, che è
-        // il fallback più utile (nel peggiore dei casi l'utente la reinvia).
-        if (!done) setHasRecoveryEmail(false);
+        if (!done) setHasRecoveryEmail("error");
       }
     })();
-    // Guardia extra: se dopo 8s la richiesta non è ancora tornata (promise
-    // rimasta appesa per un motivo qualunque), sblocca comunque la UI.
-    const t = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? false : prev); } }, 8000);
+    const t = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? "error" : prev); } }, 8000);
     return () => { done = true; clearTimeout(t); };
-  }, []);
+  }
 
   async function handleSaveRecoveryEmail() {
     const email = recoveryEmailInput.trim();
@@ -4774,6 +4776,14 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Email di recupero PIN</div>
         {hasRecoveryEmail === null ? (
           <div style={{ fontSize: 12, color: "#666" }}>Caricamento...</div>
+        ) : hasRecoveryEmail === "error" ? (
+          <>
+            <div style={{ fontSize: 12, color: "#F0A500", marginBottom: 10 }}>⚠️ Non siamo riusciti a verificare se hai già un'email impostata (problema di rete o server). Non è detto che manchi davvero — riprova prima di reinserirla.</div>
+            <button onClick={loadRecoveryEmailStatus} style={{
+              padding: "10px 14px", background: "#F0A50022", border: "1px solid #F0A50055", borderRadius: 10,
+              color: "#F0A500", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+            }}>Riprova</button>
+          </>
         ) : hasRecoveryEmail && !editingRecoveryEmail ? (
           <>
             <div style={{ fontSize: 12, color: "#4ECDC4", marginBottom: 10 }}>✓ Email impostata. Se dimentichi il PIN, potrai reimpostarlo da "Hai dimenticato il PIN?" nella schermata di accesso.</div>
