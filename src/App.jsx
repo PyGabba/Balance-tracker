@@ -1048,6 +1048,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
     t.ricorrenza?.frequenza && t.ricorrenza?.prossimaData &&
     t.ricorrenza.prossimaData <= oggiStr
   );
+  const daVerificareList = transazioni.filter(t => t.daVerificare);
 
   return (
     <div>
@@ -1081,6 +1082,21 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                 : `${ricorrentiInScadenza.length} transazioni ricorrenti rinnovate`}
             </div>
             <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>Aggiunte automaticamente oggi</div>
+          </div>
+        </div>
+      )}
+
+      {/* Variable recurring — needs amount check */}
+      {daVerificareList.length > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 14, padding: "12px 14px", marginBottom: 12, border: "1px solid #FFB02044", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 18 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#FFB020" }}>
+              {daVerificareList.length === 1
+                ? `Verifica l'importo di "${daVerificareList[0].descrizione || daVerificareList[0].categoria}"`
+                : `${daVerificareList.length} spese ricorrenti da verificare`}
+            </div>
+            <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>Importo variabile — controlla e correggi se serve</div>
           </div>
         </div>
       )}
@@ -1482,6 +1498,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
       extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
       contoId: eContoId || null,
+      ...(t.daVerificare ? { daVerificare: false } : {}),
     });
     setSalvato(true);
     setTimeout(() => setSalvato(false), 1000);
@@ -1519,6 +1536,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
           <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {t.descrizione || cat.nome}
             {t.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: "#6C5CE7" }}>🔁</span>}
+            {t.daVerificare && <span title="Verifica importo" style={{ fontSize: 10, marginLeft: 5, color: "#FFB020" }}>⚠️</span>}
           </div>
           <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(t.data)}
@@ -1713,6 +1731,7 @@ const RICORRENZA_OPTIONS = [
   { id: "no", label: "Nessuna" },
   { id: "settimanale", label: "Ogni settimana" },
   { id: "mensile", label: "Ogni mese" },
+  { id: "trimestrale", label: "Ogni 3 mesi" },
   { id: "annuale", label: "Ogni anno" },
 ];
 
@@ -1720,6 +1739,7 @@ function calcolaProssimaData(data, frequenza) {
   const d = new Date(data + "T12:00:00");
   if (frequenza === "settimanale") d.setDate(d.getDate() + 7);
   else if (frequenza === "mensile") d.setMonth(d.getMonth() + 1);
+  else if (frequenza === "trimestrale") d.setMonth(d.getMonth() + 3);
   else if (frequenza === "annuale") d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().slice(0, 10);
 }
@@ -1754,6 +1774,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
   const [ricorrenza, setRicorrenza] = useState("no");
+  const [importoVariabile, setImportoVariabile] = useState(false);
   const [contoId, setContoId] = useState("");
   const [contoDa, setContoDa] = useState("");
   const [contoA, setContoA] = useState("");
@@ -1805,6 +1826,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
     const ricorrenzaData = ricorrenza !== "no" ? {
       frequenza: ricorrenza,
       prossimaData: calcolaProssimaData(data, ricorrenza),
+      variabile: importoVariabile,
     } : null;
     onAggiungi({
       id: generaId(), tipo, importo: val,
@@ -1817,7 +1839,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
       contoId: contoId || null,
       ricorrenza: ricorrenzaData,
     });
-    setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setSalvato(true);
+    setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setImportoVariabile(false); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
 
@@ -2018,9 +2040,15 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
           ))}
         </div>
         {ricorrenza !== "no" && (
-          <div style={{ fontSize: 11, color: "#6C5CE7", marginTop: 8 }}>
-            🔁 Prossima: {calcolaProssimaData(data, ricorrenza)}
-          </div>
+          <>
+            <div style={{ fontSize: 11, color: "#6C5CE7", marginTop: 8 }}>
+              🔁 Prossima: {calcolaProssimaData(data, ricorrenza)}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={importoVariabile} onChange={e => setImportoVariabile(e.target.checked)} style={{ width: 16, height: 16, accentColor: "#6C5CE7" }} />
+              <span style={{ fontSize: 12, color: "#999" }}>Importo variabile (es. bolletta) — chiedi verifica ad ogni rinnovo</span>
+            </label>
+          </>
         )}
       </div>}
       <button onClick={handleSubmit} style={{
@@ -5190,11 +5218,12 @@ export default function FinanzaApp() {
       const nuovaTx = { ...t, id: generaId(), data: t.ricorrenza.prossimaData };
       delete nuovaTx._id;
       delete nuovaTx.ricorrenza;
+      if (t.ricorrenza.variabile) nuovaTx.daVerificare = true;
       try {
         const saved = await addTransaction(nuovaTx);
         nuove.push(saved);
         // Advance the template's prossimaData so it doesn't fire again this period
-        const updatedRicorrenza = { frequenza: t.ricorrenza.frequenza, prossimaData: newProssimaData };
+        const updatedRicorrenza = { frequenza: t.ricorrenza.frequenza, prossimaData: newProssimaData, variabile: t.ricorrenza.variabile };
         await updateTransaction(t.id, { ricorrenza: updatedRicorrenza });
         setTransazioni(prev => prev.map(tx => tx.id === t.id ? { ...tx, ricorrenza: updatedRicorrenza } : tx));
       } catch (e) { console.error("Ricorrente error:", e); }
