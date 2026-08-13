@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -2335,7 +2335,7 @@ function ViaggiView({ persone }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>
                       {t.nome}
-                      {t.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>✓ Saldato</span>}
+                      {t.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>{t.autoSettled ? "✓ Chiuso automaticamente" : "✓ Saldato"}</span>}
                     </div>
                     <div style={{ fontSize: 12, color: "#666", fontFamily: "'DM Sans',sans-serif" }}>{t.descrizione}</div>
                     <div style={{ fontSize: 11, color: "#555", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
@@ -4779,7 +4779,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange }) {
+function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione }) {
   const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
@@ -4849,6 +4849,63 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       toast("Chiave revocata.", "success");
     } catch (e) { toast("Errore: " + e.message, "error"); }
     setWidgetBusy(false);
+  }
+
+  // Cestino (trash) state
+  const [cestinoAperto, setCestinoAperto] = useState(false);
+  const [cestino, setCestino] = useState([]);
+  const [cestinoLoading, setCestinoLoading] = useState(false);
+  const [cestinoBusyId, setCestinoBusyId] = useState(null);
+
+  async function loadCestino() {
+    setCestinoLoading(true);
+    try { setCestino(await fetchTrash()); } catch (e) { toast("Errore nel caricamento del cestino: " + e.message, "error"); }
+    setCestinoLoading(false);
+  }
+
+  function toggleCestino() {
+    const next = !cestinoAperto;
+    setCestinoAperto(next);
+    if (next) loadCestino();
+  }
+
+  async function handleRestore(id) {
+    setCestinoBusyId(id);
+    try {
+      const restored = await restoreTransaction(id);
+      setCestino(prev => prev.filter(t => t.id !== id));
+      onRestoreTransazione?.(restored);
+      toast("Transazione ripristinata.", "success");
+    } catch (e) { toast("Errore nel ripristino: " + e.message, "error"); }
+    setCestinoBusyId(null);
+  }
+
+  async function handlePermanentDelete(id) {
+    if (!confirm("Eliminare definitivamente questa transazione? Non sarà più recuperabile.")) return;
+    setCestinoBusyId(id);
+    try {
+      await permanentDeleteTransaction(id);
+      setCestino(prev => prev.filter(t => t.id !== id));
+      toast("Transazione eliminata definitivamente.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setCestinoBusyId(null);
+  }
+
+  async function handleEmptyCestino() {
+    if (cestino.length === 0) return;
+    if (!confirm(`Svuotare il cestino? ${cestino.length} transazioni verranno eliminate definitivamente.`)) return;
+    try {
+      await emptyTrash();
+      setCestino([]);
+      toast("Cestino svuotato.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+  }
+
+  function giorniRimanenti(deletedAt) {
+    const eliminato = new Date(deletedAt);
+    const scadenza = new Date(eliminato.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const giorni = Math.ceil((scadenza - new Date()) / (24 * 60 * 60 * 1000));
+    return Math.max(giorni, 0);
   }
 
   // Category editor state
@@ -5046,6 +5103,53 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
           <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", border: "1px dashed #252538", borderRadius: 10, background: "transparent", color: "#666", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
             + Nuova categoria
           </button>
+        )}
+      </div>
+
+      {/* Cestino */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 20 }}>
+        <div onClick={toggleCestino} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee" }}>🗑️ Cestino</div>
+          <span style={{ fontSize: 13, color: "#666" }}>{cestinoAperto ? "▲" : "▼"}</span>
+        </div>
+        {cestinoAperto && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11, color: "#666", marginBottom: 12, lineHeight: 1.5 }}>
+              Le transazioni eliminate restano qui 30 giorni prima di essere rimosse definitivamente.
+            </div>
+            {cestinoLoading ? (
+              <div style={{ textAlign: "center", color: "#666", fontSize: 12, padding: 12 }}>Caricamento...</div>
+            ) : cestino.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#555", fontSize: 12, padding: 12 }}>Il cestino è vuoto.</div>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  {cestino.map(t => {
+                    const cat = categorie.find(c => c.id === t.categoria);
+                    const busy = cestinoBusyId === t.id;
+                    return (
+                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#111119", borderRadius: 12, padding: "10px 12px", opacity: busy ? 0.5 : 1 }}>
+                        <span style={{ fontSize: 18, flexShrink: 0 }}>{cat?.emoji || (t.tipo === "entrata" ? "💰" : "📦")}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {t.descrizione || cat?.nome || t.categoria}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#666" }}>
+                            {formattaValuta(t.importo)} · {giorniRimanenti(t.deletedAt)}g rimasti
+                          </div>
+                        </div>
+                        <button disabled={busy} onClick={() => handleRestore(t.id)} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>Ripristina</button>
+                        <button disabled={busy} onClick={() => handlePermanentDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B88", fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={handleEmptyCestino} style={{ width: "100%", padding: "10px", border: "1px solid #2a1a1a", borderRadius: 10, background: "transparent", color: "#FF6B6B", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
+                  Svuota cestino
+                </button>
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -5466,6 +5570,7 @@ export default function FinanzaApp() {
             onDeleted={() => { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }}
             categorie={categorieUscita}
             onCategorieChange={(cats) => { setCategorieUscita(cats); saveCategorie(cats); }}
+            onRestoreTransazione={(tx) => setTransazioni(prev => [...prev, tx])}
           />
         )}
       </div>

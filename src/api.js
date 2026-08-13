@@ -391,6 +391,36 @@ export async function deleteTransaction(id) {
   return true;
 }
 
+export async function fetchTrash() {
+  if (!(await checkAPI()) || !currentHousehold) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/transactions/trash`, { headers: authHeaders(), credentials: "include" });
+    if (!res.ok) throw new Error(res.status);
+    return await res.json();
+  } catch (err) {
+    console.error("fetchTrash:", err);
+    return [];
+  }
+}
+
+export async function restoreTransaction(id) {
+  const res = await fetch(`${API_BASE}/api/transactions/${id}/restore`, { method: "POST", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error(res.status);
+  return await res.json();
+}
+
+export async function permanentDeleteTransaction(id) {
+  const res = await fetch(`${API_BASE}/api/transactions/${id}/permanent`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error(res.status);
+  return true;
+}
+
+export async function emptyTrash() {
+  const res = await fetch(`${API_BASE}/api/transactions/trash/empty`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error(res.status);
+  return await res.json();
+}
+
 export async function updateTransaction(id, updates) {
   if (await checkAPI() && currentHousehold) {
     try {
