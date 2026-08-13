@@ -200,6 +200,7 @@ async function connectDB() {
   auditCol = db.collection("audit_log");
   tripsCol = db.collection("trips");
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
+  await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
   await tripsCol.createIndex({ householdId: 1 });
   await auditCol.createIndex({ ts: -1 });
@@ -272,12 +273,12 @@ function nextRicorrenzaData(dateStr, frequenza) {
 }
 
 let ricorrentiRunning = false;
-async function generaRicorrentiDovute() {
+export async function generaRicorrentiDovute() {
   if (ricorrentiRunning || !transactionsCol) return;
   ricorrentiRunning = true;
   try {
     const oggi = new Date().toISOString().slice(0, 10);
-    const dovute = await transactionsCol.find({ "ricorrenza.prossimaData": { $lte: oggi } }).toArray();
+    const dovute = await transactionsCol.find({ "ricorrenza.prossimaData": { $lte: oggi }, deletedAt: null }).toArray();
     for (const t of dovute) {
       const child = { ...t, data: t.ricorrenza.prossimaData, createdAt: new Date() };
       delete child._id;
@@ -302,6 +303,92 @@ async function generaRicorrentiDovute() {
 
 // Checked every 6h so a due recurrence fires the same day even if the server was asleep at midnight
 const RICORRENTI_CHECK_MS = 6 * 60 * 60 * 1000;
+
+// ─── Trash — hard-delete transactions soft-deleted more than 30 days ago ───
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+let trashPurgeRunning = false;
+export async function svuotaCestinoScaduto() {
+  if (trashPurgeRunning || !transactionsCol) return;
+  trashPurgeRunning = true;
+  try {
+    const soglia = new Date(Date.now() - TRASH_RETENTION_MS);
+    const r = await transactionsCol.deleteMany({ deletedAt: { $ne: null, $lte: soglia } });
+    if (r.deletedCount > 0) console.log(`Cestino: eliminate definitivamente ${r.deletedCount} transazioni`);
+  } catch (e) {
+    console.error("svuotaCestinoScaduto error:", e);
+  } finally {
+    trashPurgeRunning = false;
+  }
+}
+
+// ─── Trip auto-close — settles + closes trips once their endDate has passed ───
+function calcolaSettleViaggioServer(trip) {
+  const balances = {};
+  for (const e of trip.expenses || []) {
+    if (e.splits && e.splits.length > 0) {
+      const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
+      for (const s of e.splits) {
+        if (s.personaId !== e.pagatoDa) {
+          const owed = e.importo * (s.quota / totalQ);
+          balances[s.personaId] = (balances[s.personaId] || 0) - owed;
+          balances[e.pagatoDa] = (balances[e.pagatoDa] || 0) + owed;
+        }
+      }
+    }
+  }
+  const creditors = [], debtors = [];
+  for (const [id, bal] of Object.entries(balances)) {
+    if (bal > 0.01) creditors.push({ id, bal });
+    if (bal < -0.01) debtors.push({ id, bal: -bal });
+  }
+  creditors.sort((a, b) => b.bal - a.bal);
+  debtors.sort((a, b) => b.bal - a.bal);
+  const settlements = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const pay = Math.min(debtors[i].bal, creditors[j].bal);
+    if (pay > 0.01) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
+    debtors[i].bal -= pay;
+    creditors[j].bal -= pay;
+    if (debtors[i].bal < 0.01) i++;
+    if (creditors[j].bal < 0.01) j++;
+  }
+  return settlements;
+}
+
+let tripAutoCloseRunning = false;
+export async function chiudiViaggiScaduti() {
+  if (tripAutoCloseRunning || !tripsCol) return;
+  tripAutoCloseRunning = true;
+  try {
+    const oggi = new Date().toISOString().slice(0, 10);
+    const scaduti = await tripsCol.find({ settled: false, endDate: { $ne: null, $lt: oggi } }).toArray();
+    for (const trip of scaduti) {
+      const nameOf = (id) => (trip.partecipanti || []).find(p => p.id === id)?.nome || id;
+      const settlements = calcolaSettleViaggioServer(trip);
+      for (const s of settlements) {
+        await transactionsCol.insertOne({
+          householdId: trip.householdId,
+          tipo: "saldo",
+          importo: s.importo,
+          categoria: "saldo_viaggio",
+          descrizione: `Saldo viaggio: ${trip.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
+          data: oggi,
+          pagatoDa: s.da,
+          ricevutoDa: s.a,
+          createdAt: new Date(),
+        });
+      }
+      await tripsCol.updateOne({ _id: trip._id }, { $set: { settled: true, autoSettled: true, updatedAt: new Date() } });
+    }
+    if (scaduti.length > 0) console.log(`Viaggi: chiusi automaticamente ${scaduti.length} viaggi scaduti`);
+  } catch (e) {
+    console.error("chiudiViaggiScaduti error:", e);
+  } finally {
+    tripAutoCloseRunning = false;
+  }
+}
 
 // ─── Audit log ───
 function audit(event, { householdId = null, ip = null, deviceId = null, success = true, detail = null } = {}) {
@@ -710,7 +797,7 @@ app.get("/api/household", requireHousehold, (req, res) => {
 app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) => {
   try {
     const { tipo, categoria, pagatoDa, meseAnno, limit } = req.query;
-    const filter = { householdId: req.householdId };
+    const filter = { householdId: req.householdId, deletedAt: null };
     if (tipo) filter.tipo = tipo;
     if (categoria) filter.categoria = categoria;
     if (pagatoDa) filter.pagatoDa = pagatoDa;
@@ -761,13 +848,54 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// ─── DELETE transaction ───
+// ─── DELETE transaction (soft delete — moves to trash, purged after 30 days) ───
 app.delete("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
-    const r = await transactionsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata" });
+    const r = await transactionsCol.findOneAndUpdate(
+      { _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: null },
+      { $set: { deletedAt: new Date() } }
+    );
+    if (!r) return res.status(404).json({ error: "Non trovata" });
     res.json({ deleted: true, id: req.params.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// ─── Trash (soft-deleted transactions) ───
+app.get("/api/transactions/trash", requireHousehold, async (req, res) => {
+  try {
+    const docs = await transactionsCol.find({ householdId: req.householdId, deletedAt: { $ne: null } })
+      .sort({ deletedAt: -1 }).toArray();
+    res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/transactions/:id/restore", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const result = await transactionsCol.findOneAndUpdate(
+      { _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: { $ne: null } },
+      { $unset: { deletedAt: "" } }, { returnDocument: "after" }
+    );
+    if (!result) return res.status(404).json({ error: "Non trovata nel cestino" });
+    const id = result._id.toString(); delete result._id; delete result.householdId;
+    res.json({ id, ...result });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/transactions/:id/permanent", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const r = await transactionsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: { $ne: null } });
+    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata nel cestino" });
+    res.json({ deleted: true, id: req.params.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const r = await transactionsCol.deleteMany({ householdId: req.householdId, deletedAt: { $ne: null } });
+    res.json({ deleted: r.deletedCount });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -804,7 +932,7 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
 app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
   try {
     const txs = await transactionsCol.find({
-      householdId: req.householdId, tipo: "uscita", pagatoDa: { $ne: null }
+      householdId: req.householdId, tipo: "uscita", pagatoDa: { $ne: null }, deletedAt: null
     }).toArray();
 
     // Also fetch saldo transactions to account for settlements
@@ -812,7 +940,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
     // underlying expenses live in the trips collection, not in this ledger)
     const saldi = await transactionsCol.find({
       householdId: req.householdId, tipo: "saldo", pagatoDa: { $ne: null }, ricevutoDa: { $ne: null },
-      categoria: { $ne: "saldo_viaggio" }
+      categoria: { $ne: "saldo_viaggio" }, deletedAt: null
     }).toArray();
 
     // Per-person net balance
@@ -871,7 +999,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
 // ─── Stats summary ───
 app.get("/api/stats/summary", requireHousehold, async (req, res) => {
   try {
-    const match = { householdId: req.householdId };
+    const match = { householdId: req.householdId, deletedAt: null };
     if (req.query.meseAnno) {
       const [a, m] = req.query.meseAnno.split("-").map(Number);
       match.data = { $gte: new Date(a, m - 1, 1).toISOString().slice(0, 10), $lte: new Date(a, m, 0).toISOString().slice(0, 10) };
@@ -1329,7 +1457,7 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
     const hid = household.householdId;
 
     const [transactions, accounts, positions, priceDocs] = await Promise.all([
-      transactionsCol.find({ householdId: hid }).toArray(),
+      transactionsCol.find({ householdId: hid, deletedAt: null }).toArray(),
       db.collection("accounts").find({ householdId: hid }).toArray(),
       db.collection("positions").find({ householdId: hid }).toArray(),
       quotesCol.find({ householdId: hid, manualPrice: { $exists: true } }).toArray(),
@@ -1582,6 +1710,10 @@ async function start() {
     import("./keep-alive.js").catch(() => {});
     generaRicorrentiDovute();
     setInterval(generaRicorrentiDovute, RICORRENTI_CHECK_MS);
+    svuotaCestinoScaduto();
+    setInterval(svuotaCestinoScaduto, RICORRENTI_CHECK_MS);
+    chiudiViaggiScaduti();
+    setInterval(chiudiViaggiScaduti, RICORRENTI_CHECK_MS);
   } catch (e) { console.error(e); process.exit(1); }
 }
 start();
