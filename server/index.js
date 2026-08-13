@@ -253,6 +253,56 @@ function sanitizeExtraPersone(arr) {
   }).filter(Boolean);
 }
 
+const RICORRENZA_FREQUENZE = ["settimanale", "mensile", "trimestrale", "annuale"];
+function sanitizeRicorrenza(r) {
+  if (!r || typeof r !== "object") return null;
+  if (!RICORRENZA_FREQUENZE.includes(r.frequenza)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.prossimaData))) return null;
+  return { frequenza: r.frequenza, prossimaData: r.prossimaData, variabile: !!r.variabile };
+}
+
+// ─── Recurring transactions — server-side generator ───
+function nextRicorrenzaData(dateStr, frequenza) {
+  const d = new Date(dateStr + "T12:00:00Z");
+  if (frequenza === "settimanale") d.setUTCDate(d.getUTCDate() + 7);
+  else if (frequenza === "mensile") d.setUTCMonth(d.getUTCMonth() + 1);
+  else if (frequenza === "trimestrale") d.setUTCMonth(d.getUTCMonth() + 3);
+  else if (frequenza === "annuale") d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+let ricorrentiRunning = false;
+async function generaRicorrentiDovute() {
+  if (ricorrentiRunning || !transactionsCol) return;
+  ricorrentiRunning = true;
+  try {
+    const oggi = new Date().toISOString().slice(0, 10);
+    const dovute = await transactionsCol.find({ "ricorrenza.prossimaData": { $lte: oggi } }).toArray();
+    for (const t of dovute) {
+      const child = { ...t, data: t.ricorrenza.prossimaData, createdAt: new Date() };
+      delete child._id;
+      delete child.ricorrenza;
+      delete child.updatedAt;
+      if (t.ricorrenza.variabile) child.daVerificare = true;
+      await transactionsCol.insertOne(child);
+      const updatedRicorrenza = {
+        frequenza: t.ricorrenza.frequenza,
+        prossimaData: nextRicorrenzaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza),
+        variabile: t.ricorrenza.variabile,
+      };
+      await transactionsCol.updateOne({ _id: t._id }, { $set: { ricorrenza: updatedRicorrenza } });
+    }
+    if (dovute.length > 0) console.log(`Ricorrenti: generate ${dovute.length} transazioni`);
+  } catch (e) {
+    console.error("generaRicorrentiDovute error:", e);
+  } finally {
+    ricorrentiRunning = false;
+  }
+}
+
+// Checked every 6h so a due recurrence fires the same day even if the server was asleep at midnight
+const RICORRENTI_CHECK_MS = 6 * 60 * 60 * 1000;
+
 // ─── Audit log ───
 function audit(event, { householdId = null, ip = null, deviceId = null, success = true, detail = null } = {}) {
   const doc = { event, householdId, ip, deviceId, success, ts: new Date() };
@@ -700,6 +750,8 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
       contoId: b.contoId || null,
       contoDa: b.contoDa || null,
       contoA: b.contoA || null,
+      ricorrenza: sanitizeRicorrenza(b.ricorrenza),
+      daVerificare: !!b.daVerificare,
       createdAt: new Date(),
     };
     const result = await transactionsCol.insertOne(doc);
@@ -724,7 +776,7 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const update = {};
-    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone","contoId","contoDa","contoA"];
+    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone","contoId","contoDa","contoA","ricorrenza","daVerificare"];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         if (key === "importo") update[key] = parseFloat(req.body[key]);
@@ -732,6 +784,8 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
         else if (key === "splits") update[key] = sanitizeSplits(req.body[key]);
         else if (key === "extraPersone") update[key] = sanitizeExtraPersone(req.body[key]);
         else if (key === "descrizione") update[key] = sanitizeText(req.body[key]);
+        else if (key === "ricorrenza") update[key] = sanitizeRicorrenza(req.body[key]);
+        else if (key === "daVerificare") update[key] = !!req.body[key];
         else update[key] = req.body[key];
       }
     }
@@ -1526,6 +1580,8 @@ async function start() {
     app.listen(PORT, () => console.log(`Finanza Tracker API on :${PORT}`));
     verifyEmailSetup().catch(() => {}); // diagnostico, non deve mai bloccare l'avvio
     import("./keep-alive.js").catch(() => {});
+    generaRicorrentiDovute();
+    setInterval(generaRicorrentiDovute, RICORRENTI_CHECK_MS);
   } catch (e) { console.error(e); process.exit(1); }
 }
 start();
