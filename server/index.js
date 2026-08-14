@@ -822,6 +822,11 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     // Delete all data for this household
     await transactionsCol.deleteMany({ householdId: req.householdId });
     await db.collection("positions").deleteMany({ householdId: req.householdId });
+    await db.collection("goals").deleteMany({ householdId: req.householdId });
+    await db.collection("accounts").deleteMany({ householdId: req.householdId });
+    await tripsCol.deleteMany({ householdId: req.householdId });
+    await quotesCol.deleteMany({ householdId: req.householdId });
+    await db.collection("pinResets").deleteMany({ householdId: req.householdId });
     await revokeAllTokens(req.householdId);
     await householdsCol.deleteOne({ householdId: req.householdId });
     audit("household_delete", { householdId: req.householdId, ip: clientIp(req) });
