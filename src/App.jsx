@@ -936,7 +936,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, 
   return (
     <div style={{ background: "#1a1a28", borderRadius: 20, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: conti.length > 0 || formOpen ? 10 : 0 }}>
-        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Conti</div>
+        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "conti.title")}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {conti.length > 1 && (
             <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totale >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{formattaValuta(totale)}</span>
@@ -949,7 +949,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, 
       </div>
 
       {conti.length === 0 && !formOpen && (
-        <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>Nessun conto. Tocca + per aggiungerne uno (es. banca, contanti) e assegnalo alle transazioni.</div>
+        <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>{t(lang, "conti.empty")}</div>
       )}
 
       {conti.map(c => (
@@ -963,7 +963,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, 
             <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
             {(accantonati[c.id] || 0) > 0 && (
               <div style={{ fontSize: 10, color: "#888", marginTop: 1 }}>
-                🎯 {formattaValuta(accantonati[c.id])} in obiettivi · <span style={{ color: "#aaa" }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} liberi</span>
+                🎯 {formattaValuta(accantonati[c.id])} {t(lang, "conti.inGoals")} · <span style={{ color: "#aaa" }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} {t(lang, "conti.free")}</span>
               </div>
             )}
           </div>
@@ -976,7 +976,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, 
       {formOpen && (
         <div style={{ marginTop: 10, padding: 12, background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
           <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
-            {editId ? "Modifica conto" : "Nuovo conto"}
+            {editId ? t(lang, "conti.editAccount") : t(lang, "conti.newAccount")}
           </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             {ICONE.map(ic => (
@@ -987,23 +987,23 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, 
               }}>{ic}</button>
             ))}
           </div>
-          <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Es: Conto Intesa, Contanti..."
+          <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder={t(lang, "conti.namePlaceholder")}
             style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
-          <input type="text" inputMode="decimal" value={saldoIniziale} onChange={e => setSaldoIniziale(e.target.value)} placeholder="Saldo iniziale (es. 1500)"
+          <input type="text" inputMode="decimal" value={saldoIniziale} onChange={e => setSaldoIniziale(e.target.value)} placeholder={t(lang, "conti.initialBalancePlaceholder")}
             style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={handleSave} disabled={saving || !nome.trim()} style={{
               flex: 1, padding: "10px", background: nome.trim() ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538", border: "none",
               borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", opacity: saving ? 0.6 : 1,
-            }}>{saving ? "Salvataggio..." : "Salva"}</button>
+            }}>{saving ? t(lang, "conti.saving") : t(lang, "common.save")}</button>
             {editId && (
               <button onClick={() => handleDelete(conti.find(c => c.id === editId))} style={{
                 padding: "10px 14px", background: "none", border: "1px solid #FF6B6B55", borderRadius: 10,
                 color: "#FF6B6B", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-              }}>Elimina</button>
+              }}>{t(lang, "common.delete")}</button>
             )}
           </div>
-          {editId && <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>Il saldo mostrato è: saldo iniziale + entrate − uscite assegnate a questo conto.</div>}
+          {editId && <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>{t(lang, "conti.balanceHint")}</div>}
         </div>
       )}
     </div>
@@ -1252,16 +1252,16 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                 <span style={{ fontSize: 10, color: "#6C5CE7", transform: showStoricoSaldi ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
               </button>
               {showStoricoSaldi && <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {saldati.map((t, i) => {
-                  const pDa = allPeople.find(p => p.id === t.pagatoDa) || { nome: t.pagatoDa, emoji: "👤" };
-                  const pA = allPeople.find(p => p.id === t.ricevutoDa) || { nome: t.ricevutoDa, emoji: "👤" };
+                {saldati.map((s, i) => {
+                  const pDa = allPeople.find(p => p.id === s.pagatoDa) || { nome: s.pagatoDa, emoji: "👤" };
+                  const pA = allPeople.find(p => p.id === s.ricevutoDa) || { nome: s.ricevutoDa, emoji: "👤" };
                   return (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 12, color: "#4ECDC4" }}>✓</span>
                       <span style={{ fontSize: 11, color: "#666", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
-                      <span style={{ fontSize: 11, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", fontWeight: 600 }}>{formattaValuta(t.importo)}</span>
-                      <span style={{ fontSize: 10, color: "#555", marginLeft: 4 }}>{formattaData(t.data)}</span>
-                      <button onClick={() => onDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title={t(lang, "home.deleteSettle")}>✕</button>
+                      <span style={{ fontSize: 11, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", fontWeight: 600 }}>{formattaValuta(s.importo)}</span>
+                      <span style={{ fontSize: 10, color: "#555", marginLeft: 4 }}>{formattaData(s.data)}</span>
+                      <button onClick={() => onDelete(s.id)} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title={t(lang, "home.deleteSettle")}>✕</button>
                     </div>
                   );
                 })}
@@ -5077,11 +5077,11 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         const h = await fetchHousehold(); // ora rifiuta (throw) su risposta non-ok, non torna più null silenziosamente
         if (!done) setHasRecoveryEmail(!!h.hasRecoveryEmail);
       } catch (e) {
-        if (!done) { setHasRecoveryEmail("error"); setRecoveryEmailErrDetail(e.message || "Errore sconosciuto"); }
+        if (!done) { setHasRecoveryEmail("error"); setRecoveryEmailErrDetail(e.message || t(lang, "settings.unknownError")); }
       }
     })();
-    const t = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? "error" : prev); setRecoveryEmailErrDetail(prev => prev || "Timeout: nessuna risposta dal server dopo 8s"); } }, 8000);
-    return () => { done = true; clearTimeout(t); };
+    const timeoutId = setTimeout(() => { if (!done) { done = true; setHasRecoveryEmail(prev => prev === null ? "error" : prev); setRecoveryEmailErrDetail(prev => prev || t(lang, "settings.recoveryEmailTimeout")); } }, 8000);
+    return () => { done = true; clearTimeout(timeoutId); };
   }
 
   async function handleSaveRecoveryEmail() {
@@ -5216,7 +5216,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       setFase("done");
       setTimeout(() => onDeleted(), 1500);
     } catch (err) {
-      setErrore(err.message || "Errore durante l'eliminazione");
+      setErrore(err.message || t(lang, "settings.deleteAccountErrorFallback"));
       setFase("pin");
     }
   }
@@ -5348,13 +5348,13 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
                   <input value={editForm.emoji || c.emoji} onChange={e => setEditForm(f => ({ ...f, emoji: e.target.value }))}
                     style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
                   <input value={editForm.nome ?? c.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))}
-                    placeholder="Nome categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                    placeholder={t(lang, "viaggi.categoryNamePlaceholder")} style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
                   <input type="color" value={editForm.colore || c.colore} onChange={e => setEditForm(f => ({ ...f, colore: e.target.value }))}
                     style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setEditingCatId(null)} style={{ flex: 1, padding: "8px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Annulla</button>
-                  <button onClick={() => handleSaveEdit(c.id)} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: "#6C5CE7", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Salva</button>
+                  <button onClick={() => setEditingCatId(null)} style={{ flex: 1, padding: "8px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "common.cancel")}</button>
+                  <button onClick={() => handleSaveEdit(c.id)} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: "#6C5CE7", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "common.save")}</button>
                 </div>
               </div>
             ) : (
@@ -5362,9 +5362,9 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
                 <span style={{ fontSize: 20 }}>{c.emoji}</span>
                 <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.colore, flexShrink: 0 }} />
                 <span style={{ flex: 1, fontSize: 14, color: "#ccc", fontWeight: 600 }}>{c.nome}</span>
-                <button onClick={() => { setEditingCatId(c.id); setEditForm({}); }} style={{ padding: "5px 8px", border: "1px solid #252538", borderRadius: 8, background: "transparent", color: "#888", fontSize: 11, cursor: "pointer" }}>Modifica</button>
+                <button onClick={() => { setEditingCatId(c.id); setEditForm({}); }} style={{ padding: "5px 8px", border: "1px solid #252538", borderRadius: 8, background: "transparent", color: "#888", fontSize: 11, cursor: "pointer" }}>{t(lang, "common.edit")}</button>
                 {categorie.length > 1 && (
-                  <button onClick={() => handleDeleteCat(c.id)} style={{ padding: "5px 8px", border: "1px solid #FF6B6B33", borderRadius: 8, background: "transparent", color: "#FF6B6B", fontSize: 11, cursor: "pointer" }}>Elimina</button>
+                  <button onClick={() => handleDeleteCat(c.id)} style={{ padding: "5px 8px", border: "1px solid #FF6B6B33", borderRadius: 8, background: "transparent", color: "#FF6B6B", fontSize: 11, cursor: "pointer" }}>{t(lang, "common.delete")}</button>
                 )}
               </div>
             )}
@@ -5376,13 +5376,13 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
               <input value={newCat.emoji} onChange={e => setNewCat(n => ({ ...n, emoji: e.target.value }))}
                 style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
               <input value={newCat.nome} onChange={e => setNewCat(n => ({ ...n, nome: e.target.value }))}
-                placeholder="Nome categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} autoFocus />
+                placeholder={t(lang, "viaggi.categoryNamePlaceholder")} style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} autoFocus />
               <input type="color" value={newCat.colore} onChange={e => setNewCat(n => ({ ...n, colore: e.target.value }))}
                 style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setShowNewCat(false); setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" }); }} style={{ flex: 1, padding: "8px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Annulla</button>
-              <button onClick={handleAddCat} disabled={!newCat.nome.trim()} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: newCat.nome.trim() ? "#6C5CE7" : "#252538", color: newCat.nome.trim() ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: newCat.nome.trim() ? "pointer" : "default", fontFamily: "'DM Sans',sans-serif" }}>Aggiungi</button>
+              <button onClick={() => { setShowNewCat(false); setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" }); }} style={{ flex: 1, padding: "8px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "common.cancel")}</button>
+              <button onClick={handleAddCat} disabled={!newCat.nome.trim()} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: newCat.nome.trim() ? "#6C5CE7" : "#252538", color: newCat.nome.trim() ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: newCat.nome.trim() ? "pointer" : "default", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "common.add")}</button>
             </div>
           </div>
         ) : (
@@ -5410,22 +5410,22 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
             ) : (
               <>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                  {cestino.map(t => {
-                    const cat = categorie.find(c => c.id === t.categoria);
-                    const busy = cestinoBusyId === t.id;
+                  {cestino.map(item => {
+                    const cat = categorie.find(c => c.id === item.categoria);
+                    const busy = cestinoBusyId === item.id;
                     return (
-                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#111119", borderRadius: 12, padding: "10px 12px", opacity: busy ? 0.5 : 1 }}>
-                        <span style={{ fontSize: 18, flexShrink: 0 }}>{cat?.emoji || (t.tipo === "entrata" ? "💰" : "📦")}</span>
+                      <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "#111119", borderRadius: 12, padding: "10px 12px", opacity: busy ? 0.5 : 1 }}>
+                        <span style={{ fontSize: 18, flexShrink: 0 }}>{cat?.emoji || (item.tipo === "entrata" ? "💰" : "📦")}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {t.descrizione || cat?.nome || t.categoria}
+                            {item.descrizione || cat?.nome || item.categoria}
                           </div>
                           <div style={{ fontSize: 10, color: "#666" }}>
-                            {formattaValuta(t.importo)} · {giorniRimanenti(t.deletedAt)}g rimasti
+                            {formattaValuta(item.importo)} · {giorniRimanenti(item.deletedAt)}{t(lang, "stats.daysLeft")}
                           </div>
                         </div>
-                        <button disabled={busy} onClick={() => handleRestore(t.id)} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>{t(lang, "common.restore")}</button>
-                        <button disabled={busy} onClick={() => handlePermanentDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B88", fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
+                        <button disabled={busy} onClick={() => handleRestore(item.id)} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>{t(lang, "common.restore")}</button>
+                        <button disabled={busy} onClick={() => handlePermanentDelete(item.id)} style={{ background: "none", border: "none", color: "#FF6B6B88", fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
                       </div>
                     );
                   })}
@@ -5473,19 +5473,19 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         {fase === "confirm" && (
           <div>
             <div style={{ fontSize: 13, color: "#FFD93D", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>
-              ⚠️ Sicuro? Verranno eliminate tutte le transazioni e i dati del gruppo <strong style={{ color: "#eee" }}>{householdName}</strong>.
+              {t(lang, "settings.confirmDeleteWarningPrefix")} <strong style={{ color: "#eee" }}>{householdName}</strong>. {t(lang, "settings.confirmDeleteWarningSuffix")}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setFase("idle")} style={{
                 flex: 1, padding: "12px", border: "1px solid #252538", borderRadius: 12,
                 background: "transparent", color: "#888", fontFamily: "'DM Sans',sans-serif",
                 fontSize: 14, fontWeight: 600, cursor: "pointer",
-              }}>Annulla</button>
+              }}>{t(lang, "common.cancel")}</button>
               <button onClick={() => setFase("pin")} style={{
                 flex: 1, padding: "12px", border: "none", borderRadius: 12,
                 background: "#FF6B6B22", color: "#FF6B6B", fontFamily: "'DM Sans',sans-serif",
                 fontSize: 14, fontWeight: 700, cursor: "pointer",
-              }}>Continua</button>
+              }}>{t(lang, "common.continue")}</button>
             </div>
           </div>
         )}
@@ -5493,7 +5493,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         {(fase === "pin" || fase === "deleting") && (
           <div>
             <div style={{ fontSize: 13, color: "#aaa", marginBottom: 10, textAlign: "center" }}>
-              Inserisci il PIN per confermare l'eliminazione
+              {t(lang, "settings.enterPinToConfirmDelete")}
             </div>
             <input
               type="password" inputMode="numeric" maxLength={8}
@@ -5514,7 +5514,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
                 flex: 1, padding: "12px", border: "1px solid #252538", borderRadius: 12,
                 background: "transparent", color: "#888", fontFamily: "'DM Sans',sans-serif",
                 fontSize: 14, fontWeight: 600, cursor: "pointer",
-              }}>Annulla</button>
+              }}>{t(lang, "common.cancel")}</button>
               <button onClick={eseguiElimina} disabled={pin.length < 4 || fase === "deleting"} style={{
                 flex: 1, padding: "12px", border: "none", borderRadius: 12,
                 background: pin.length >= 4 ? "#FF6B6B" : "#2a1a1a",
@@ -5523,7 +5523,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
                 cursor: pin.length >= 4 ? "pointer" : "default",
                 opacity: fase === "deleting" ? 0.6 : 1,
               }}>
-                {fase === "deleting" ? "Eliminazione..." : "Elimina"}
+                {fase === "deleting" ? t(lang, "settings.deletingAccountShort") : t(lang, "common.delete")}
               </button>
             </div>
           </div>
