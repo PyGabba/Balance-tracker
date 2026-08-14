@@ -203,6 +203,7 @@ async function connectDB() {
   await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
   await tripsCol.createIndex({ householdId: 1 });
+  await tripsCol.createIndex({ shareToken: 1 }, { unique: true, sparse: true });
   await auditCol.createIndex({ ts: -1 });
   await auditCol.createIndex({ householdId: 1, ts: -1 });
   await auditCol.createIndex({ ts: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // 90-day retention
@@ -1690,6 +1691,109 @@ app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold,
       { $pull: { expenses: { id: req.params.expenseId } }, $set: { updatedAt: new Date() } }
     );
     res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// ─── Trip share links: let a guest outside the household join a single trip
+// and log their own expenses, without ever handing out the household PIN.
+// Token-gated like the widget key — capability URL, revocable, scoped to one trip. ───
+app.post("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    const shareToken = randomBytes(24).toString("base64url");
+    const r = await tripsCol.findOneAndUpdate(
+      { _id: new ObjectId(req.params.id), householdId: req.householdId },
+      { $set: { shareToken, shareTokenCreatedAt: new Date() } }, { returnDocument: "after" }
+    );
+    if (!r) return res.status(404).json({ error: "Viaggio non trovato" });
+    audit("trip_share_created", { householdId: req.householdId, ip: clientIp(req) });
+    res.json({ token: shareToken });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    await tripsCol.updateOne(
+      { _id: new ObjectId(req.params.id), householdId: req.householdId },
+      { $unset: { shareToken: "", shareTokenCreatedAt: "" } }
+    );
+    audit("trip_share_revoked", { householdId: req.householdId, ip: clientIp(req) });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+const tripShareLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const tripShareWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
+
+function stripTripForGuest(trip) {
+  const id = trip._id.toString();
+  return {
+    id, nome: trip.nome, descrizione: trip.descrizione,
+    startDate: trip.startDate, endDate: trip.endDate,
+    partecipanti: trip.partecipanti, expenses: trip.expenses, settled: trip.settled,
+  };
+}
+
+app.get("/api/trips/shared/:token", tripShareLimiter, async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
+    const trip = await tripsCol.findOne({ shareToken: token });
+    if (!trip) return res.status(404).json({ error: "Link non valido o revocato" });
+    res.json(stripTripForGuest(trip));
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/trips/shared/:token/join", tripShareWriteLimiter, async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
+    const trip = await tripsCol.findOne({ shareToken: token });
+    if (!trip) return res.status(404).json({ error: "Link non valido o revocato" });
+    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+
+    const nome = sanitizeText(req.body?.nome, 100);
+    if (!nome) return res.status(400).json({ error: "Nome richiesto" });
+    const id = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    if (!id) return res.status(400).json({ error: "Nome non valido" });
+
+    const esistente = (trip.partecipanti || []).find(p => p.id === id);
+    if (esistente) return res.json(esistente); // stesso nome già presente: rientra come lo stesso ospite
+
+    const colors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9"];
+    const nuovo = { id, nome, emoji: "👤", colore: colors[(trip.partecipanti || []).length % colors.length] };
+    await tripsCol.updateOne({ _id: trip._id }, { $push: { partecipanti: nuovo }, $set: { updatedAt: new Date() } });
+    res.status(201).json(nuovo);
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
+    const trip = await tripsCol.findOne({ shareToken: token });
+    if (!trip) return res.status(404).json({ error: "Link non valido o revocato" });
+    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+
+    const e = req.body || {};
+    const partecipantiIds = new Set((trip.partecipanti || []).map(p => p.id));
+    if (!partecipantiIds.has(e.pagatoDa)) return res.status(400).json({ error: "Partecipante non valido: unisciti al viaggio prima di aggiungere una spesa" });
+
+    const splitsFiltrati = (sanitizeSplits(e.splits) || []).filter(s => partecipantiIds.has(s.personaId));
+    const expense = {
+      id: randomUUID(),
+      pagatoDa: e.pagatoDa,
+      importo: parseFloat(e.importo) || 0,
+      descrizione: sanitizeText(e.descrizione, 200),
+      categoria: sanitizeText(e.categoria, 50) || "altro",
+      data: e.data || new Date().toISOString().slice(0, 10),
+      splits: splitsFiltrati.length > 0 ? splitsFiltrati : null,
+    };
+    if (!expense.importo || expense.importo <= 0) return res.status(400).json({ error: "Importo non valido" });
+
+    await tripsCol.updateOne({ _id: trip._id }, { $push: { expenses: expense }, $set: { updatedAt: new Date() } });
+    res.status(201).json(expense);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
