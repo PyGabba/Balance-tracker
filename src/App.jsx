@@ -1465,7 +1465,7 @@ function initialSplits(t, persone) {
 }
 
 // ─── Transaction Row with inline edit ───
-function TransactionRow({ tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
+function TransactionRow({ t: tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
   const _ENTRATA_CAT = { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" };
   const cat = tx.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === tx.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
   const persona = persone.find(p => p.id === tx.pagatoDa);
