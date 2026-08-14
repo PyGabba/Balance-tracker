@@ -693,10 +693,10 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#eee" }}>{goal.nome}</span>
-            {done && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#4ECDC422", color: "#4ECDC4" }}>🎉 RAGGIUNTO</span>}
+            {done && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#4ECDC422", color: "#4ECDC4" }}>{t(lang, "goals.achieved")}</span>}
             {isAuto && !done && (
               <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#6C5CE722", color: "#a78bfa" }}>
-                AUTO {goal.contributionType === "percent" ? `${goal.contributionValue}%` : formattaValuta(goal.contributionValue)}
+                {t(lang, "goals.auto")} {goal.contributionType === "percent" ? `${goal.contributionValue}%` : formattaValuta(goal.contributionValue)}
               </span>
             )}
             {conto && (
@@ -707,14 +707,14 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
           </div>
           <div style={{ fontSize: 11, color: "#888" }}>
             {formattaValuta(current)} / {formattaValuta(goal.targetAmount)} ({pct.toFixed(0)}%)
-            {daysLeft !== null && !done && <span style={{ color: daysLeft < 0 ? "#FF6B6B" : "#666", marginLeft: 8 }}>{daysLeft < 0 ? `in ritardo ${Math.abs(daysLeft)}g` : `${daysLeft}g rimasti`}</span>}
+            {daysLeft !== null && !done && <span style={{ color: daysLeft < 0 ? "#FF6B6B" : "#666", marginLeft: 8 }}>{daysLeft < 0 ? `${t(lang, "goals.overdueBy")} ${Math.abs(daysLeft)}${t(lang, "goals.daysUnit")}` : `${daysLeft}${t(lang, "stats.daysLeft")}`}</span>}
           </div>
           {alMese !== null && alMese > 0 && (
-            <div style={{ fontSize: 10, color: "#F0A500", marginTop: 2 }}>≈ {formattaValuta(alMese)}/mese per arrivarci</div>
+            <div style={{ fontSize: 10, color: "#F0A500", marginTop: 2 }}>≈ {formattaValuta(alMese)}{t(lang, "goals.perMonthToReach")}</div>
           )}
         </div>
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-          {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title="Versa un importo" style={{ background: mode === "versa" ? "#4ECDC422" : "none", border: mode === "versa" ? "1px solid #4ECDC4" : "1px solid #252538", borderRadius: 7, color: "#4ECDC4", cursor: "pointer", fontSize: 13, padding: "3px 8px", fontWeight: 700 }}>+</button>}
+          {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title={t(lang, "goals.deposit")} style={{ background: mode === "versa" ? "#4ECDC422" : "none", border: mode === "versa" ? "1px solid #4ECDC4" : "1px solid #252538", borderRadius: 7, color: "#4ECDC4", cursor: "pointer", fontSize: 13, padding: "3px 8px", fontWeight: 700 }}>+</button>}
           <button onClick={openEdit} style={{ background: "none", border: "none", color: "#6C5CE7", cursor: "pointer", fontSize: 14 }}>✏</button>
           <button onClick={() => { if (confirm(t(lang, "confirm.deleteGoal"))) onDelete(goal.id); }} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>
         </div>
@@ -725,20 +725,20 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <input type="text" inputMode="decimal" autoFocus value={amount} onChange={e => setAmount(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") handleVersa(); if (e.key === "Escape") setMode(null); }}
-            placeholder="Importo da versare (− per prelevare)" style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #4ECDC4", borderRadius: 8, color: "#eee", fontSize: 14, fontFamily: "'Space Mono',monospace", outline: "none", minWidth: 0 }} />
-          <button onClick={handleVersa} style={{ padding: "8px 14px", background: "#4ECDC4", border: "none", borderRadius: 8, color: "#0a0a12", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Versa</button>
+            placeholder={t(lang, "goals.depositPlaceholder")} style={{ flex: 1, padding: "8px 10px", background: "#1a1a28", border: "1px solid #4ECDC4", borderRadius: 8, color: "#eee", fontSize: 14, fontFamily: "'Space Mono',monospace", outline: "none", minWidth: 0 }} />
+          <button onClick={handleVersa} style={{ padding: "8px 14px", background: "#4ECDC4", border: "none", borderRadius: 8, color: "#0a0a12", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "goals.depositButton")}</button>
         </div>
       )}
 
       {/* Full edit */}
       {mode === "edit" && (
         <div style={{ marginTop: 10 }}>
-          <input type="text" value={eNome} onChange={e => setENome(e.target.value)} placeholder="Nome obiettivo"
+          <input type="text" value={eNome} onChange={e => setENome(e.target.value)} placeholder={t(lang, "goals.namePlaceholder")}
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, outline: "none", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }} />
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input type="text" inputMode="decimal" value={eTarget} onChange={e => setETarget(e.target.value)} placeholder="Target €"
+            <input type="text" inputMode="decimal" value={eTarget} onChange={e => setETarget(e.target.value)} placeholder={t(lang, "goals.targetPlaceholder")}
               style={{ flex: 1, minWidth: 0, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, outline: "none", fontFamily: "'Space Mono',monospace" }} />
-            <input type="text" inputMode="decimal" value={eCurrent} onChange={e => setECurrent(e.target.value)} placeholder="Risparmiato"
+            <input type="text" inputMode="decimal" value={eCurrent} onChange={e => setECurrent(e.target.value)} placeholder={t(lang, "goals.savedPlaceholder")}
               style={{ flex: 1, minWidth: 0, padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, outline: "none", fontFamily: "'Space Mono',monospace" }} />
           </div>
           <input type="date" value={eDate} onChange={e => setEDate(e.target.value)}
@@ -750,7 +750,7 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
                 background: eConto === "" ? "#6C5CE722" : "transparent",
                 border: eConto === "" ? "1px solid #6C5CE7" : "1px solid #252538",
                 color: eConto === "" ? "#a78bfa" : "#666",
-              }}>Nessun conto</button>
+              }}>{t(lang, "goals.noAccount")}</button>
               {conti.map(c => (
                 <button key={c.id} onClick={() => setEConto(c.id)} style={{
                   padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 10, fontWeight: 600,
@@ -768,23 +768,23 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
                 background: eCType === tp ? "#6C5CE722" : "transparent",
                 color: eCType === tp ? "#a78bfa" : "#666",
                 border: eCType === tp ? "1px solid #6C5CE7" : "1px solid #252538",
-              }}>{tp === "manual" ? "Manuale" : tp === "percent" ? "% Entrata" : "€ Fisso"}</button>
+              }}>{tp === "manual" ? t(lang, "goals.manual") : tp === "percent" ? t(lang, "goals.percentIncome") : t(lang, "goals.fixedAmount")}</button>
             ))}
           </div>
           {eCType !== "manual" && (
             <>
               <input type="text" inputMode="decimal" value={eCValue} onChange={e => setECValue(e.target.value)}
-                placeholder={eCType === "percent" ? "% da salvare" : "€ da salvare"}
+                placeholder={eCType === "percent" ? t(lang, "goals.percentToSavePlaceholder") : t(lang, "goals.amountToSavePlaceholder")}
                 style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 13, outline: "none", marginBottom: 6, fontFamily: "'Space Mono',monospace" }} />
               <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
                 <input type="checkbox" checked={eAuto} onChange={e => setEAuto(e.target.checked)} style={{ width: 14, height: 14 }} />
-                <span style={{ fontSize: 11, color: "#aaa" }}>Applica automaticamente alle entrate</span>
+                <span style={{ fontSize: 11, color: "#aaa" }}>{t(lang, "goals.autoApplyToIncome")}</span>
               </label>
             </>
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setMode(null)} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>✕</button>
-            <button onClick={handleSaveEdit} disabled={!eNome.trim() || !eTarget} style={{ flex: 1, padding: "8px", background: eNome.trim() && eTarget ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Salva</button>
+            <button onClick={handleSaveEdit} disabled={!eNome.trim() || !eTarget} style={{ flex: 1, padding: "8px", background: eNome.trim() && eTarget ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
           </div>
         </div>
       )}
@@ -793,7 +793,7 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
 }
 
 // Goals form component
-function GoalsForm({ onAdd, onCancel, conti = [] }) {
+function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
   const [nome, setNome] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [targetDate, setTargetDate] = useState("");
@@ -822,28 +822,28 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
   
   return (
     <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10, border: "1px solid #252538" }}>
-      <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome obiettivo (es. Vacanza)"
+      <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder={t(lang, "goals.namePlaceholderLong")}
         style={{ ...inputStyle, marginBottom: 8, background: "#1a1a28" }} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-        <input type="number" inputMode="decimal" value={targetAmount} onChange={e => setTargetAmount(e.target.value)} placeholder="Target €"
+        <input type="number" inputMode="decimal" value={targetAmount} onChange={e => setTargetAmount(e.target.value)} placeholder={t(lang, "goals.targetPlaceholder")}
           style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
-        <input type="number" inputMode="decimal" value={currentAmount} onChange={e => setCurrentAmount(e.target.value)} placeholder="Già risparmiato"
+        <input type="number" inputMode="decimal" value={currentAmount} onChange={e => setCurrentAmount(e.target.value)} placeholder={t(lang, "goals.savedPlaceholderLong")}
           style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-        <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder="Data obiettivo"
+        <input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} placeholder={t(lang, "form.date")}
           style={{ flex: "1 1 100px", padding: "8px 10px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: "#666", fontSize: 12, outline: "none", colorScheme: "dark" }} />
       </div>
       {conti.length > 0 && (
         <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Conto di appoggio</div>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>{t(lang, "goals.linkedAccount")}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setContoId("")} style={{
               padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600,
               background: contoId === "" ? "#6C5CE722" : "transparent",
               border: contoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
               color: contoId === "" ? "#a78bfa" : "#666",
-            }}>Nessuno</button>
+            }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoId(c.id)} style={{
                 padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600,
@@ -857,7 +857,7 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
       )}
       {/* Contribution type */}
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Risparmio automatico (ogni Entrata)</div>
+        <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>{t(lang, "goals.autoSavings")}</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
           {["manual", "percent", "fixed"].map(tp => (
             <button key={tp} onClick={() => setContributionType(tp)} style={{
@@ -867,24 +867,24 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
               color: contributionType === tp ? "#a78bfa" : "#666",
               border: contributionType === tp ? "1px solid #6C5CE7" : "1px solid #252538",
             }}>
-              {tp === "manual" ? "Manuale" : tp === "percent" ? "% Entrata" : "€ Fisso"}
+              {tp === "manual" ? t(lang, "goals.manual") : tp === "percent" ? t(lang, "goals.percentIncome") : t(lang, "goals.fixedAmount")}
             </button>
           ))}
         </div>
         {contributionType !== "manual" && (
           <input type="number" inputMode="decimal" value={contributionValue} onChange={e => setContributionValue(e.target.value)}
-            placeholder={contributionType === "percent" ? "% da salvare" : "€ da salvare"}
+            placeholder={contributionType === "percent" ? t(lang, "goals.percentToSavePlaceholder") : t(lang, "goals.amountToSavePlaceholder")}
             style={{ width: "100%", padding: "8px 10px", background: "#1a1a28", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: "none" }} />
         )}
       </div>
       {/* Auto-add toggle */}
       <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" }}>
         <input type="checkbox" checked={autoAdd} onChange={e => setAutoAdd(e.target.checked)} style={{ width: 16, height: 16 }} />
-        <span style={{ fontSize: 12, color: "#aaa" }}>Applica automaticamente alle entrate</span>
+        <span style={{ fontSize: 12, color: "#aaa" }}>{t(lang, "goals.autoApplyToIncome")}</span>
       </label>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 12 }}>✕</button>
-        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
+        <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? "#6C5CE7" : "#252538", border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : "#555", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
       </div>
     </div>
   );
@@ -1290,7 +1290,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 
         {/* Add goal form */}
         {showAddGoal && (
-          <GoalsForm onAdd={onAddGoal} onCancel={() => setShowAddGoal(false)} conti={conti} />
+          <GoalsForm onAdd={onAddGoal} onCancel={() => setShowAddGoal(false)} conti={conti} lang={lang} />
         )}
 
         {/* Goals list */}
@@ -1466,7 +1466,7 @@ function initialSplits(t, persone) {
 
 // ─── Transaction Row with inline edit ───
 function TransactionRow({ t: tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
-  const _ENTRATA_CAT = { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" };
+  const _ENTRATA_CAT = { id: "entrata", nome: t(lang, "cat.entrata"), emoji: "💰", colore: "#4ECDC4" };
   const cat = tx.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === tx.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
   const persona = persone.find(p => p.id === tx.pagatoDa);
 
@@ -2106,12 +2106,12 @@ function ViaggiView({ persone, lang = "it" }) {
   const [showAdd, setShowAdd] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState(null);
   const defaultTripCats = [
-    { id: "trasporto", emoji: "✈️", nome: "Trasporto", colore: "#74B9FF" },
-    { id: "alloggio", emoji: "🏨", nome: "Alloggio", colore: "#A29BFE" },
-    { id: "cibo", emoji: "🍝", nome: "Cibo", colore: "#55EFC4" },
-    { id: "attivita", emoji: "🎡", nome: "Attività", colore: "#FDCB6E" },
-    { id: "shopping", emoji: "🛍️", nome: "Shopping", colore: "#FF7675" },
-    { id: "altro", emoji: "📦", nome: "Altro", colore: "#A8A8A8" },
+    { id: "trasporto", emoji: "✈️", nome: t(lang, "tripcat.trasporto"), colore: "#74B9FF" },
+    { id: "alloggio", emoji: "🏨", nome: t(lang, "tripcat.alloggio"), colore: "#A29BFE" },
+    { id: "cibo", emoji: "🍝", nome: t(lang, "cat.cibo"), colore: "#55EFC4" },
+    { id: "attivita", emoji: "🎡", nome: t(lang, "tripcat.attivita"), colore: "#FDCB6E" },
+    { id: "shopping", emoji: "🛍️", nome: t(lang, "cat.shopping"), colore: "#FF7675" },
+    { id: "altro", emoji: "📦", nome: t(lang, "cat.altro"), colore: "#A8A8A8" },
   ];
   // Categorie sincronizzate sulla casa; localStorage resta come cache/fallback offline
   const [tripCats, setTripCats] = useState(() => {
@@ -2527,14 +2527,16 @@ function TripExpenseForm({ trip, onAdd, categorie, lang = "it" }) {
 }
 
 // ─── Trip guest view — reached via ?viaggio=<token>, no household PIN required ───
-const GUEST_TRIP_DEFAULT_CATEGORIE = [
-  { id: "trasporto", emoji: "✈️", nome: "Trasporto", colore: "#74B9FF" },
-  { id: "alloggio", emoji: "🏨", nome: "Alloggio", colore: "#A29BFE" },
-  { id: "cibo", emoji: "🍝", nome: "Cibo", colore: "#55EFC4" },
-  { id: "attivita", emoji: "🎡", nome: "Attività", colore: "#FDCB6E" },
-  { id: "shopping", emoji: "🛍️", nome: "Shopping", colore: "#FF7675" },
-  { id: "altro", emoji: "📦", nome: "Altro", colore: "#A8A8A8" },
-];
+function guestTripDefaultCategorie(lang) {
+  return [
+    { id: "trasporto", emoji: "✈️", nome: t(lang, "tripcat.trasporto"), colore: "#74B9FF" },
+    { id: "alloggio", emoji: "🏨", nome: t(lang, "tripcat.alloggio"), colore: "#A29BFE" },
+    { id: "cibo", emoji: "🍝", nome: t(lang, "cat.cibo"), colore: "#55EFC4" },
+    { id: "attivita", emoji: "🎡", nome: t(lang, "tripcat.attivita"), colore: "#FDCB6E" },
+    { id: "shopping", emoji: "🛍️", nome: t(lang, "cat.shopping"), colore: "#FF7675" },
+    { id: "altro", emoji: "📦", nome: t(lang, "cat.altro"), colore: "#A8A8A8" },
+  ];
+}
 
 function TripGuestView({ token }) {
   const [lang] = useState(() => detectGuestLang());
@@ -2651,7 +2653,7 @@ function TripGuestView({ token }) {
       )}
 
       {me && !trip.settled && (
-        <GuestExpenseForm trip={trip} me={me} token={token} categorie={GUEST_TRIP_DEFAULT_CATEGORIE} onAdded={load} lang={lang} />
+        <GuestExpenseForm trip={trip} me={me} token={token} categorie={guestTripDefaultCategorie(lang)} onAdded={load} lang={lang} />
       )}
     </div>
   );
@@ -4572,6 +4574,7 @@ function NumPad({ onDigit, onDelete, disabled }) {
 }
 
 function LoginScreen({ onLogin }) {
+  const [lang] = useState(() => detectGuestLang());
   const [mode, setMode] = useState("login"); // "login" | "register" | "change-pin"
 
   // Login state — numpad
@@ -4627,12 +4630,12 @@ function LoginScreen({ onLogin }) {
   }
   async function handleChangePinNext() {
     if (changePinStep === "new") {
-      if (newPin.length < 6) return setChangePinErrore("Il PIN deve essere di almeno 6 cifre");
+      if (newPin.length < 6) return setChangePinErrore(t(lang, "login.pinMin6"));
       setChangePinErrore("");
       setChangePinStep("confirm");
     } else {
       if (newPin !== newPinConferma) {
-        setChangePinErrore("I PIN non coincidono");
+        setChangePinErrore(t(lang, "login.pinMismatch"));
         setNewPinConferma("");
         return;
       }
@@ -4642,7 +4645,7 @@ function LoginScreen({ onLogin }) {
         await changePin(newPin);
         onLogin();
       } catch (err) {
-        setChangePinErrore(err.message || "Errore aggiornamento PIN");
+        setChangePinErrore(err.message || t(lang, "login.errorUpdatePin"));
         setNewPin(""); setNewPinConferma(""); setChangePinStep("new");
       } finally {
         setChangePinLoading(false);
@@ -4656,7 +4659,7 @@ function LoginScreen({ onLogin }) {
 
     // Show "server waking up" hint after 4s if still loading
     const hintTimer = setTimeout(() => {
-      setLoginSubtitle("Server in avvio, attendere...");
+      setLoginSubtitle(t(lang, "login.serverWakingUp"));
     }, 4000);
 
     try {
@@ -4669,7 +4672,7 @@ function LoginScreen({ onLogin }) {
       }
     }
     catch (err) {
-      setLoginErrore(err.message || "PIN non valido");
+      setLoginErrore(err.message || t(lang, "login.invalidPin"));
       setPinShake(true);
       setTimeout(() => { setPinShake(false); setPin(""); }, 450);
     }
@@ -4703,18 +4706,18 @@ function LoginScreen({ onLogin }) {
   async function handleRegister() {
     setRegErrore("");
     const personeValide = regPersone.filter(p => p.nome.trim());
-    if (!regNome.trim()) return setRegErrore("Inserisci il nome del gruppo");
-    if (personeValide.length === 0) return setRegErrore("Aggiungi almeno una persona");
-    if (regPin.length < 6) return setRegErrore("Il PIN deve essere di almeno 6 cifre");
-    if (regPin !== regPinConferma) return setRegErrore("I PIN non coincidono");
-    if (regEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim())) return setRegErrore("Email non valida");
+    if (!regNome.trim()) return setRegErrore(t(lang, "login.enterGroupName"));
+    if (personeValide.length === 0) return setRegErrore(t(lang, "login.addAtLeastOnePerson"));
+    if (regPin.length < 6) return setRegErrore(t(lang, "login.pinMin6"));
+    if (regPin !== regPinConferma) return setRegErrore(t(lang, "login.pinMismatch"));
+    if (regEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail.trim())) return setRegErrore(t(lang, "login.invalidEmail"));
     setRegLoading(true);
     try {
       await register({ nome: regNome.trim(), persone: personeValide.map(p => ({ nome: p.nome.trim(), emoji: p.emoji })), pin: regPin, email: regEmail.trim() || undefined });
       setRegSuccesso(true);
       setTimeout(() => onLogin(), 1200);
     } catch (err) {
-      setRegErrore(err.message || "Errore durante la registrazione");
+      setRegErrore(err.message || t(lang, "login.errorRegistration"));
     } finally { setRegLoading(false); }
   }
 
@@ -4732,29 +4735,29 @@ function LoginScreen({ onLogin }) {
   async function handleForgotRequest() {
     setForgotErrore("");
     if (!forgotEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim()))
-      return setForgotErrore("Inserisci un'email valida");
+      return setForgotErrore(t(lang, "toast.enterValidEmail"));
     setForgotLoading(true);
     try {
       const res = await requestPinReset(forgotEmail.trim());
-      setForgotMsg(res.message || "Se l'email è collegata a un account, riceverai un codice a breve.");
+      setForgotMsg(res.message || t(lang, "login.emailLinkedMsg"));
       setForgotStep("code");
     } catch (err) {
-      setForgotErrore(err.message || "Richiesta fallita");
+      setForgotErrore(err.message || t(lang, "login.requestFailed"));
     } finally { setForgotLoading(false); }
   }
 
   async function handleForgotConfirm() {
     setForgotErrore("");
-    if (!/^\d{6}$/.test(forgotCode.trim())) return setForgotErrore("Inserisci il codice a 6 cifre ricevuto via email");
-    if (!/^\d{6,8}$/.test(forgotNewPin)) return setForgotErrore("Il nuovo PIN deve essere di 6-8 cifre");
-    if (forgotNewPin !== forgotNewPinConferma) return setForgotErrore("I PIN non coincidono");
+    if (!/^\d{6}$/.test(forgotCode.trim())) return setForgotErrore(t(lang, "login.enterCode6"));
+    if (!/^\d{6,8}$/.test(forgotNewPin)) return setForgotErrore(t(lang, "login.newPinLength"));
+    if (forgotNewPin !== forgotNewPinConferma) return setForgotErrore(t(lang, "login.pinMismatch"));
     setForgotLoading(true);
     try {
       await confirmPinReset({ email: forgotEmail.trim(), code: forgotCode.trim(), newPin: forgotNewPin });
       closeForgotPin();
       onLogin();
     } catch (err) {
-      setForgotErrore(err.message || "Reimpostazione fallita");
+      setForgotErrore(err.message || t(lang, "login.resetFailed"));
     } finally { setForgotLoading(false); }
   }
 
@@ -4776,14 +4779,14 @@ function LoginScreen({ onLogin }) {
       <div style={{ fontSize: 36, fontWeight: 800, marginBottom: 4 }}>
         <span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span>
       </div>
-      <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 32 }}>TRACKER</div>
+      <div style={{ fontSize: 11, color: "#555", letterSpacing: 2, marginBottom: 32 }}>{t(lang, "header.tracker")}</div>
 
       {/* PIN change screen */}
       {mode === "change-pin" && (
         <div style={{ width: "100%", maxWidth: 300, textAlign: "center" }}>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Aggiorna il PIN</div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{t(lang, "login.updatePin")}</div>
           <div style={{ fontSize: 13, color: "#888", marginBottom: 24 }}>
-            {changePinStep === "new" ? "Scegli un nuovo PIN (minimo 6 cifre)" : "Conferma il nuovo PIN"}
+            {changePinStep === "new" ? t(lang, "login.choosePinMin6") : t(lang, "login.confirmNewPin")}
           </div>
           <PinDots value={changePinStep === "new" ? newPin : newPinConferma} maxLen={8} shake={false} />
           {changePinErrore && <div style={{ color: "#FF6B6B", fontSize: 13, marginTop: 8 }}>{changePinErrore}</div>}
@@ -4795,14 +4798,14 @@ function LoginScreen({ onLogin }) {
               marginTop: 16, width: "100%", padding: "14px", border: "none", borderRadius: 12,
               background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff",
               fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 700, cursor: "pointer",
-            }}>{changePinStep === "new" ? "Avanti" : (changePinLoading ? "Salvataggio..." : "Salva PIN")}</button>
+            }}>{changePinStep === "new" ? t(lang, "login.next") : (changePinLoading ? t(lang, "conti.saving") : t(lang, "login.savePin"))}</button>
           )}
         </div>
       )}
 
       {/* Mode toggle — hidden during PIN change */}
       {mode !== "change-pin" && <div style={{ display: "flex", background: "#1a1a28", borderRadius: 12, padding: 4, marginBottom: 28, width: "100%", maxWidth: 300 }}>
-        {[["login", "Accedi"], ["register", "Crea account"]].map(([m, label]) => (
+        {[["login", t(lang, "login.login")], ["register", t(lang, "login.createAccount")]].map(([m, label]) => (
           <button key={m} onClick={() => { setMode(m); setLoginErrore(""); setRegErrore(""); setPin(""); }} style={{
             flex: 1, padding: "10px", border: "none", borderRadius: 9, cursor: "pointer",
             fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
@@ -4817,7 +4820,7 @@ function LoginScreen({ onLogin }) {
         {mode === "login" ? (
           <>
             <div style={{ textAlign: "center", color: "#888", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>
-              {loginLoading ? "Accesso in corso..." : "Inserisci il PIN"}
+              {loginLoading ? t(lang, "login.loggingIn") : t(lang, "login.enterPin")}
             </div>
             {loginSubtitle && (
               <div style={{ textAlign: "center", color: "#6C5CE7", fontSize: 11, marginTop: 4, letterSpacing: 0.3 }}>
@@ -4852,7 +4855,7 @@ function LoginScreen({ onLogin }) {
                       transition: "opacity 0.2s ease",
                     }}
                   >
-                    {loginLoading ? "Accesso..." : "Accedi"}
+                    {loginLoading ? t(lang, "login.loggingInShort") : t(lang, "login.login")}
                   </button>
                 </div>
               );
@@ -4860,26 +4863,26 @@ function LoginScreen({ onLogin }) {
 
             <div style={{ textAlign: "center", marginTop: 4 }}>
               <button onClick={openForgotPin} style={{ background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", textDecoration: "underline" }}>
-                Hai dimenticato il PIN?
+                {t(lang, "login.forgotPin")}
               </button>
             </div>
           </>
         ) : regSuccesso ? (
           <div style={{ textAlign: "center", padding: 20 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🎉</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#4ECDC4" }}>Account creato!</div>
-            <div style={{ fontSize: 13, color: "#888", marginTop: 6 }}>Accesso in corso...</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#4ECDC4" }}>{t(lang, "login.accountCreated")}</div>
+            <div style={{ fontSize: 13, color: "#888", marginTop: 6 }}>{t(lang, "login.loggingIn")}</div>
           </div>
         ) : (
           <>
             <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Nome del gruppo</label>
-              <input type="text" value={regNome} onChange={e => setRegNome(e.target.value)} placeholder="Es: Laura & Marco"
+              <label style={labelStyle}>{t(lang, "login.groupName")}</label>
+              <input type="text" value={regNome} onChange={e => setRegNome(e.target.value)} placeholder={t(lang, "login.groupNamePlaceholder")}
                 style={smallInput} autoFocus />
             </div>
 
             <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Persone</label>
+              <label style={labelStyle}>{t(lang, "login.people")}</label>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {regPersone.map((p, i) => (
                   <div key={i}>
@@ -4895,7 +4898,7 @@ function LoginScreen({ onLogin }) {
                         }}
                       >{p.emoji}</button>
                       <input type="text" value={p.nome} onChange={e => updatePersonaNome(i, e.target.value)}
-                        placeholder={`Persona ${i + 1}`} style={{ ...smallInput, flex: 1 }} />
+                        placeholder={`${t(lang, "login.personPrefix")} ${i + 1}`} style={{ ...smallInput, flex: 1 }} />
                       {regPersone.length > 1 && (
                         <button onClick={() => removePersona(i)} style={{ background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", cursor: "pointer", padding: "8px 10px", fontSize: 14, flexShrink: 0 }}>×</button>
                       )}
@@ -4923,20 +4926,20 @@ function LoginScreen({ onLogin }) {
                   </div>
                 ))}
                 {regPersone.length < 6 && (
-                  <button onClick={addPersona} style={{ background: "none", border: "1px dashed #333", borderRadius: 10, color: "#666", cursor: "pointer", padding: "10px", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>+ Aggiungi persona</button>
+                  <button onClick={addPersona} style={{ background: "none", border: "1px dashed #333", borderRadius: 10, color: "#666", cursor: "pointer", padding: "10px", fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "login.addPerson")}</button>
                 )}
               </div>
             </div>
 
             <div style={{ marginBottom: 10 }}>
-              <label style={labelStyle}>PIN (4-8 cifre)</label>
+              <label style={labelStyle}>{t(lang, "login.pinLabel")}</label>
               <input type="password" inputMode="numeric" maxLength={8} value={regPin}
                 onChange={e => setRegPin(e.target.value.replace(/\D/g, ""))}
                 placeholder="••••" style={{ ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 8, textAlign: "center" }} />
             </div>
 
             <div style={{ marginBottom: 6 }}>
-              <label style={labelStyle}>Conferma PIN</label>
+              <label style={labelStyle}>{t(lang, "login.confirmPinLabel")}</label>
               <input type="password" inputMode="numeric" maxLength={8} value={regPinConferma}
                 onChange={e => setRegPinConferma(e.target.value.replace(/\D/g, ""))}
                 onKeyDown={e => e.key === "Enter" && handleRegister()}
@@ -4947,19 +4950,19 @@ function LoginScreen({ onLogin }) {
             </div>
 
             <div style={{ marginBottom: 6 }}>
-              <label style={labelStyle}>Email di recupero (opzionale)</label>
+              <label style={labelStyle}>{t(lang, "login.recoveryEmailLabel")}</label>
               <input type="email" inputMode="email" value={regEmail}
                 onChange={e => setRegEmail(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleRegister()}
                 placeholder="tuaemail@esempio.com" style={smallInput} />
-              <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>Se dimentichi il PIN, potrai reimpostarlo tramite questa email. Senza, non c'è modo di recuperare l'accesso.</div>
+              <div style={{ fontSize: 11, color: "#666", marginTop: 6 }}>{t(lang, "login.recoveryEmailHint")}</div>
             </div>
 
             {regErrore && <div style={{ marginTop: 10, textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600 }}>{regErrore}</div>}
 
             <button onClick={handleRegister} disabled={regLoading} style={{
               ...sBtn, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: regLoading ? 0.6 : 1,
-            }}>{regLoading ? "Creazione..." : "Crea account"}</button>
+            }}>{regLoading ? t(lang, "login.creating") : t(lang, "login.createAccount")}</button>
           </>
         )}
       </div>}
@@ -4971,14 +4974,14 @@ function LoginScreen({ onLogin }) {
         }}>
           <div style={{ background: "#1a1a28", borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, border: "1px solid #252538" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#eee" }}>PIN dimenticato</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#eee" }}>{t(lang, "login.forgotPinTitle")}</div>
               <button onClick={closeForgotPin} style={{ background: "none", border: "none", color: "#666", fontSize: 18, cursor: "pointer" }}>✕</button>
             </div>
 
             {forgotStep === "email" ? (
               <>
                 <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
-                  Inserisci l'email di recupero collegata al tuo gruppo. Se corrisponde, ti invieremo un codice per reimpostare il PIN.
+                  {t(lang, "login.forgotPinEmailHint")}
                 </div>
                 <input type="email" inputMode="email" autoFocus value={forgotEmail}
                   onChange={e => setForgotEmail(e.target.value)}
@@ -4987,23 +4990,23 @@ function LoginScreen({ onLogin }) {
                 {forgotErrore && <div style={{ color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginBottom: 10, textAlign: "center" }}>{forgotErrore}</div>}
                 <button onClick={handleForgotRequest} disabled={forgotLoading} style={{
                   ...sBtn, marginTop: 4, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff", opacity: forgotLoading ? 0.6 : 1,
-                }}>{forgotLoading ? "Invio..." : "Invia codice"}</button>
+                }}>{forgotLoading ? t(lang, "login.sendingCode") : t(lang, "login.sendCode")}</button>
               </>
             ) : (
               <>
                 {forgotMsg && <div style={{ fontSize: 12, color: "#4ECDC4", marginBottom: 14, textAlign: "center" }}>{forgotMsg}</div>}
 
-                <label style={labelStyle}>Codice ricevuto via email</label>
+                <label style={labelStyle}>{t(lang, "login.codeReceivedLabel")}</label>
                 <input type="text" inputMode="numeric" maxLength={6} value={forgotCode}
                   onChange={e => setForgotCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="123456" style={{ ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 6, textAlign: "center", marginBottom: 12 }} />
 
-                <label style={labelStyle}>Nuovo PIN (6-8 cifre)</label>
+                <label style={labelStyle}>{t(lang, "login.newPinLabel")}</label>
                 <input type="password" inputMode="numeric" maxLength={8} value={forgotNewPin}
                   onChange={e => setForgotNewPin(e.target.value.replace(/\D/g, ""))}
                   placeholder="••••••" style={{ ...smallInput, fontFamily: "'Space Mono',monospace", letterSpacing: 8, textAlign: "center", marginBottom: 12 }} />
 
-                <label style={labelStyle}>Conferma nuovo PIN</label>
+                <label style={labelStyle}>{t(lang, "login.confirmNewPinLabel")}</label>
                 <input type="password" inputMode="numeric" maxLength={8} value={forgotNewPinConferma}
                   onChange={e => setForgotNewPinConferma(e.target.value.replace(/\D/g, ""))}
                   onKeyDown={e => e.key === "Enter" && handleForgotConfirm()}
@@ -5016,10 +5019,10 @@ function LoginScreen({ onLogin }) {
 
                 <button onClick={handleForgotConfirm} disabled={forgotLoading} style={{
                   ...sBtn, background: "linear-gradient(135deg, #4ECDC4, #3ab8b0)", color: "#0a0a12", opacity: forgotLoading ? 0.6 : 1,
-                }}>{forgotLoading ? "Reimpostazione..." : "Reimposta PIN e accedi"}</button>
+                }}>{forgotLoading ? t(lang, "login.resettingPin") : t(lang, "login.resetPinAndLogin")}</button>
 
                 <button onClick={() => setForgotStep("email")} style={{ width: "100%", background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", marginTop: 10, textDecoration: "underline" }}>
-                  Non hai ricevuto il codice? Riprova
+                  {t(lang, "login.noCodeRetry")}
                 </button>
               </>
             )}
@@ -5834,27 +5837,27 @@ export default function FinanzaApp() {
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#111119", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
-          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || "TRACKER"}</div>
+          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || t(lang, "header.tracker")}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button onClick={toggleNascondiImporti} title={nascondiImporti ? "Mostra importi" : "Nascondi importi"} style={{
+          <button onClick={toggleNascondiImporti} title={nascondiImporti ? t(lang, "header.showAmounts") : t(lang, "header.hideAmounts")} style={{
             background: nascondiImporti ? "#6C5CE722" : "none", border: nascondiImporti ? "1px solid #6C5CE7" : "1px solid #252538",
             borderRadius: 8, cursor: "pointer", color: nascondiImporti ? "#a78bfa" : "#888",
             fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
           }}>{nascondiImporti ? "🙈" : "👁"}</button>
-          <button onClick={() => setTab("impostazioni")} title="Impostazioni" style={{
+          <button onClick={() => setTab("impostazioni")} title={t(lang, "header.settings")} style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
           }}>⚙</button>
-          <button onClick={() => window.location.reload()} title="Ricarica" style={{
+          <button onClick={() => window.location.reload()} title={t(lang, "header.reload")} style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
           }}>↻</button>
-          <button onClick={handleLogout} title="Logout" style={{
+          <button onClick={handleLogout} title={t(lang, "header.logout")} style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
             fontFamily: "'DM Sans',sans-serif",
-          }}>Esci</button>
+          }}>{t(lang, "header.logout")}</button>
           <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
         </div>
       </div>
