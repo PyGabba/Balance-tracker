@@ -4,19 +4,27 @@ import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase, fetchExchangeRates } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
+import { LANGUAGES, getLang, setLang, t, mese, detectGuestLang } from "./lib/i18n.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
-const CATEGORIE = [
-  { id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" },
-  { id: "trasporti", nome: "Trasporti", emoji: "🚗", colore: "#4ECDC4" },
-  { id: "casa", nome: "Casa", emoji: "🏠", colore: "#45B7D1" },
-  { id: "salute", nome: "Salute", emoji: "💊", colore: "#96CEB4" },
-  { id: "svago", nome: "Svago", emoji: "🎮", colore: "#FFEAA7" },
-  { id: "shopping", nome: "Shopping", emoji: "🛍️", colore: "#DDA0DD" },
-  { id: "bollette", nome: "Bollette", emoji: "💡", colore: "#F0A500" },
-  { id: "altro", nome: "Altro", emoji: "📦", colore: "#A8A8A8" },
-  { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" },
+// Default categories, seeded client-side only until a household customizes
+// them (nothing is written server-side until then — see loadCategorie).
+// nome is translated by id; ids/emoji/colore stay fixed so stored transaction
+// data and custom-category edits are never affected by the display language.
+const CATEGORIE_BASE = [
+  { id: "cibo", emoji: "🍕", colore: "#FF6B6B" },
+  { id: "trasporti", emoji: "🚗", colore: "#4ECDC4" },
+  { id: "casa", emoji: "🏠", colore: "#45B7D1" },
+  { id: "salute", emoji: "💊", colore: "#96CEB4" },
+  { id: "svago", emoji: "🎮", colore: "#FFEAA7" },
+  { id: "shopping", emoji: "🛍️", colore: "#DDA0DD" },
+  { id: "bollette", emoji: "💡", colore: "#F0A500" },
+  { id: "altro", emoji: "📦", colore: "#A8A8A8" },
+  { id: "entrata", emoji: "💰", colore: "#4ECDC4" },
 ];
+function defaultCategorie(lang) {
+  return CATEGORIE_BASE.map(c => ({ ...c, nome: t(lang, `cat.${c.id}`) }));
+}
 
 // PERSONE is now dynamic — loaded from session after login
 // Fallback for offline/localStorage mode
@@ -30,8 +38,6 @@ const SPLIT_PRESETS = [
   { label: "70/30", value: 70 },
   { label: "100%", value: 100 },
 ];
-
-const MESI = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
 
 function generaId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 // Privacy mode: when active, every currency amount renders as dots.
@@ -83,7 +89,7 @@ function getAllPersone(transazioni, householdPersone) {
 // ─── Multi-person split selector ───
 const COLORI_EXTRA = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
 
-function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone }) {
+function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone, lang = "it" }) {
   const [showAddExtra, setShowAddExtra] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -142,7 +148,7 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
   return (
     <div style={{ marginBottom: 18 }}>
       {/* Who paid */}
-      <label style={labelStyle}>Chi ha pagato?</label>
+      <label style={labelStyle}>{t(lang, "form.whoPaid")}</label>
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
         {allPersone.map(p => (
           <button key={p.id} onClick={() => setPagatoDa(p.id)} style={{
@@ -158,7 +164,7 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
       </div>
 
       {/* Participants */}
-      <label style={labelStyle}>Chi partecipa alla spesa?</label>
+      <label style={labelStyle}>{t(lang, "form.whoParticipates")}</label>
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
         {allPersone.map(p => {
           const active = (splits || []).find(s => s.personaId === p.id);
@@ -178,7 +184,7 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
           padding: "8px 12px", borderRadius: 10, cursor: "pointer",
           border: "2px dashed #333355", background: "#1a1a28",
           color: "#6C5CE7", fontSize: 13, fontWeight: 700,
-        }}>+ Persona</button>
+        }}>{t(lang, "form.addPerson")}</button>
       </div>
 
       {/* Add extra person */}
@@ -186,11 +192,11 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
             onKeyDown={e => e.key === "Enter" && addExtraPerson()}
-            placeholder="Nome persona..." style={{ ...inputStyle, flex: 1, padding: "10px 12px", fontSize: 13, background: "#111119" }} />
+            placeholder={t(lang, "form.personNamePlaceholder")} style={{ ...inputStyle, flex: 1, padding: "10px 12px", fontSize: 13, background: "#111119" }} />
           <button onClick={addExtraPerson} style={{
             padding: "10px 16px", border: "none", borderRadius: 12, cursor: "pointer",
             background: "#6C5CE7", color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0,
-          }}>Aggiungi</button>
+          }}>{t(lang, "common.add")}</button>
         </div>
       )}
 
@@ -198,13 +204,13 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
       {(splits || []).length >= 2 && (
         <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
           <button onClick={splitEqual} style={{ flex: 1, padding: "7px 0", border: "2px solid #252538", borderRadius: 10, cursor: "pointer", background: "#1a1a28", color: "#6C5CE7", fontSize: 12, fontWeight: 700 }}>
-            Dividi equamente
+            {t(lang, "form.splitEqually")}
           </button>
           <button onClick={() => {
             const s = (splits || []);
             if (s.length > 0) setSplits(s.map(x => x.personaId === pagatoDa ? { ...x, quota: 100 } : { ...x, quota: 0 }));
           }} style={{ flex: 1, padding: "7px 0", border: "2px solid #252538", borderRadius: 10, cursor: "pointer", background: "#1a1a28", color: "#888", fontSize: 12, fontWeight: 700 }}>
-            100% pagante
+            {t(lang, "form.payer100")}
           </button>
         </div>
       )}
@@ -227,7 +233,7 @@ function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, impo
           })}
           {totalQuota !== 100 && (
             <div style={{ fontSize: 11, color: totalQuota > 100 ? "#FF6B6B" : "#F0A500", marginTop: 6, fontWeight: 600 }}>
-              Totale: {totalQuota}% {totalQuota !== 100 ? `(dovrebbe essere 100%)` : ""}
+              {t(lang, "home.total")}: {totalQuota}% {totalQuota !== 100 ? t(lang, "form.shouldBe100") : ""}
             </div>
           )}
         </div>
@@ -455,7 +461,7 @@ function DonutChart({ segmenti }) {
 function MonthBar({ meseOffset, setMeseOffset }) {
   const oggi = new Date();
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
-  const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
+  const nomeMese = mese(meseVis.getMonth()) + " " + meseVis.getFullYear();
   const navBtn = { background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 16, padding: "5px 12px", cursor: "pointer" };
 
   return (
@@ -468,14 +474,14 @@ function MonthBar({ meseOffset, setMeseOffset }) {
 }
 
 // ─── Floating Glass Tab Bar ───
-function TabBar({ tab, setTab, householdId }) {
+function TabBar({ tab, setTab, householdId, lang = "it" }) {
   const baseTabs = [
-    { id: "home", label: "Home", icon: "⌂" },
-    { id: "aggiungi", label: "Aggiungi", icon: "+" },
-    { id: "portfolio", label: "Portfolio", icon: "📈" },
-    { id: "viaggi", label: "Viaggi", icon: "✈" },
-    { id: "stats", label: "Statistiche", icon: "◔" },
-    { id: "export", label: "Esporta", icon: "↓" },
+    { id: "home", label: t(lang, "nav.home"), icon: "⌂" },
+    { id: "aggiungi", label: t(lang, "nav.aggiungi"), icon: "+" },
+    { id: "portfolio", label: t(lang, "nav.portfolio"), icon: "📈" },
+    { id: "viaggi", label: t(lang, "nav.viaggi"), icon: "✈" },
+    { id: "stats", label: t(lang, "nav.stats"), icon: "◔" },
+    { id: "export", label: t(lang, "nav.export"), icon: "↓" },
   ];
   const tabs = baseTabs;
 
@@ -623,7 +629,7 @@ function GoalGauge({ current, target, size = 60 }) {
 }
 
 // Goal row component
-function GoalRow({ goal, onUpdate, onDelete, conti = [] }) {
+function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
   const [mode, setMode] = useState(null); // null | "versa" | "edit"
   const [amount, setAmount] = useState("");
   const [eNome, setENome] = useState(goal.nome);
@@ -710,7 +716,7 @@ function GoalRow({ goal, onUpdate, onDelete, conti = [] }) {
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
           {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title="Versa un importo" style={{ background: mode === "versa" ? "#4ECDC422" : "none", border: mode === "versa" ? "1px solid #4ECDC4" : "1px solid #252538", borderRadius: 7, color: "#4ECDC4", cursor: "pointer", fontSize: 13, padding: "3px 8px", fontWeight: 700 }}>+</button>}
           <button onClick={openEdit} style={{ background: "none", border: "none", color: "#6C5CE7", cursor: "pointer", fontSize: 14 }}>✏</button>
-          <button onClick={() => { if (confirm("Eliminare questo obiettivo?")) onDelete(goal.id); }} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>
+          <button onClick={() => { if (confirm(t(lang, "confirm.deleteGoal"))) onDelete(goal.id); }} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>
         </div>
       </div>
 
@@ -884,7 +890,7 @@ function GoalsForm({ onAdd, onCancel, conti = [] }) {
   );
 }
 
-function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }) {
+function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, lang = "it" }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
   const [nome, setNome] = useState("");
@@ -914,13 +920,13 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }
       if (editId) await onUpdate(editId, payload);
       else await onAdd(payload);
       closeForm();
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setSaving(false);
   }
 
   async function handleDelete(c) {
     const nTx = transazioni.filter(t => t.contoId === c.id).length;
-    if (!confirm(`Eliminare il conto "${c.nome}"?${nTx > 0 ? `\n${nTx} transazioni resteranno senza conto.` : ""}`)) return;
+    if (!confirm(`${t(lang, "confirm.deleteAccountPrefix")} "${c.nome}"?${nTx > 0 ? `\n${nTx} ${t(lang, "confirm.deleteAccountTxWarning")}` : ""}`)) return;
     await onDelete(c.id);
     closeForm();
   }
@@ -1004,7 +1010,7 @@ function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete }
   );
 }
 
-function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {} }) {
+function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {}, lang = "it" }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [settlingKey, setSettlingKey] = useState(null);
@@ -1018,7 +1024,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   const [showStoricoSaldi, setShowStoricoSaldi] = useState(false);
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
-  const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
+  const nomeMese = mese(meseVis.getMonth()) + " " + meseVis.getFullYear();
 
   const txMese = transazioni.filter(t => {
     const d = new Date(t.data);
@@ -1055,17 +1061,17 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       <div style={{ padding: "14px 16px 20px" }}>
       {/* Saldo card */}
       <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "24px 20px", marginBottom: 12, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
-        <div style={{ fontSize: 12, color: "#999", letterSpacing: 1, textTransform: "uppercase" }}>Saldo di {MESI[meseVis.getMonth()]}</div>
+        <div style={{ fontSize: 12, color: "#999", letterSpacing: 1, textTransform: "uppercase" }}>{t(lang, "home.balanceOf")} {mese(meseVis.getMonth())}</div>
         <div style={{ fontSize: 36, fontWeight: 800, marginTop: 6, fontFamily: "'Space Mono', monospace", color: saldo >= 0 ? "#4ECDC4" : "#FF6B6B", letterSpacing: -1 }}>
           {saldo >= 0 ? "+" : ""}{formattaValuta(saldo)}
         </div>
         <div style={{ display: "flex", gap: 20, marginTop: 16 }}>
           <div>
-            <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5 }}>▲ Entrate</div>
+            <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5 }}>{t(lang, "home.income")}</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: "#6C6", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(entrate)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5 }}>▼ Uscite</div>
+            <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5 }}>{t(lang, "home.expenses")}</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: "#F66", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(uscite)}</div>
           </div>
         </div>
@@ -1078,10 +1084,10 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>
               {ricorrentiInScadenza.length === 1
-                ? `"${ricorrentiInScadenza[0].descrizione || ricorrentiInScadenza[0].categoria}" è stata rinnovata`
-                : `${ricorrentiInScadenza.length} transazioni ricorrenti rinnovate`}
+                ? `"${ricorrentiInScadenza[0].descrizione || ricorrentiInScadenza[0].categoria}" ${t(lang, "home.renewedOne")}`
+                : `${ricorrentiInScadenza.length} ${t(lang, "home.renewedMany")}`}
             </div>
-            <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>Aggiunte automaticamente oggi</div>
+            <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>{t(lang, "home.addedToday")}</div>
           </div>
         </div>
       )}
@@ -1093,10 +1099,10 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#FFB020" }}>
               {daVerificareList.length === 1
-                ? `Verifica l'importo di "${daVerificareList[0].descrizione || daVerificareList[0].categoria}"`
-                : `${daVerificareList.length} spese ricorrenti da verificare`}
+                ? `${t(lang, "home.checkAmountOne")} "${daVerificareList[0].descrizione || daVerificareList[0].categoria}"`
+                : `${daVerificareList.length} ${t(lang, "home.checkAmountMany")}`}
             </div>
-            <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>Importo variabile — controlla e correggi se serve</div>
+            <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>{t(lang, "home.variableAmountHint")}</div>
           </div>
         </div>
       )}
@@ -1110,26 +1116,26 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         const accantonati = (goals || []).reduce((s, g) => s + (g.contoId ? (g.currentAmount || 0) : 0), 0);
         return (
           <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #16281f 100%)", borderRadius: 20, padding: "18px 20px", marginBottom: 16, border: "1px solid #2a4a3a", boxShadow: "0 8px 32px #0005" }}>
-            <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Patrimonio</div>
+            <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "home.netWorth")}</div>
             <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: patrimonio >= 0 ? "#eee" : "#FF6B6B", marginTop: 4 }}>
               {formattaValuta(patrimonio)}
             </div>
             <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
               {conti.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 10, color: "#888" }}>💰 Conti</div>
+                  <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "home.accounts")}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totConti >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{formattaValuta(totConti)}</div>
                 </div>
               )}
               {positions.length > 0 && totInvestimenti > 0 && (
                 <div>
-                  <div style={{ fontSize: 10, color: "#888" }}>📈 Investimenti</div>
+                  <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "home.investments")}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(totInvestimenti)}</div>
                 </div>
               )}
               {accantonati > 0 && (
                 <div>
-                  <div style={{ fontSize: 10, color: "#888" }}>🎯 In obiettivi</div>
+                  <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "home.inGoals")}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#F0A500" }}>{formattaValuta(accantonati)}</div>
                 </div>
               )}
@@ -1139,13 +1145,13 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       })()}
 
       {/* Debt card */}
-      <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} />
+      <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} lang={lang} />
 
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Bilancio debiti</div>
+        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>{t(lang, "home.debtBalance")}</div>
         {/* Month debts */}
-        <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>{MESI[meseVis.getMonth()]}</div>
-        {debitiMese.length === 0 ? <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>Tutti pari</div> : (
+        <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>{mese(meseVis.getMonth())}</div>
+        {debitiMese.length === 0 ? <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>{t(lang, "home.allSquare")}</div> : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
             {debitiMese.map((d, i) => {
               const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
@@ -1162,8 +1168,8 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         )}
         {/* Global debts */}
         <div style={{ borderTop: "1px solid #252538", paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>Totale</div>
-          {debitiGlobale.length === 0 ? <div style={{ fontSize: 13, color: "#888" }}>Tutti pari</div> : (
+          <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>{t(lang, "home.total")}</div>
+          {debitiGlobale.length === 0 ? <div style={{ fontSize: 13, color: "#888" }}>{t(lang, "home.allSquare")}</div> : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {debitiGlobale.map((d, i) => {
                 const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
@@ -1199,10 +1205,10 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                         onChange={e => setSettleAmount(e.target.value)}
                         style={{ flex: 1, padding: "9px 12px", background: "#1a1a28", border: "1px solid #4ECDC455", borderRadius: 10, color: "#eee", fontSize: 15, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box" }}
                       />
-                      <button onClick={() => setSettleAmount(String(d.importo))} style={{ padding: "9px 10px", border: "1px solid #4ECDC433", borderRadius: 10, background: "#4ECDC411", color: "#4ECDC4", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Max</button>
+                      <button onClick={() => setSettleAmount(String(d.importo))} style={{ padding: "9px 10px", border: "1px solid #4ECDC433", borderRadius: 10, background: "#4ECDC411", color: "#4ECDC4", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{t(lang, "home.max")}</button>
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => { setSettlingKey(null); setSettleAmount(""); }} style={{ flex: 1, padding: "9px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Annulla</button>
+                      <button onClick={() => { setSettlingKey(null); setSettleAmount(""); }} style={{ flex: 1, padding: "9px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "home.cancel")}</button>
                       <button onClick={() => {
                         const raw = parseFloat(String(settleAmount).replace(",", "."));
                         const amt = isNaN(raw) || raw <= 0 ? d.importo : Math.min(raw, d.importo);
@@ -1215,7 +1221,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                         });
                         setSettlingKey(null); setSettleAmount("");
                       }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: "#4ECDC4", color: "#111119", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
-                        Conferma saldo
+                        {t(lang, "home.confirmSettle")}
                       </button>
                     </div>
                   </div>
@@ -1227,7 +1233,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                   background: "#1e2a2a", color: "#4ECDC4", border: "1px solid #4ECDC433",
                   fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
                 }}>
-                  Salda {pDa.nome} → {pA.nome} ({formattaValuta(d.importo)})
+                  {t(lang, "home.settle")} {pDa.nome} → {pA.nome} ({formattaValuta(d.importo)})
                 </button>
               );
             })}
@@ -1242,7 +1248,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           return (
             <div style={{ borderTop: "1px solid #252538", paddingTop: 10, marginTop: 10 }}>
               <button onClick={() => setShowStoricoSaldi(v => !v)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: showStoricoSaldi ? 8 : 0 }}>
-                <span style={{ fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase" }}>Storico saldi ({saldati.length})</span>
+                <span style={{ fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "home.settleHistory")} ({saldati.length})</span>
                 <span style={{ fontSize: 10, color: "#6C5CE7", transform: showStoricoSaldi ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
               </button>
               {showStoricoSaldi && <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -1255,7 +1261,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
                       <span style={{ fontSize: 11, color: "#666", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
                       <span style={{ fontSize: 11, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", fontWeight: 600 }}>{formattaValuta(t.importo)}</span>
                       <span style={{ fontSize: 10, color: "#555", marginLeft: 4 }}>{formattaData(t.data)}</span>
-                      <button onClick={() => onDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title="Elimina saldo">✕</button>
+                      <button onClick={() => onDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title={t(lang, "home.deleteSettle")}>✕</button>
                     </div>
                   );
                 })}
@@ -1268,7 +1274,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       {/* Savings Goals card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Obiettivi risparmio</div>
+          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "home.savingsGoals")}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {goals?.length > 1 && (
               <span style={{ fontSize: 11, fontFamily: "'Space Mono',monospace", color: "#888" }}>
@@ -1290,12 +1296,12 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         {/* Goals list */}
         {(!goals || goals.length === 0) && !showAddGoal ? (
           <div style={{ fontSize: 12, color: "#666", textAlign: "center", padding: 8 }}>
-            Nessun obiettivo. Tocca + per aggiungerne uno.
+            {t(lang, "home.noGoals")}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {goals?.map(g => (
-              <GoalRow key={g.id} goal={g} onUpdate={onUpdateGoal} onDelete={onDeleteGoal} conti={conti} />
+              <GoalRow key={g.id} goal={g} onUpdate={onUpdateGoal} onDelete={onDeleteGoal} conti={conti} lang={lang} />
             ))}
           </div>
         )}
@@ -1303,7 +1309,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
 
       {/* Transactions for selected month */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 13, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{ricercaAttiva && tuttiIMesi ? "Risultati ricerca" : `Transazioni di ${MESI[meseVis.getMonth()]}`}</div>
+        <div style={{ fontSize: 13, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{ricercaAttiva && tuttiIMesi ? t(lang, "home.searchResults") : `${t(lang, "home.transactionsOf")} ${mese(meseVis.getMonth())}`}</div>
         <div style={{ fontSize: 12, color: "#666", fontFamily: "'Space Mono',monospace" }}>{txOrdinate.length}</div>
       </div>
       <div style={{ position: "relative", marginBottom: 8 }}>
@@ -1312,7 +1318,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Cerca transazioni..."
+          placeholder={t(lang, "home.searchPlaceholder")}
           style={{ ...inputStyle, paddingLeft: 36, paddingRight: 70, paddingTop: 10, paddingBottom: 10, fontSize: 13 }}
         />
         {search && (
@@ -1328,18 +1334,18 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
         <div style={{ background: "#1a1a28", borderRadius: 14, padding: 12, marginBottom: 8, border: "1px solid #252538", display: "flex", flexDirection: "column", gap: 10 }}>
           {/* Tipo */}
           <div>
-            <div style={filterLabelStyle}>Tipo</div>
+            <div style={filterLabelStyle}>{t(lang, "home.filterType")}</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[{ id: "", label: "Tutte" }, { id: "uscita", label: "▼ Uscite" }, { id: "entrata", label: "▲ Entrate" }, { id: "trasferimento", label: "⇄ Giroconti" }].map(o => (
+              {[{ id: "", label: t(lang, "home.filterAll") }, { id: "uscita", label: t(lang, "home.filterExpenses") }, { id: "entrata", label: t(lang, "home.filterIncome") }, { id: "trasferimento", label: t(lang, "home.filterTransfers") }].map(o => (
                 <FilterChip key={o.id || "all"} active={filtri.tipo === o.id} onClick={() => setFiltri({ ...filtri, tipo: o.id })}>{o.label}</FilterChip>
               ))}
             </div>
           </div>
           {/* Categoria */}
           <div>
-            <div style={filterLabelStyle}>Categoria</div>
+            <div style={filterLabelStyle}>{t(lang, "home.filterCategory")}</div>
             <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
-              <FilterChip active={!filtri.categoria} onClick={() => setFiltri({ ...filtri, categoria: "" })}>Tutte</FilterChip>
+              <FilterChip active={!filtri.categoria} onClick={() => setFiltri({ ...filtri, categoria: "" })}>{t(lang, "home.filterAll")}</FilterChip>
               {categorie.filter(c => c.id !== "entrata").map(c => (
                 <FilterChip key={c.id} active={filtri.categoria === c.id} onClick={() => setFiltri({ ...filtri, categoria: filtri.categoria === c.id ? "" : c.id })}>{c.emoji} {c.nome}</FilterChip>
               ))}
@@ -1347,9 +1353,9 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           </div>
           {/* Persona */}
           <div>
-            <div style={filterLabelStyle}>Persona</div>
+            <div style={filterLabelStyle}>{t(lang, "home.filterPerson")}</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <FilterChip active={!filtri.personaId} onClick={() => setFiltri({ ...filtri, personaId: "" })}>Tutte</FilterChip>
+              <FilterChip active={!filtri.personaId} onClick={() => setFiltri({ ...filtri, personaId: "" })}>{t(lang, "home.filterAll")}</FilterChip>
               {persone.map(p => (
                 <FilterChip key={p.id} active={filtri.personaId === p.id} onClick={() => setFiltri({ ...filtri, personaId: filtri.personaId === p.id ? "" : p.id })}>{p.emoji} {p.nome}</FilterChip>
               ))}
@@ -1358,9 +1364,9 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           {/* Conto */}
           {conti.length > 0 && (
             <div>
-              <div style={filterLabelStyle}>Conto</div>
+              <div style={filterLabelStyle}>{t(lang, "home.filterAccount")}</div>
               <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
-                <FilterChip active={!filtri.contoId} onClick={() => setFiltri({ ...filtri, contoId: "" })}>Tutti</FilterChip>
+                <FilterChip active={!filtri.contoId} onClick={() => setFiltri({ ...filtri, contoId: "" })}>{t(lang, "home.filterAllAccounts")}</FilterChip>
                 {conti.map(c => (
                   <FilterChip key={c.id} active={filtri.contoId === c.id} onClick={() => setFiltri({ ...filtri, contoId: filtri.contoId === c.id ? "" : c.id })}>{c.icona} {c.nome}</FilterChip>
                 ))}
@@ -1369,15 +1375,15 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
           )}
           {/* Importo */}
           <div>
-            <div style={filterLabelStyle}>Importo (€)</div>
+            <div style={filterLabelStyle}>{t(lang, "home.filterAmount")} (€)</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="text" inputMode="decimal" value={filtri.minImporto} onChange={e => setFiltri({ ...filtri, minImporto: e.target.value })} placeholder="Min" style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: "'Space Mono',monospace" }} />
+              <input type="text" inputMode="decimal" value={filtri.minImporto} onChange={e => setFiltri({ ...filtri, minImporto: e.target.value })} placeholder={t(lang, "home.filterMin")} style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: "'Space Mono',monospace" }} />
               <span style={{ color: "#555", fontSize: 12 }}>—</span>
-              <input type="text" inputMode="decimal" value={filtri.maxImporto} onChange={e => setFiltri({ ...filtri, maxImporto: e.target.value })} placeholder="Max" style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: "'Space Mono',monospace" }} />
+              <input type="text" inputMode="decimal" value={filtri.maxImporto} onChange={e => setFiltri({ ...filtri, maxImporto: e.target.value })} placeholder={t(lang, "home.filterMax")} style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: "'Space Mono',monospace" }} />
             </div>
           </div>
           {nFiltriAttivi > 0 && (
-            <button onClick={() => setFiltri(FILTRI_VUOTI)} style={{ background: "none", border: "1px solid #FF6B6B44", borderRadius: 10, color: "#FF6B6B", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>✕ Azzera filtri</button>
+            <button onClick={() => setFiltri(FILTRI_VUOTI)} style={{ background: "none", border: "1px solid #FF6B6B44", borderRadius: 10, color: "#FF6B6B", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: "8px 12px" }}>{t(lang, "home.clearFilters")}</button>
           )}
         </div>
       )}
@@ -1386,19 +1392,19 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
       {ricercaAttiva && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "flex", gap: 6 }}>
-            <FilterChip active={!tuttiIMesi} onClick={() => setTuttiIMesi(false)}>📅 {MESI[meseVis.getMonth()]}</FilterChip>
-            <FilterChip active={tuttiIMesi} onClick={() => setTuttiIMesi(true)}>🗓 Tutti i mesi</FilterChip>
+            <FilterChip active={!tuttiIMesi} onClick={() => setTuttiIMesi(false)}>{t(lang, "home.thisMonth")} {mese(meseVis.getMonth())}</FilterChip>
+            <FilterChip active={tuttiIMesi} onClick={() => setTuttiIMesi(true)}>{t(lang, "home.allMonths")}</FilterChip>
           </div>
           {txOrdinate.length > 0 && (
             <div style={{ fontSize: 11, color: "#888", fontFamily: "'Space Mono',monospace" }}>
-              Netto: <span style={{ fontWeight: 700, color: totaleRisultati >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{totaleRisultati >= 0 ? "+" : ""}{formattaValuta(totaleRisultati)}</span>
+              {t(lang, "home.net")}: <span style={{ fontWeight: 700, color: totaleRisultati >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{totaleRisultati >= 0 ? "+" : ""}{formattaValuta(totaleRisultati)}</span>
             </div>
           )}
         </div>
       )}
       {txOrdinate.length === 0 ? (
         <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>
-          {ricercaAttiva ? <>Nessun risultato{search.trim() ? ` per "${search}"` : ""}{nFiltriAttivi > 0 ? " con i filtri attivi" : ""}.{!tuttiIMesi && <><br/><span style={{ fontSize: 12 }}>Prova a cercare in tutti i mesi.</span></>}</> : <>Nessuna transazione in {nomeMese}.<br/>Premi + per iniziare!</>}
+          {ricercaAttiva ? <>{t(lang, "home.noResults")}{search.trim() ? ` ${t(lang, "home.noResultsFor")} "${search}"` : ""}{nFiltriAttivi > 0 ? ` ${t(lang, "home.withActiveFilters")}` : ""}.{!tuttiIMesi && <><br/><span style={{ fontSize: 12 }}>{t(lang, "home.tryAllMonths")}</span></>}</> : <>{t(lang, "home.noTransactionsIn")} {nomeMese}.<br/>{t(lang, "home.pressToStart")}</>}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1408,6 +1414,7 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
               onDelete={() => { onDelete(t.id); setEditId(null); }}
               onSave={(updates) => { onEdit(t.id, updates); setEditId(null); }}
               onCancel={() => setEditId(null)}
+              lang={lang}
             />
           ))}
         </div>
@@ -1458,33 +1465,33 @@ function initialSplits(t, persone) {
 }
 
 // ─── Transaction Row with inline edit ───
-function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel }) {
+function TransactionRow({ tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
   const _ENTRATA_CAT = { id: "entrata", nome: "Entrata", emoji: "💰", colore: "#4ECDC4" };
-  const cat = t.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === t.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
-  const persona = persone.find(p => p.id === t.pagatoDa);
+  const cat = tx.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === tx.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
+  const persona = persone.find(p => p.id === tx.pagatoDa);
 
   // Edit state
-  const [tipo, setTipo] = useState(t.tipo);
-  const [importo, setImporto] = useState(String(t.importo));
-  const [categoria, setCategoria] = useState(t.categoria || "altro");
-  const [descrizione, setDescrizione] = useState(t.descrizione || "");
-  const [data, setData] = useState(t.data);
-  const [pagatoDa, setPagatoDa] = useState(t.pagatoDa || persone[0]?.id || "");
-  const [splits, setSplits] = useState(() => initialSplits(t, persone));
-  const [extraPersone, setExtraPersone] = useState(t.extraPersone || []);
-  const [intestataA, setIntestataA] = useState(t.intestataA || persone[0]?.id || "");
-  const [eContoId, setEContoId] = useState(t.contoId || "");
+  const [tipo, setTipo] = useState(tx.tipo);
+  const [importo, setImporto] = useState(String(tx.importo));
+  const [categoria, setCategoria] = useState(tx.categoria || "altro");
+  const [descrizione, setDescrizione] = useState(tx.descrizione || "");
+  const [data, setData] = useState(tx.data);
+  const [pagatoDa, setPagatoDa] = useState(tx.pagatoDa || persone[0]?.id || "");
+  const [splits, setSplits] = useState(() => initialSplits(tx, persone));
+  const [extraPersone, setExtraPersone] = useState(tx.extraPersone || []);
+  const [intestataA, setIntestataA] = useState(tx.intestataA || persone[0]?.id || "");
+  const [eContoId, setEContoId] = useState(tx.contoId || "");
   const [salvato, setSalvato] = useState(false);
 
   useEffect(() => {
-    setTipo(t.tipo); setImporto(String(t.importo)); setCategoria(t.categoria || "altro");
-    setDescrizione(t.descrizione || ""); setData(t.data);
-    setPagatoDa(t.pagatoDa || persone[0]?.id || "");
-    setSplits(initialSplits(t, persone));
-    setExtraPersone(t.extraPersone || []);
-    setIntestataA(t.intestataA || persone[0]?.id || "");
-    setEContoId(t.contoId || "");
-  }, [t, persone]);
+    setTipo(tx.tipo); setImporto(String(tx.importo)); setCategoria(tx.categoria || "altro");
+    setDescrizione(tx.descrizione || ""); setData(tx.data);
+    setPagatoDa(tx.pagatoDa || persone[0]?.id || "");
+    setSplits(initialSplits(tx, persone));
+    setExtraPersone(tx.extraPersone || []);
+    setIntestataA(tx.intestataA || persone[0]?.id || "");
+    setEContoId(tx.contoId || "");
+  }, [tx, persone]);
 
   function handleSave() {
     const val = parseFloat(String(importo).replace(",", "."));
@@ -1498,29 +1505,29 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
       extraPersone: tipo === "uscita" && extraPersone.length > 0 ? extraPersone : null,
       intestataA: tipo === "entrata" ? intestataA : null,
       contoId: eContoId || null,
-      ...(t.daVerificare ? { daVerificare: false } : {}),
+      ...(tx.daVerificare ? { daVerificare: false } : {}),
     });
     setSalvato(true);
     setTimeout(() => setSalvato(false), 1000);
   }
 
-  const personaIntestata = persone.find(p => p.id === t.intestataA);
+  const personaIntestata = persone.find(p => p.id === tx.intestataA);
 
   // Transfers: dedicated read-only row (no edit form, only delete)
-  if (t.tipo === "trasferimento") {
-    const cDa = conti.find(c => c.id === t.contoDa);
-    const cA = conti.find(c => c.id === t.contoA);
+  if (tx.tipo === "trasferimento") {
+    const cDa = conti.find(c => c.id === tx.contoDa);
+    const cA = conti.find(c => c.id === tx.contoA);
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538" }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: "#6C5CE722", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descrizione || "Giroconto"}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.descrizione || t(lang, "form.transfer")}</div>
           <div style={{ fontSize: 11, color: "#666" }}>
-            {formattaData(t.data)} · {cDa ? `${cDa.icona} ${cDa.nome}` : "?"} → {cA ? `${cA.icona} ${cA.nome}` : "?"}
+            {formattaData(tx.data)} · {cDa ? `${cDa.icona} ${cDa.nome}` : "?"} → {cA ? `${cA.icona} ${cA.nome}` : "?"}
           </div>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa", flexShrink: 0 }}>{formattaValuta(t.importo)}</div>
-        <button onClick={() => { if (confirm("Eliminare questo giroconto?")) onDelete(); }} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa", flexShrink: 0 }}>{formattaValuta(tx.importo)}</div>
+        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
       </div>
     );
   }
@@ -1534,42 +1541,42 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {t.descrizione || cat.nome}
-            {t.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: "#6C5CE7" }}>🔁</span>}
-            {t.daVerificare && <span title="Verifica importo" style={{ fontSize: 10, marginLeft: 5, color: "#FFB020" }}>⚠️</span>}
+            {tx.descrizione || cat.nome}
+            {tx.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: "#6C5CE7" }}>🔁</span>}
+            {tx.daVerificare && <span title={t(lang, "form.checkAmountTitle")} style={{ fontSize: 10, marginLeft: 5, color: "#FFB020" }}>⚠️</span>}
           </div>
           <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-            {formattaData(t.data)}
-            {(() => { const c = conti.find(x => x.id === t.contoId); return c ? <span title={c.nome} style={{ fontSize: 10 }}>{c.icona}</span> : null; })()}
-            {persona && t.tipo === "uscita" && (() => {
+            {formattaData(tx.data)}
+            {(() => { const c = conti.find(x => x.id === tx.contoId); return c ? <span title={c.nome} style={{ fontSize: 10 }}>{c.icona}</span> : null; })()}
+            {persona && tx.tipo === "uscita" && (() => {
               // Ottieni lista partecipanti con quote
               let participants = [];
-              if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
-                participants = t.splits.map(s => ({
+              if (tx.splits && Array.isArray(tx.splits) && tx.splits.length > 0) {
+                participants = tx.splits.map(s => ({
                   id: s.personaId,
                   quota: s.quota,
                   persona: persone.find(p => p.id === s.personaId) || { id: s.personaId, nome: s.personaId, emoji: "👤", colore: "#888" }
                 }));
-              } else if (t.splitPagante != null && t.splitPagante !== 100) {
+              } else if (tx.splitPagante != null && tx.splitPagante !== 100) {
                 // Vecchio formato a 2 persone
-                const otherId = persone.find(p => p.id !== t.pagatoDa)?.id;
+                const otherId = persone.find(p => p.id !== tx.pagatoDa)?.id;
                 if (otherId) {
                   participants = [
-                    { id: t.pagatoDa, quota: t.splitPagante, persona },
-                    { id: otherId, quota: 100 - t.splitPagante, persona: persone.find(p => p.id === otherId) }
+                    { id: tx.pagatoDa, quota: tx.splitPagante, persona },
+                    { id: otherId, quota: 100 - tx.splitPagante, persona: persone.find(p => p.id === otherId) }
                   ];
                 }
               }
             
               const totalParticipants = participants.length;
-              const payerIndex = participants.findIndex(p => p.id === t.pagatoDa);
+              const payerIndex = participants.findIndex(p => p.id === tx.pagatoDa);
               const isEqualSplit = totalParticipants === 2 && participants[0]?.quota === 50 && participants[1]?.quota === 50;
             
               // Costruisci label concisa
               let splitLabel = "";
               if (totalParticipants === 2 && isEqualSplit) {
                 // 50/50: mostra solo l'altra persona
-                const other = participants.find(p => p.id !== t.pagatoDa);
+                const other = participants.find(p => p.id !== tx.pagatoDa);
                 splitLabel = ` · ${other?.persona.emoji}`;
               } else if (totalParticipants === 2 && !isEqualSplit) {
                 // Due persone con quote diverse: mostra entrambe le percentuali
@@ -1596,12 +1603,12 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
                 </span>
               );
             })()}
-            {personaIntestata && t.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
+            {personaIntestata && tx.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: t.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B" }}>{t.tipo === "entrata" ? "+" : "-"}{formattaValuta(t.importo)}</div>
-          {t.valuta && <div style={{ fontSize: 10, color: "#666", fontFamily: "'Space Mono',monospace" }}>{t.importoOriginale} {t.valuta}</div>}
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: tx.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B" }}>{tx.tipo === "entrata" ? "+" : "-"}{formattaValuta(tx.importo)}</div>
+          {tx.valuta && <div style={{ fontSize: 10, color: "#666", fontFamily: "'Space Mono',monospace" }}>{tx.importoOriginale} {tx.valuta}</div>}
         </div>
       </div>
     );
@@ -1611,7 +1618,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
   return (
     <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", border: "2px solid #6C5CE7", position: "relative", zIndex: 10, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#eee" }}>Modifica transazione</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#eee" }}>{t(lang, "form.editTransaction")}</div>
         <button onClick={onCancel} style={{ background: "none", border: "none", color: "#888", fontSize: 18, cursor: "pointer" }}>✕</button>
       </div>
 
@@ -1623,13 +1630,13 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
             fontSize: 13, fontWeight: 600,
             background: tipo === tp ? (tp === "uscita" ? "#FF6B6B22" : "#4ECDC422") : "transparent",
             color: tipo === tp ? (tp === "uscita" ? "#FF6B6B" : "#4ECDC4") : "#666",
-          }}>{tp === "uscita" ? "▼ Uscita" : "▲ Entrata"}</button>
+          }}>{tp === "uscita" ? t(lang, "type.expense") : t(lang, "type.income")}</button>
         ))}
       </div>
 
       {/* Importo */}
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>Importo (€)</label>
+        <label style={labelStyle}>{t(lang, "home.filterAmount")} (€)</label>
         <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)}
           style={{ ...inputStyle, fontSize: 22, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo === "uscita" ? "#FF6B6B" : "#4ECDC4", background: "#111119" }} />
       </div>
@@ -1637,7 +1644,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
       {/* Categoria */}
       {tipo === "uscita" && (
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle}>Categoria</label>
+          <label style={labelStyle}>{t(lang, "home.filterCategory")}</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5 }}>
             {categorie.map(c => (
               <button key={c.id} onClick={() => setCategoria(c.id)} style={{
@@ -1656,13 +1663,13 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
 
       {/* Chi ha pagato + split */}
       {tipo === "uscita" && (
-        <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splits={splits} setSplits={setSplits} persone={persone} importo={importo} extraPersone={extraPersone} setExtraPersone={setExtraPersone} />
+        <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splits={splits} setSplits={setSplits} persone={persone} importo={importo} extraPersone={extraPersone} setExtraPersone={setExtraPersone} lang={lang} />
       )}
 
       {/* Entrata di chi */}
       {tipo === "entrata" && (
         <div style={{ marginBottom: 12 }}>
-          <label style={labelStyle}>Entrata di chi?</label>
+          <label style={labelStyle}>{t(lang, "form.whoseIncome")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {persone.map(p => (
               <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
@@ -1680,26 +1687,26 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
 
       {/* Descrizione */}
       <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>Descrizione</label>
-        <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Es: Pranzo..." style={{ ...inputStyle, background: "#111119" }} />
+        <label style={labelStyle}>{t(lang, "form.description")}</label>
+        <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "form.descriptionPlaceholder")} style={{ ...inputStyle, background: "#111119" }} />
       </div>
 
       {/* Data */}
       <div style={{ marginBottom: 16 }}>
-        <label style={labelStyle}>Data</label>
+        <label style={labelStyle}>{t(lang, "form.date")}</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, background: "#111119", colorScheme: "dark" }} />
       </div>
       {/* Conto */}
       {conti.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <label style={labelStyle}>Conto</label>
+          <label style={labelStyle}>{t(lang, "home.filterAccount")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setEContoId("")} style={{
               padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
               background: eContoId === "" ? "#6C5CE722" : "#111119",
               border: eContoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
               color: eContoId === "" ? "#a78bfa" : "#666",
-            }}>Nessuno</button>
+            }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setEContoId(c.id)} style={{
                 padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
@@ -1714,16 +1721,16 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => { if (confirm("Eliminare questa transazione?")) onDelete(); }} style={{
+        <button onClick={() => { if (confirm(t(lang, "form.deleteTransactionConfirm"))) onDelete(); }} style={{
           padding: "12px", border: "1px solid #FF6B6B44", borderRadius: 12, cursor: "pointer",
           background: "#FF6B6B11", color: "#FF6B6B", fontSize: 13, fontWeight: 600, flexShrink: 0,
-        }}>Elimina</button>
+        }}>{t(lang, "common.delete")}</button>
         <button onClick={handleSave} style={{
           flex: 1, padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
           fontSize: 14, fontWeight: 700, color: "#fff",
           background: salvato ? "linear-gradient(135deg, #4ECDC4, #3ab8b0)" : "linear-gradient(135deg, #6C5CE7, #a855f7)",
           boxShadow: "0 4px 16px #6C5CE744",
-        }}>{salvato ? "✓ Salvato!" : "Salva modifiche"}</button>
+        }}>{salvato ? t(lang, "form.saved") : t(lang, "form.saveChanges")}</button>
       </div>
     </div>
   );
@@ -1733,13 +1740,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
 // Fallback list shown before the live rates table loads (or if offline) — the
 // real option list is the keys of GET /api/exchange-rates, ~160 currencies.
 const VALUTE_FALLBACK = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "CNY", "SEK", "NOK", "PLN"];
-const RICORRENZA_OPTIONS = [
-  { id: "no", label: "Nessuna" },
-  { id: "settimanale", label: "Ogni settimana" },
-  { id: "mensile", label: "Ogni mese" },
-  { id: "trimestrale", label: "Ogni 3 mesi" },
-  { id: "annuale", label: "Ogni anno" },
-];
+const RICORRENZA_IDS = ["no", "settimanale", "mensile", "trimestrale", "annuale"];
 
 function calcolaProssimaData(data, frequenza) {
   const d = new Date(data + "T12:00:00");
@@ -1750,7 +1751,7 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "", valutaBase = "EUR" }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "", valutaBase = "EUR", lang = "it" }) {
   const [tipo, setTipo] = useState(initialTipo);
   const [importoRaw, setImportoRaw] = useState(initialImporto);
   const importoInputRef = useRef(null);
@@ -1864,21 +1865,21 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
 
   return (
     <div style={{ padding: "20px 16px" }}>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 20 }}>Nuova transazione</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 20 }}>{t(lang, "aggiungi.title")}</div>
       <div style={{ marginBottom: 16 }}><ReceiptScanner onScanComplete={handleReceiptScan} /></div>
       <div style={{ display: "flex", background: "#1a1a28", borderRadius: 14, padding: 4, marginBottom: 20, border: "1px solid #252538" }}>
-        {["uscita", "entrata", ...(conti.length >= 2 ? ["trasferimento"] : [])].map(t => (
-          <button key={t} onClick={() => setTipo(t)} style={{
+        {["uscita", "entrata", ...(conti.length >= 2 ? ["trasferimento"] : [])].map(tp => (
+          <button key={tp} onClick={() => setTipo(tp)} style={{
             flex: 1, padding: "10px 0", border: "none", borderRadius: 11, cursor: "pointer",
             fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600,
-            background: tipo===t?(t==="uscita"?"linear-gradient(135deg,#FF6B6B33,#FF6B6B22)":t==="trasferimento"?"linear-gradient(135deg,#6C5CE733,#6C5CE722)":"linear-gradient(135deg,#4ECDC433,#4ECDC422)"):"transparent",
-            color: tipo===t?(t==="uscita"?"#FF6B6B":t==="trasferimento"?"#a78bfa":"#4ECDC4"):"#666",
-          }}>{t === "uscita" ? "▼ Uscita" : t === "entrata" ? "▲ Entrata" : "⇄ Giro"}</button>
+            background: tipo===tp?(tp==="uscita"?"linear-gradient(135deg,#FF6B6B33,#FF6B6B22)":tp==="trasferimento"?"linear-gradient(135deg,#6C5CE733,#6C5CE722)":"linear-gradient(135deg,#4ECDC433,#4ECDC422)"):"transparent",
+            color: tipo===tp?(tp==="uscita"?"#FF6B6B":tp==="trasferimento"?"#a78bfa":"#4ECDC4"):"#666",
+          }}>{tp === "uscita" ? t(lang, "type.expense") : tp === "entrata" ? t(lang, "type.income") : t(lang, "type.transfer")}</button>
         ))}
       </div>
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <label style={{ ...labelStyle, marginBottom: 0 }}>Importo</label>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>{t(lang, "home.filterAmount")}</label>
           {tipo !== "trasferimento" && (
             <select value={valuta} onChange={e => setValuta(e.target.value)} style={{
               background: valuta !== valutaBase ? "#6C5CE722" : "#1a1a28",
@@ -1897,7 +1898,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":tipo==="trasferimento"?"#a78bfa":"#4ECDC4" }} />
         {valuta !== valutaBase && (
           <div style={{ fontSize: 11, color: "#6C5CE7", textAlign: "center", marginTop: 4 }}>
-            Convertito in {valutaBase} al salvataggio (tasso del giorno)
+            {t(lang, "aggiungi.convertedPrefix")} {valutaBase} {t(lang, "aggiungi.convertedSuffix")}
           </div>
         )}
         {isComputed && (
@@ -1924,7 +1925,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
       {tipo === "uscita" && (
         <>
           <div style={{ marginBottom: 18 }}>
-            <label style={labelStyle}>Categoria</label>
+            <label style={labelStyle}>{t(lang, "home.filterCategory")}</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
               {categorie.map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id)} style={{
@@ -1937,12 +1938,12 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
               ))}
             </div>
           </div>
-          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splits={splits} setSplits={setSplits} persone={persone} importo={importo} extraPersone={extraPersone} setExtraPersone={setExtraPersone} />
+          <SplitSelector pagatoDa={pagatoDa} setPagatoDa={setPagatoDa} splits={splits} setSplits={setSplits} persone={persone} importo={importo} extraPersone={extraPersone} setExtraPersone={setExtraPersone} lang={lang} />
         </>
       )}
       {tipo === "entrata" && (
         <div style={{ marginBottom: 18 }}>
-          <label style={labelStyle}>Entrata di chi?</label>
+          <label style={labelStyle}>{t(lang, "form.whoseIncome")}</label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {persone.map(p => (
               <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
@@ -1958,14 +1959,14 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         </div>
       )}
       <div style={{ marginBottom: 18, position: "relative" }}>
-        <label style={labelStyle}>Descrizione (opzionale)</label>
+        <label style={labelStyle}>{t(lang, "aggiungi.descriptionOptional")}</label>
         <input
           type="text"
           value={descrizione}
           onChange={e => { setDescrizione(e.target.value); setSuggestOpen(true); }}
           onFocus={() => setSuggestOpen(true)}
           onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
-          placeholder="Es: Pranzo, Benzina..."
+          placeholder={t(lang, "aggiungi.descriptionPlaceholder")}
           style={inputStyle}
           autoComplete="off"
         />
@@ -2006,12 +2007,12 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         })()}
       </div>
       <div style={{ marginBottom: 24 }}>
-        <label style={labelStyle}>Data</label>
+        <label style={labelStyle}>{t(lang, "form.date")}</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
       </div>
       {tipo === "trasferimento" && (
         <div style={{ marginBottom: 24 }}>
-          <label style={labelStyle}>Da conto</label>
+          <label style={labelStyle}>{t(lang, "aggiungi.fromAccount")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoDa(c.id)} style={{
@@ -2022,7 +2023,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
               }}>{c.icona} {c.nome}</button>
             ))}
           </div>
-          <label style={labelStyle}>A conto</label>
+          <label style={labelStyle}>{t(lang, "aggiungi.toAccount")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoA(c.id)} disabled={c.id === contoDa} style={{
@@ -2043,14 +2044,14 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
       )}
       {conti.length > 0 && tipo !== "trasferimento" && (
         <div style={{ marginBottom: 24 }}>
-          <label style={labelStyle}>Conto</label>
+          <label style={labelStyle}>{t(lang, "home.filterAccount")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setContoId("")} style={{
               padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
               background: contoId === "" ? "#6C5CE722" : "#1a1a28",
               border: contoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
               color: contoId === "" ? "#a78bfa" : "#666",
-            }}>Nessuno</button>
+            }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoId(c.id)} style={{
                 padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
@@ -2063,27 +2064,27 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         </div>
       )}
       {tipo !== "trasferimento" && <div style={{ marginBottom: 24 }}>
-        <label style={labelStyle}>Ripeti</label>
+        <label style={labelStyle}>{t(lang, "aggiungi.repeat")}</label>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {RICORRENZA_OPTIONS.map(opt => (
-            <button key={opt.id} onClick={() => setRicorrenza(opt.id)} style={{
+          {RICORRENZA_IDS.map(id => (
+            <button key={id} onClick={() => setRicorrenza(id)} style={{
               padding: "8px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600,
               fontFamily: "'DM Sans',sans-serif",
-              background: ricorrenza === opt.id ? "#6C5CE722" : "#1a1a28",
-              border: ricorrenza === opt.id ? "2px solid #6C5CE7" : "2px solid #252538",
-              color: ricorrenza === opt.id ? "#a78bfa" : "#666",
+              background: ricorrenza === id ? "#6C5CE722" : "#1a1a28",
+              border: ricorrenza === id ? "2px solid #6C5CE7" : "2px solid #252538",
+              color: ricorrenza === id ? "#a78bfa" : "#666",
               transition: "all 0.15s",
-            }}>{opt.label}</button>
+            }}>{t(lang, `recur.${id}`)}</button>
           ))}
         </div>
         {ricorrenza !== "no" && (
           <>
             <div style={{ fontSize: 11, color: "#6C5CE7", marginTop: 8 }}>
-              🔁 Prossima: {calcolaProssimaData(data, ricorrenza)}
+              {t(lang, "aggiungi.nextOccurrence")} {calcolaProssimaData(data, ricorrenza)}
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, cursor: "pointer" }}>
               <input type="checkbox" checked={importoVariabile} onChange={e => setImportoVariabile(e.target.checked)} style={{ width: 16, height: 16, accentColor: "#6C5CE7" }} />
-              <span style={{ fontSize: 12, color: "#999" }}>Importo variabile (es. bolletta) — chiedi verifica ad ogni rinnovo</span>
+              <span style={{ fontSize: 12, color: "#999" }}>{t(lang, "aggiungi.variableAmountFull")}</span>
             </label>
           </>
         )}
@@ -2093,13 +2094,13 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         fontSize: 16, fontWeight: 700,
         background: tipo==="uscita"?"linear-gradient(135deg,#FF6B6B,#ee5a5a)":tipo==="trasferimento"?"linear-gradient(135deg,#6C5CE7,#a855f7)":"linear-gradient(135deg,#4ECDC4,#3ab8b0)",
         color: "#fff", boxShadow: tipo==="uscita"?"0 4px 20px #FF6B6B44":"0 4px 20px #4ECDC444",
-      }}>{salvato ? "✓ Salvato!" : tipo === "trasferimento" ? "⇄ Trasferisci" : "Salva transazione"}</button>
+      }}>{salvato ? t(lang, "form.saved") : tipo === "trasferimento" ? t(lang, "aggiungi.transferSubmit") : t(lang, "aggiungi.saveTransaction")}</button>
     </div>
   );
 }
 
 // ─── Viaggi (Trips) View ───
-function ViaggiView({ persone }) {
+function ViaggiView({ persone, lang = "it" }) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -2162,26 +2163,26 @@ function ViaggiView({ persone }) {
       setTrips(prev => prev.map(t => t.id === tripId ? { ...t, shareToken: token } : t));
       const url = `${window.location.origin}${window.location.pathname}?viaggio=${token}`;
       await navigator.clipboard?.writeText(url).catch(() => {});
-      toast("Link di invito copiato negli appunti.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "viaggi.linkCopied"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setShareBusyId(null);
   }
 
   async function handleRevokeShare(tripId) {
-    if (!confirm("Revocare il link di invito? Chi lo ha già usato perde l'accesso al viaggio.")) return;
+    if (!confirm(t(lang, "viaggi.confirmRevoke"))) return;
     setShareBusyId(tripId);
     try {
       await revokeTripShareLink(tripId);
       setTrips(prev => prev.map(t => t.id === tripId ? { ...t, shareToken: undefined } : t));
-      toast("Link revocato.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "viaggi.linkRevoked"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setShareBusyId(null);
   }
 
   function handleCopyShareLink(token) {
     const url = `${window.location.origin}${window.location.pathname}?viaggio=${token}`;
     navigator.clipboard?.writeText(url);
-    toast("Link copiato negli appunti.", "success");
+    toast(t(lang, "viaggi.linkCopiedShort"), "success");
   }
 
   const [showCatManager, setShowCatManager] = useState(false);
@@ -2196,7 +2197,7 @@ function ViaggiView({ persone }) {
     setTripCats(cats);
     try { localStorage.setItem("tripCategories", JSON.stringify(cats)); } catch {}
     const ok = await saveTripCategories(cats);
-    if (!ok) toast("Categorie salvate solo su questo dispositivo (server non raggiungibile)", "error");
+    if (!ok) toast(t(lang, "toast.categoriesLocalOnly"), "error");
   }
 
   async function loadTrips() {
@@ -2213,12 +2214,12 @@ function ViaggiView({ persone }) {
   }
 
   async function handleDeleteTrip(id) {
-    if (!confirm("Eliminare questo viaggio?")) return;
+    if (!confirm(t(lang, "viaggi.confirmDeleteTrip"))) return;
     try {
       await deleteTrip(id);
       setTrips(trips.filter(t => t.id !== id));
     } catch (e) {
-      toast("Errore nell'eliminazione: " + e.message, "error");
+      toast(`${t(lang, "toast.errorDeletePrefix")} ${e.message}`, "error");
     }
   }
 
@@ -2237,7 +2238,7 @@ function ViaggiView({ persone }) {
   async function handleMarkSettled(trip, settlements) {
     const nameOf = (id) => (trip.partecipanti || []).find(p => p.id === id)?.nome || id;
     const riepilogo = settlements.map(s => `${nameOf(s.da)} → ${nameOf(s.a)}: ${formattaValuta(s.importo)}`).join("\n");
-    if (!confirm(`Segnare "${trip.nome}" come saldato?\n\nVerranno registrati questi pagamenti:\n${riepilogo}`)) return;
+    if (!confirm(`${t(lang, "viaggi.confirmSettlePrefix")} "${trip.nome}" ${t(lang, "viaggi.confirmSettleSuffix")}\n${riepilogo}`)) return;
     setSettlingId(trip.id);
     try {
       const oggi = new Date().toISOString().slice(0, 10);
@@ -2255,7 +2256,7 @@ function ViaggiView({ persone }) {
       await updateTrip(trip.id, { settled: true });
       setTrips(trips.map(t => t.id === trip.id ? { ...t, settled: true } : t));
     } catch (e) {
-      toast("Errore nel salvataggio: " + e.message, "error");
+      toast(`${t(lang, "toast.errorSavePrefix")} ${e.message}`, "error");
     }
     setSettlingId(null);
   }
@@ -2293,12 +2294,12 @@ function ViaggiView({ persone }) {
   const allColors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
   const tripColors = {};
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Caricamento...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>{t(lang, "viaggi.loading")}</div>;
 
   return (
     <div style={{ padding: "20px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>Viaggi</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>{t(lang, "viaggi.title")}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? "#6C5CE7" : "#888", fontSize: 16, padding: "4px 8px" }}>⚙</button>
           <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538", borderRadius: 10, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
@@ -2307,7 +2308,7 @@ function ViaggiView({ persone }) {
 
       {showCatManager && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>Categorie viaggi</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>{t(lang, "viaggi.categories")}</div>
           {tripCats.map(c => (
             <div key={c.id}>
               {editingCatId === c.id ? (
@@ -2316,13 +2317,13 @@ function ViaggiView({ persone }) {
                     <input value={editForm.emoji || c.emoji} onChange={e => setEditForm(f => ({ ...f, emoji: e.target.value }))}
                       style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
                     <input value={editForm.nome || c.nome} onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))}
-                      placeholder="Nome categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                      placeholder={t(lang, "viaggi.categoryNamePlaceholder")} style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
                     <input type="color" value={editForm.colore || c.colore} onChange={e => setEditForm(f => ({ ...f, colore: e.target.value }))}
                       style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
                   </div>
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>Annulla</button>
-                    <button onClick={() => handleSaveTripCat(c.id)} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Salva</button>
+                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+                    <button onClick={() => handleSaveTripCat(c.id)} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
                   </div>
                 </div>
               ) : (
@@ -2342,32 +2343,32 @@ function ViaggiView({ persone }) {
                 <input value={newCat.emoji} onChange={e => setNewCat(c => ({ ...c, emoji: e.target.value }))}
                   style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
                 <input value={newCat.nome} onChange={e => setNewCat(c => ({ ...c, nome: e.target.value }))}
-                  placeholder="Nuova categoria" style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                  placeholder={t(lang, "viaggi.newCategoryPlaceholder")} style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
                 <input type="color" value={newCat.colore} onChange={e => setNewCat(c => ({ ...c, colore: e.target.value }))}
                   style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>Annulla</button>
-                <button onClick={handleAddTripCat} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Aggiungi</button>
+                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+                <button onClick={handleAddTripCat} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: "1px dashed #333", borderRadius: 10, color: "#666", fontSize: 13, cursor: "pointer" }}>+ Nuova categoria</button>
+            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: "1px dashed #333", borderRadius: 10, color: "#666", fontSize: 13, cursor: "pointer" }}>{t(lang, "settings.newCategory")}</button>
           )}
         </div>
       )}
 
       {showAdd && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12, fontFamily: "'DM Sans',sans-serif" }}>Nuovo viaggio</div>
-          <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome viaggio (es. Weekend Parigi)" style={{ ...inputStyle, marginBottom: 10 }} />
-          <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione" style={{ ...inputStyle, marginBottom: 10 }} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.newTrip")}</div>
+          <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder={t(lang, "viaggi.tripNamePlaceholder")} style={{ ...inputStyle, marginBottom: 10 }} />
+          <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "viaggi.descriptionPlaceholder")} style={{ ...inputStyle, marginBottom: 10 }} />
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} placeholder="Dal" style={{ ...inputStyle, flex: 1 }} />
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} placeholder="Al" style={{ ...inputStyle, flex: 1 }} />
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} placeholder={t(lang, "viaggi.from")} style={{ ...inputStyle, flex: 1 }} />
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} placeholder={t(lang, "viaggi.to")} style={{ ...inputStyle, flex: 1 }} />
           </div>
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>Partecipanti extra (oltre {persone.length} persone famiglia)</div>
+            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>{t(lang, "viaggi.extraParticipantsPrefix")} {persone.length} {t(lang, "viaggi.extraParticipantsSuffix")}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[...persone.map(p => ({ ...p, isMembro: true })), ...partecipanti].map(p => (
                 <div key={p.id} style={{ padding: "6px 10px", borderRadius: 10, background: p.colore + "22", border: `1px solid ${p.colore}55`, color: p.colore, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
@@ -2376,101 +2377,101 @@ function ViaggiView({ persone }) {
               ))}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input type="text" value={newPersonName} onChange={e => setNewPersonName(e.target.value)} placeholder="Nome ospite..." onKeyDown={e => e.key === "Enter" && addGuest()} style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={addGuest} style={{ padding: "8px 14px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>Aggiungi</button>
+              <input type="text" value={newPersonName} onChange={e => setNewPersonName(e.target.value)} placeholder={t(lang, "viaggi.guestNamePlaceholder")} onKeyDown={e => e.key === "Enter" && addGuest()} style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={addGuest} style={{ padding: "8px 14px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "common.add")}</button>
             </div>
           </div>
-          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "12px", background: nome.trim() ? "#6C5CE7" : "#252538", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: nome.trim() ? "pointer" : "default" }}>Crea viaggio</button>
+          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "12px", background: nome.trim() ? "#6C5CE7" : "#252538", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: nome.trim() ? "pointer" : "default" }}>{t(lang, "viaggi.createTrip")}</button>
         </div>
       )}
 
       {trips.length === 0 ? (
-        <div style={{ color: "#555", textAlign: "center", padding: 40 }}>Nessun viaggio.<br/>Tocca + per crearne uno.</div>
+        <div style={{ color: "#555", textAlign: "center", padding: 40 }}>{t(lang, "viaggi.noTrips")}<br/>{t(lang, "viaggi.tapToCreate")}</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {trips.map(t => {
-            const allP = t.partecipanti || [];
-            tripColors[t.id] = tripColors[t.id] || {};
-            allP.forEach((p, i) => { tripColors[t.id][p.id] = allColors[i % allColors.length]; });
+          {trips.map(trip => {
+            const allP = trip.partecipanti || [];
+            tripColors[trip.id] = tripColors[trip.id] || {};
+            allP.forEach((p, i) => { tripColors[trip.id][p.id] = allColors[i % allColors.length]; });
             const nameOf = (id) => allP.find(p => p.id === id)?.nome || id;
-            const total = t.expenses?.reduce((s, e) => s + e.importo, 0) || 0;
-            const settlements = calculateSettle(t);
-            const isSettling = settlingTrip === t.id;
+            const total = trip.expenses?.reduce((s, e) => s + e.importo, 0) || 0;
+            const settlements = calculateSettle(trip);
+            const isSettling = settlingTrip === trip.id;
 
             return (
-              <div key={t.id} style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
+              <div key={trip.id} style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>
-                      {t.nome}
-                      {t.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>{t.autoSettled ? "✓ Chiuso automaticamente" : "✓ Saldato"}</span>}
+                      {trip.nome}
+                      {trip.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>{trip.autoSettled ? t(lang, "viaggi.autoSettled") : t(lang, "viaggi.settled")}</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: "#666", fontFamily: "'DM Sans',sans-serif" }}>{t.descrizione}</div>
+                    <div style={{ fontSize: 12, color: "#666", fontFamily: "'DM Sans',sans-serif" }}>{trip.descrizione}</div>
                     <div style={{ fontSize: 11, color: "#555", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
-                      {t.startDate && t.endDate ? `${t.startDate} → ${t.endDate}` : t.startDate || t.endDate || ""}
+                      {trip.startDate && trip.endDate ? `${trip.startDate} → ${trip.endDate}` : trip.startDate || trip.endDate || ""}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                    {!t.settled && (
-                      t.shareToken ? (
-                        <button onClick={() => handleCopyShareLink(t.shareToken)} title="Copia link invito" style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                    {!trip.settled && (
+                      trip.shareToken ? (
+                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
                       ) : (
-                        <button onClick={() => handleShareTrip(t.id)} disabled={shareBusyId === t.id} title="Invita qualcuno a questo viaggio" style={{ background: "none", border: "1px solid #252538", borderRadius: 8, color: "#888", cursor: shareBusyId === t.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                        <button onClick={() => handleShareTrip(trip.id)} disabled={shareBusyId === trip.id} title={t(lang, "viaggi.inviteSomeone")} style={{ background: "none", border: "1px solid #252538", borderRadius: 8, color: "#888", cursor: shareBusyId === trip.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
                       )
                     )}
-                    <button onClick={() => handleDeleteTrip(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 18 }}>×</button>
+                    <button onClick={() => handleDeleteTrip(trip.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 18 }}>×</button>
                   </div>
                 </div>
 
-                {t.shareToken && !t.settled && (
+                {trip.shareToken && !trip.settled && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>Invito attivo — chiunque abbia il link può unirsi</span>
-                    <button onClick={() => handleRevokeShare(t.id)} disabled={shareBusyId === t.id} style={{ background: "none", border: "none", color: "#FF6B6B", fontSize: 11, fontWeight: 700, cursor: shareBusyId === t.id ? "default" : "pointer", fontFamily: "'DM Sans',sans-serif" }}>Revoca</button>
+                    <span style={{ fontSize: 11, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.inviteActive")}</span>
+                    <button onClick={() => handleRevokeShare(trip.id)} disabled={shareBusyId === trip.id} style={{ background: "none", border: "none", color: "#FF6B6B", fontSize: 11, fontWeight: 700, cursor: shareBusyId === trip.id ? "default" : "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.revoke")}</button>
                   </div>
                 )}
 
                 <div style={{ marginBottom: 10 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
-                  <span style={{ fontSize: 11, color: "#666", marginLeft: 6, fontFamily: "'DM Sans',sans-serif" }}>({t.expenses?.length || 0} spese)</span>
+                  <span style={{ fontSize: 11, color: "#666", marginLeft: 6, fontFamily: "'DM Sans',sans-serif" }}>({trip.expenses?.length || 0} {t(lang, "viaggi.expenses")})</span>
                 </div>
 
-                {!t.settled && settlements.length > 0 && (
+                {!trip.settled && settlements.length > 0 && (
                   <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>Da saldare</div>
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.toSettle")}</div>
                     {settlements.map((s, i) => (
                       <div key={i} style={{ fontSize: 12, marginBottom: 4, fontFamily: "'DM Sans',sans-serif" }}>
-                        <span style={{ color: tripColors[t.id][s.da] }}>{nameOf(s.da)}</span> → <span style={{ color: tripColors[t.id][s.a] }}>{nameOf(s.a)}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
+                        <span style={{ color: tripColors[trip.id][s.da] }}>{nameOf(s.da)}</span> → <span style={{ color: tripColors[trip.id][s.a] }}>{nameOf(s.a)}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
                       </div>
                     ))}
-                    <button onClick={() => handleMarkSettled(t, settlements)} disabled={settlingId === t.id}
-                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === t.id ? "#252538" : "#55EFC422", border: "1px solid #55EFC455", borderRadius: 10, color: "#55EFC4", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: settlingId === t.id ? "default" : "pointer" }}>
-                      {settlingId === t.id ? "Salvataggio..." : "✓ Segna come saldato"}
+                    <button onClick={() => handleMarkSettled(trip, settlements)} disabled={settlingId === trip.id}
+                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === trip.id ? "#252538" : "#55EFC422", border: "1px solid #55EFC455", borderRadius: 10, color: "#55EFC4", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: settlingId === trip.id ? "default" : "pointer" }}>
+                      {settlingId === trip.id ? t(lang, "viaggi.saving") : t(lang, "viaggi.markSettled")}
                     </button>
                   </div>
                 )}
 
-                {t.expenses && t.expenses.length > 0 && (
+                {trip.expenses && trip.expenses.length > 0 && (
                   <div style={{ marginBottom: 10 }}>
-                    <button onClick={() => toggleExpenses(t.id)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "10px 12px", cursor: "pointer", marginBottom: expandedExpenses[t.id] ? 6 : 0 }}>
-                      <span style={{ fontSize: 12, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>Spese ({t.expenses.length})</span>
-                      <span style={{ fontSize: 11, color: "#6C5CE7", transform: expandedExpenses[t.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
+                    <button onClick={() => toggleExpenses(trip.id)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "10px 12px", cursor: "pointer", marginBottom: expandedExpenses[trip.id] ? 6 : 0 }}>
+                      <span style={{ fontSize: 12, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.expenses")} ({trip.expenses.length})</span>
+                      <span style={{ fontSize: 11, color: "#6C5CE7", transform: expandedExpenses[trip.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
                     </button>
-                    {expandedExpenses[t.id] && t.expenses.map((e, i) => (
+                    {expandedExpenses[trip.id] && trip.expenses.map((e, i) => (
                       <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538", fontFamily: "'DM Sans',sans-serif" }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || "Spesa"}</div>
+                          <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || t(lang, "viaggi.expenseFallback")}</div>
                           <div style={{ fontSize: 11, color: "#666" }}>{e.categoria} · {e.pagatoDa}</div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
-                          {!t.settled && <button onClick={() => handleDeleteExpense(t.id, e.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>}
+                          {!trip.settled && <button onClick={() => handleDeleteExpense(trip.id, e.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {!t.settled && <TripExpenseForm trip={t} onAdd={exp => handleAddExpense(t.id, exp)} categorie={tripCats} />}
+                {!trip.settled && <TripExpenseForm trip={trip} onAdd={exp => handleAddExpense(trip.id, exp)} categorie={tripCats} lang={lang} />}
               </div>
             );
           })}
@@ -2480,7 +2481,7 @@ function ViaggiView({ persone }) {
   );
 }
 
-function TripExpenseForm({ trip, onAdd, categorie }) {
+function TripExpenseForm({ trip, onAdd, categorie, lang = "it" }) {
   const [importo, setImporto] = useState("");
   const [descrizione, setDescrizione] = useState("");
   const [categoria, setCategoria] = useState("altro");
@@ -2512,7 +2513,7 @@ function TripExpenseForm({ trip, onAdd, categorie }) {
           {allPars.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
         </select>
       </div>
-      <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione spesa" style={{ ...inputStyle, marginBottom: 8 }} />
+      <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "viaggi.expenseDescriptionPlaceholder")} style={{ ...inputStyle, marginBottom: 8 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
         {categorie.map(c => (
           <button key={c.id} onClick={() => setCategoria(c.id)} style={{ padding: "6px 10px", borderRadius: 8, border: categoria === c.id ? `2px solid ${c.colore}` : "1px solid #252538", background: categoria === c.id ? c.colore + "22" : "#1a1a28", color: categoria === c.id ? c.colore : "#666", fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer" }}>
@@ -2520,7 +2521,7 @@ function TripExpenseForm({ trip, onAdd, categorie }) {
           </button>
         ))}
       </div>
-      <button onClick={handleAdd} disabled={!importo} style={{ width: "100%", padding: "10px", background: importo ? "#6C5CE7" : "#252538", border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: importo ? "pointer" : "default" }}>Aggiungi spesa</button>
+      <button onClick={handleAdd} disabled={!importo} style={{ width: "100%", padding: "10px", background: importo ? "#6C5CE7" : "#252538", border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: importo ? "pointer" : "default" }}>{t(lang, "viaggi.addExpense")}</button>
     </div>
   );
 }
@@ -2536,6 +2537,7 @@ const GUEST_TRIP_DEFAULT_CATEGORIE = [
 ];
 
 function TripGuestView({ token }) {
+  const [lang] = useState(() => detectGuestLang());
   const [trip, setTrip] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2548,14 +2550,14 @@ function TripGuestView({ token }) {
   async function load() {
     setLoading(true);
     try {
-      const t = await fetchSharedTrip(token);
-      setTrip(t);
+      const data = await fetchSharedTrip(token);
+      setTrip(data);
       try {
         const saved = JSON.parse(localStorage.getItem(lsKey) || "null");
-        if (saved && (t.partecipanti || []).some(p => p.id === saved.id)) setMe(saved);
+        if (saved && (data.partecipanti || []).some(p => p.id === saved.id)) setMe(saved);
       } catch {}
     } catch (e) {
-      setError(e.message || "Link non valido");
+      setError(e.message || t(lang, "guest.invalidLink"));
     }
     setLoading(false);
   }
@@ -2570,14 +2572,14 @@ function TripGuestView({ token }) {
       setMe(p);
       try { localStorage.setItem(lsKey, JSON.stringify(p)); } catch {}
       await load();
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setJoining(false);
   }
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#666" }}>Caricamento...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#666" }}>{t(lang, "viaggi.loading")}</div>;
   if (error || !trip) return (
     <div style={{ padding: 40, textAlign: "center", color: "#FF6B6B" }}>
-      {error || "Link non valido"}
+      {error || t(lang, "guest.invalidLink")}
     </div>
   );
 
@@ -2588,43 +2590,43 @@ function TripGuestView({ token }) {
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", padding: "24px 16px" }}>
       <ToastHost />
-      <div style={{ fontSize: 11, color: "#6C5CE7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Sei stato invitato a</div>
+      <div style={{ fontSize: 11, color: "#6C5CE7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "guest.invitedTo")}</div>
       <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{trip.nome}</div>
       {trip.descrizione && <div style={{ fontSize: 13, color: "#888", marginBottom: 4 }}>{trip.descrizione}</div>}
       <div style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>
         {trip.startDate && trip.endDate ? `${trip.startDate} → ${trip.endDate}` : trip.startDate || trip.endDate || ""}
-        {trip.settled && <span style={{ marginLeft: 8, color: "#55EFC4", fontWeight: 700 }}>✓ Chiuso</span>}
+        {trip.settled && <span style={{ marginLeft: 8, color: "#55EFC4", fontWeight: 700 }}>{t(lang, "guest.closed")}</span>}
       </div>
 
       {!me && !trip.settled && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 20 }}>
-          <div style={{ fontSize: 13, color: "#ccc", marginBottom: 10 }}>Come ti chiami? Usalo per riconoscerti come partecipante.</div>
+          <div style={{ fontSize: 13, color: "#ccc", marginBottom: 10 }}>{t(lang, "guest.whatsYourName")}</div>
           <input type="text" value={nomeInput} onChange={e => setNomeInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleJoin()}
-            placeholder="Il tuo nome" autoFocus style={{ ...inputStyle, marginBottom: 10 }} />
+            placeholder={t(lang, "guest.yourName")} autoFocus style={{ ...inputStyle, marginBottom: 10 }} />
           <button onClick={handleJoin} disabled={!nomeInput.trim() || joining} style={{
             width: "100%", padding: "12px", border: "none", borderRadius: 12,
             background: nomeInput.trim() ? "#6C5CE7" : "#252538", color: "#fff",
             fontSize: 14, fontWeight: 700, cursor: nomeInput.trim() ? "pointer" : "default",
-          }}>{joining ? "..." : "Unisciti al viaggio"}</button>
+          }}>{joining ? "..." : t(lang, "guest.joinTrip")}</button>
         </div>
       )}
 
       {!me && trip.settled && (
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 20 }}>Questo viaggio è già stato chiuso: puoi solo consultare il riepilogo qui sotto.</div>
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 20 }}>{t(lang, "guest.tripClosedReadonly")}</div>
       )}
 
       {me && (
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>Stai partecipando come <strong style={{ color: "#a78bfa" }}>{me.nome}</strong></div>
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>{t(lang, "guest.participatingAs")} <strong style={{ color: "#a78bfa" }}>{me.nome}</strong></div>
       )}
 
       <div style={{ marginBottom: 16 }}>
         <span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
-        <span style={{ fontSize: 12, color: "#666", marginLeft: 6 }}>totale · {trip.expenses?.length || 0} spese</span>
+        <span style={{ fontSize: 12, color: "#666", marginLeft: 6 }}>{t(lang, "guest.total")} · {trip.expenses?.length || 0} {t(lang, "viaggi.expenses")}</span>
       </div>
 
       {settlements.length > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 14, padding: 14, marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{trip.settled ? "Saldato così" : "Da saldare"}</div>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{trip.settled ? t(lang, "guest.settledLikeThis") : t(lang, "viaggi.toSettle")}</div>
           {settlements.map((s, i) => (
             <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
               {nameOf(s.da)} → {nameOf(s.a)}: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
@@ -2635,11 +2637,11 @@ function TripGuestView({ token }) {
 
       {trip.expenses && trip.expenses.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Spese</div>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{t(lang, "guest.expenses")}</div>
           {trip.expenses.map((e, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538" }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || "Spesa"}</div>
+                <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || t(lang, "viaggi.expenseFallback")}</div>
                 <div style={{ fontSize: 11, color: "#666" }}>{e.categoria} · {nameOf(e.pagatoDa)}</div>
               </div>
               <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
@@ -2649,13 +2651,13 @@ function TripGuestView({ token }) {
       )}
 
       {me && !trip.settled && (
-        <GuestExpenseForm trip={trip} me={me} token={token} categorie={GUEST_TRIP_DEFAULT_CATEGORIE} onAdded={load} />
+        <GuestExpenseForm trip={trip} me={me} token={token} categorie={GUEST_TRIP_DEFAULT_CATEGORIE} onAdded={load} lang={lang} />
       )}
     </div>
   );
 }
 
-function GuestExpenseForm({ trip, me, token, categorie, onAdded }) {
+function GuestExpenseForm({ trip, me, token, categorie, onAdded, lang = "it" }) {
   const [importo, setImporto] = useState("");
   const [descrizione, setDescrizione] = useState("");
   const [categoria, setCategoria] = useState("altro");
@@ -2675,15 +2677,15 @@ function GuestExpenseForm({ trip, me, token, categorie, onAdded }) {
       });
       setImporto(""); setDescrizione(""); setCategoria("altro");
       await onAdded();
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setBusy(false);
   }
 
   return (
     <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#eee", marginBottom: 10 }}>Aggiungi una spesa pagata da te</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#eee", marginBottom: 10 }}>{t(lang, "guest.addExpensePaidByYou")}</div>
       <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)} placeholder="€" style={{ ...inputStyle, marginBottom: 8, fontFamily: "'Space Mono',monospace" }} />
-      <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione spesa" style={{ ...inputStyle, marginBottom: 8 }} />
+      <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "viaggi.expenseDescriptionPlaceholder")} style={{ ...inputStyle, marginBottom: 8 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         {categorie.map(c => (
           <button key={c.id} onClick={() => setCategoria(c.id)} style={{ padding: "6px 10px", borderRadius: 8, border: categoria === c.id ? `2px solid ${c.colore}` : "1px solid #252538", background: categoria === c.id ? c.colore + "22" : "#111119", color: categoria === c.id ? c.colore : "#666", fontSize: 11, cursor: "pointer" }}>
@@ -2692,7 +2694,7 @@ function GuestExpenseForm({ trip, me, token, categorie, onAdded }) {
         ))}
       </div>
       <button onClick={handleAdd} disabled={!importo || busy} style={{ width: "100%", padding: "12px", background: importo ? "#6C5CE7" : "#252538", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, cursor: importo ? "pointer" : "default" }}>
-        {busy ? "..." : "Aggiungi spesa"}
+        {busy ? "..." : t(lang, "viaggi.addExpense")}
       </button>
     </div>
   );
@@ -2704,17 +2706,17 @@ const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom
 const inputStyle = { width: "100%", maxWidth: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", WebkitAppearance: "none" };
 
 // ─── Stats ───
-function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
+function StatsView({ transazioni, persone, meseOffset, categorie, goals, lang = "it" }) {
   const oggi = new Date();
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
-  const nomeMese = MESI[meseVis.getMonth()] + " " + meseVis.getFullYear();
+  const nomeMese = mese(meseVis.getMonth()) + " " + meseVis.getFullYear();
   const txMese = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===meseVis.getMonth()&&d.getFullYear()===meseVis.getFullYear(); });
   const usciteMese = txMese.filter(t => t.tipo === "uscita");
   const totalUscite = usciteMese.reduce((s,t) => s+t.importo, 0);
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
     + txMese.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
   const perCategoria = categorie.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
-  const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:MESI[m.getMonth()],valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
+  const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:mese(m.getMonth()),valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
   const spesoPerPersona = persone.map(p => ({
     ...p,
     speso: usciteMese.filter(t => t.pagatoDa === p.id).reduce((s, t) => s + t.importo, 0),
@@ -2773,40 +2775,40 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
   // Generate smart insights
   const insights = [];
   if (deltaPct !== null) {
-    if (deltaPct > 15) insights.push({ icon: "📈", color: "#FF6B6B", text: `Uscite in aumento del ${Math.round(deltaPct)}% rispetto a ${MESI[mesePrecedente.getMonth()]}` });
-    else if (deltaPct < -15) insights.push({ icon: "📉", color: "#4ECDC4", text: `Uscite in calo del ${Math.round(Math.abs(deltaPct))}% rispetto a ${MESI[mesePrecedente.getMonth()]}` });
-    else insights.push({ icon: "➡️", color: "#F0A500", text: `Spesa stabile rispetto a ${MESI[mesePrecedente.getMonth()]} (${deltaPct >= 0 ? "+" : ""}${Math.round(deltaPct)}%)` });
+    if (deltaPct > 15) insights.push({ icon: "📈", color: "#FF6B6B", text: `${t(lang, "stats.expensesUpPrefix")} ${Math.round(deltaPct)}% ${t(lang, "stats.comparedTo")} ${mese(mesePrecedente.getMonth(), lang)}` });
+    else if (deltaPct < -15) insights.push({ icon: "📉", color: "#4ECDC4", text: `${t(lang, "stats.expensesDownPrefix")} ${Math.round(Math.abs(deltaPct))}% ${t(lang, "stats.comparedTo")} ${mese(mesePrecedente.getMonth(), lang)}` });
+    else insights.push({ icon: "➡️", color: "#F0A500", text: `${t(lang, "stats.expensesStablePrefix")} ${mese(mesePrecedente.getMonth(), lang)} (${deltaPct >= 0 ? "+" : ""}${Math.round(deltaPct)}%)` });
   }
-  if (savingRate > 20) insights.push({ icon: "💪", color: "#4ECDC4", text: `Tasso di risparmio: ${Math.round(savingRate)}% — ottimo!` });
-  else if (savingRate > 0) insights.push({ icon: "💡", color: "#F0A500", text: `Tasso di risparmio: ${Math.round(savingRate)}%` });
-  else if (totalEntrate > 0) insights.push({ icon: "⚠️", color: "#FF6B6B", text: `Spendi più di quanto guadagni questo mese` });
+  if (savingRate > 20) insights.push({ icon: "💪", color: "#4ECDC4", text: `${t(lang, "stats.savingRateLabel")}: ${Math.round(savingRate)}% ${t(lang, "stats.excellentSuffix")}` });
+  else if (savingRate > 0) insights.push({ icon: "💡", color: "#F0A500", text: `${t(lang, "stats.savingRateLabel")}: ${Math.round(savingRate)}%` });
+  else if (totalEntrate > 0) insights.push({ icon: "⚠️", color: "#FF6B6B", text: t(lang, "stats.spendingMoreThanEarn") });
   if (maxTx) {
     const maxCat = categorie.find(c=>c.id===maxTx.categoria);
-    insights.push({ icon: "🏷️", color: "#DDA0DD", text: `Spesa più grande: ${formattaValuta(maxTx.importo)} — ${maxTx.descrizione || maxCat?.nome || ""}` });
+    insights.push({ icon: "🏷️", color: "#DDA0DD", text: `${t(lang, "stats.biggestExpense")}: ${formattaValuta(maxTx.importo)} — ${maxTx.descrizione || maxCat?.nome || ""}` });
   }
-  if (topDay.totale > 0) insights.push({ icon: "📅", color: "#45B7D1", text: `Giorno più costoso: ${topDay.giorno} ${MESI[meseVis.getMonth()]} (${formattaValuta(topDay.totale)})` });
+  if (topDay.totale > 0) insights.push({ icon: "📅", color: "#45B7D1", text: `${t(lang, "stats.mostExpensiveDay")}: ${topDay.giorno} ${mese(meseVis.getMonth(), lang)} (${formattaValuta(topDay.totale)})` });
   const catUp = catTrends.find(c => c.delta > 30 && c.curr > 20);
   const catDown = catTrends.find(c => c.delta < -30 && c.prev > 20);
-  if (catUp) insights.push({ icon: catUp.emoji, color: catUp.colore, text: `${catUp.nome} +${Math.round(catUp.delta)}% vs mese scorso (${formattaValuta(catUp.curr)})` });
-  if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% vs mese scorso (${formattaValuta(catDown.curr)})` });
-  if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: "#6C5CE7", text: `Media giornaliera: ${formattaValuta(mediaGiornaliera)}/giorno` });
+  if (catUp) insights.push({ icon: catUp.emoji, color: catUp.colore, text: `${catUp.nome} +${Math.round(catUp.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catUp.curr)})` });
+  if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catDown.curr)})` });
+  if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: "#6C5CE7", text: `${t(lang, "stats.dailyAverage")}: ${formattaValuta(mediaGiornaliera)}/${t(lang, "stats.perDay")}` });
 
   return (
     <div>
       <div style={{ padding: "14px 16px 20px" }}>
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
         <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "16px 14px", border: "1px solid #252538" }}>
-          <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5, textTransform: "uppercase" }}>Entrate</div>
+          <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.income")}</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(totalEntrate)}</div>
         </div>
         <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "16px 14px", border: "1px solid #252538" }}>
-          <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5, textTransform: "uppercase" }}>Uscite</div>
+          <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.expenses")}</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(totalUscite)}</div>
         </div>
       </div>
       {spesoPerPersona.some(p => p.speso > 0) && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>Chi ha pagato</div>
+          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>{t(lang, "stats.whoPaid")}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
             {spesoPerPersona.map(p => (
               <div key={p.id} style={{ flex: "1 1 120px", display: "flex", alignItems: "center", gap: 8 }}>
@@ -2826,7 +2828,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
                 const pA = allP.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: "#888" };
                 return (
                   <div key={i} style={{ fontSize: 12, color: "#ccc" }}>
-                    <span>{pDa.emoji} {pDa.nome} deve <strong style={{ color: pA.colore }}>{formattaValuta(d.importo)}</strong> a {pA.nome}</span>
+                    <span>{pDa.emoji} {pDa.nome} {t(lang, "stats.owes")} <strong style={{ color: pA.colore }}>{formattaValuta(d.importo)}</strong> {t(lang, "stats.owesToConnector")} {pA.nome}</span>
                   </div>
                 );
               })}
@@ -2836,7 +2838,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
       )}
       {perCategoria.length > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>Spese per categoria</div>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "stats.expensesByCategory")}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <DonutChart segmenti={perCategoria} />
             <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
@@ -2853,7 +2855,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
       )}
       {goals && goals.length > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>Obiettivi risparmio</div>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "home.savingsGoals")}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
             {goals.map(g => {
               const pct = g.targetAmount > 0 ? (g.currentAmount / g.targetAmount * 100) : 0;
@@ -2864,7 +2866,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#eee", marginTop: 8 }}>{g.nome}</div>
                   <div style={{ fontSize: 11, color: pct >= 100 ? "#4ECDC4" : "#888" }}>{pct.toFixed(0)}%</div>
                   {daysLeft !== null && daysLeft < 30 && daysLeft >= 0 && (
-                    <div style={{ fontSize: 10, color: "#F0A500", marginTop: 4 }}>{daysLeft}g rimasti</div>
+                    <div style={{ fontSize: 10, color: "#F0A500", marginTop: 4 }}>{daysLeft}{t(lang, "stats.daysLeft")}</div>
                   )}
                 </div>
               );
@@ -2873,7 +2875,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
         </div>
       )}
       <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, border: "1px solid #252538", marginBottom: 24 }}>
-        <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>Trend uscite (6 mesi)</div>
+        <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "stats.expenseTrend6m")}</div>
         <MiniChart dati={ultimi6} />
       </div>
 
@@ -2881,20 +2883,20 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
         <>
           <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
             <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "14px", border: "1px solid #252538", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Transazioni</div>
+              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "stats.transactionsCount")}</div>
               <div style={{ fontSize: 26, fontWeight: 800, color: "#6C5CE7", fontFamily: "'Space Mono',monospace" }}>{numTransazioni}</div>
             </div>
             <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "14px", border: "1px solid #252538", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Spesa media</div>
+              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "stats.avgExpense")}</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: "#FF6B6B", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(spesaMedia)}</div>
             </div>
             <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "14px", border: "1px solid #252538", textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Freq. giorn.</div>
+              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "stats.dailyFreq")}</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: "#4ECDC4", fontFamily: "'Space Mono',monospace" }}>{(numTransazioni / giorniMese).toFixed(1)}<span style={{ fontSize: 11, color: "#888" }}>/g</span></div>
             </div>
           </div>
           <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
-            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Distribuzione importi (€)</div>
+            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.amountDistribution")}</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 90 }}>
               {istogramma.map((f, i) => (
                 <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -2908,7 +2910,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
             </div>
           </div>
           <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
-            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Heatmap spese giornaliere</div>
+            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.dailyHeatmap")}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
               {perGiorno.map((g) => {
                 const intensity = g.totale / maxGiorno;
@@ -2926,11 +2928,11 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
               })}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, justifyContent: "center" }}>
-              <span style={{ fontSize: 9, color: "#666" }}>Meno</span>
+              <span style={{ fontSize: 9, color: "#666" }}>{t(lang, "stats.less")}</span>
               {[0, 0.25, 0.5, 0.75, 1].map((v, i) => (
                 <div key={i} style={{ width: 14, height: 14, borderRadius: 3, background: v === 0 ? "#1e1e2e" : `rgba(108, 92, 231, ${0.15 + v * 0.85})` }} />
               ))}
-              <span style={{ fontSize: 9, color: "#666" }}>Più</span>
+              <span style={{ fontSize: 9, color: "#666" }}>{t(lang, "stats.more")}</span>
             </div>
           </div>
         </>
@@ -2942,7 +2944,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
           {/* Smart insights */}
           {insights.length > 0 && (
             <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
-              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Insights</div>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.insightsTitle")}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {insights.map((ins, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
@@ -2957,11 +2959,11 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
           {/* Month over month comparison bars */}
           {totalUscitePrec > 0 && (
             <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
-              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Confronto vs {MESI[mesePrecedente.getMonth()]}</div>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.comparisonVs")} {mese(mesePrecedente.getMonth(), lang)}</div>
               {/* Uscite comparison */}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: "#888" }}>Uscite</span>
+                  <span style={{ fontSize: 11, color: "#888" }}>{t(lang, "stats.expenses")}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: deltaPct > 0 ? "#FF6B6B" : "#4ECDC4" }}>
                     {deltaPct >= 0 ? "+" : ""}{Math.round(deltaPct)}%
                   </span>
@@ -2969,13 +2971,13 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
                 <div style={{ display: "flex", gap: 4, height: 20 }}>
                   <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
                     <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscitePrec / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: "#FF6B6B44", borderRadius: 6 }} />
-                    <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#aaa" }}>{MESI[mesePrecedente.getMonth()]} {formattaValuta(totalUscitePrec)}</div>
+                    <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#aaa" }}>{mese(mesePrecedente.getMonth(), lang)} {formattaValuta(totalUscitePrec)}</div>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 4, height: 20, marginTop: 4 }}>
                   <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
                     <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscite / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: "#FF6B6B88", borderRadius: 6 }} />
-                    <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#eee", fontWeight: 600 }}>{MESI[meseVis.getMonth()]} {formattaValuta(totalUscite)}</div>
+                    <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#eee", fontWeight: 600 }}>{mese(meseVis.getMonth(), lang)} {formattaValuta(totalUscite)}</div>
                   </div>
                 </div>
               </div>
@@ -2983,7 +2985,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
               {(totalEntrate > 0 || totalEntratePrec > 0) && (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, color: "#888" }}>Entrate</span>
+                    <span style={{ fontSize: 11, color: "#888" }}>{t(lang, "stats.income")}</span>
                     {deltaEntPct !== null && <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: deltaEntPct >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
                       {deltaEntPct >= 0 ? "+" : ""}{Math.round(deltaEntPct)}%
                     </span>}
@@ -2991,13 +2993,13 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
                   <div style={{ display: "flex", gap: 4, height: 20 }}>
                     <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
                       <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntratePrec / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: "#4ECDC444", borderRadius: 6 }} />
-                      <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#aaa" }}>{MESI[mesePrecedente.getMonth()]} {formattaValuta(totalEntratePrec)}</div>
+                      <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#aaa" }}>{mese(mesePrecedente.getMonth(), lang)} {formattaValuta(totalEntratePrec)}</div>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 4, height: 20, marginTop: 4 }}>
                     <div style={{ position: "relative", flex: 1, background: "#252538", borderRadius: 6, overflow: "hidden" }}>
                       <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntrate / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: "#4ECDC488", borderRadius: 6 }} />
-                      <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#eee", fontWeight: 600 }}>{MESI[meseVis.getMonth()]} {formattaValuta(totalEntrate)}</div>
+                      <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: "#eee", fontWeight: 600 }}>{mese(meseVis.getMonth(), lang)} {formattaValuta(totalEntrate)}</div>
                     </div>
                   </div>
                 </div>
@@ -3008,7 +3010,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
           {/* Category trends vs previous month */}
           {catTrends.length > 0 && totalUscitePrec > 0 && (
             <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 16, border: "1px solid #252538" }}>
-              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Trend per categoria</div>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.categoryTrend")}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {catTrends.slice(0, 6).map(c => (
                   <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -3032,7 +3034,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
           {/* Saving rate gauge */}
           {totalEntrate > 0 && (
             <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
-              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Tasso di risparmio</div>
+              <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.savingRate")}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 {/* Gauge ring */}
                 <svg viewBox="0 0 80 80" width="70" height="70" style={{ flexShrink: 0 }}>
@@ -3045,17 +3047,17 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
                   <text x="40" y="38" textAnchor="middle" fill="#eee" fontSize="14" fontWeight="800" fontFamily="'Space Mono',monospace">
                     {Math.round(savingRate)}%
                   </text>
-                  <text x="40" y="50" textAnchor="middle" fill="#888" fontSize="7" fontFamily="'DM Sans',sans-serif">risparmio</text>
+                  <text x="40" y="50" textAnchor="middle" fill="#888" fontSize="7" fontFamily="'DM Sans',sans-serif">{t(lang, "stats.savingsShort")}</text>
                 </svg>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: "#ccc", marginBottom: 4 }}>
-                    {savingRate > 30 ? "Eccellente! Stai risparmiando molto." :
-                     savingRate > 15 ? "Buon lavoro, stai risparmiando." :
-                     savingRate > 0 ? "Margine ridotto — attenzione alle spese." :
-                     "Stai spendendo più di quanto guadagni."}
+                    {savingRate > 30 ? t(lang, "stats.savingMsgExcellent") :
+                     savingRate > 15 ? t(lang, "stats.savingMsgGood") :
+                     savingRate > 0 ? t(lang, "stats.savingMsgLow") :
+                     t(lang, "stats.savingMsgNegative")}
                   </div>
                   <div style={{ fontSize: 11, color: "#888" }}>
-                    Risparmiati: {formattaValuta(Math.max(0, totalEntrate - totalUscite))}
+                    {t(lang, "stats.saved")}: {formattaValuta(Math.max(0, totalEntrate - totalUscite))}
                   </div>
                 </div>
               </div>
@@ -3064,7 +3066,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
         </>
       )}
 
-      {perCategoria.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>Nessun dato per questo mese.</div>}
+      {perCategoria.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>{t(lang, "stats.noDataThisMonth")}</div>}
 
       {/* ─── Storico saldi 12 mesi ─── */}
       {(() => {
@@ -3074,7 +3076,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
           const txM = transazioni.filter(t => t.data?.slice(0, 7) === ym);
           const e = txM.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
           const u = txM.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
-          return { label: MESI[d.getMonth()], anno: d.getFullYear(), ym, entrate: e, uscite: u, saldo: e - u };
+          return { label: mese(d.getMonth(), lang), anno: d.getFullYear(), ym, entrate: e, uscite: u, saldo: e - u };
         });
 
         const haData = mesi12.some(m => m.entrate > 0 || m.uscite > 0);
@@ -3097,7 +3099,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
 
         return (
           <div style={{ background: "#1a1a28", borderRadius: 20, padding: "18px 16px", margin: "0 0 24px", border: "1px solid #252538" }}>
-            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Storico 12 mesi</div>
+            <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "stats.history12m")}</div>
 
             {/* Bar chart: entrate + uscite */}
             <div style={{ overflowX: "auto" }}>
@@ -3146,13 +3148,13 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
             {/* Legend */}
             <div style={{ display: "flex", gap: 16, marginTop: 4, justifyContent: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#888" }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: "#4ECDC4" }} /> Entrate
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: "#4ECDC4" }} /> {t(lang, "stats.income")}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#888" }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: "#FF6B6B" }} /> Uscite
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: "#FF6B6B" }} /> {t(lang, "stats.expenses")}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#888" }}>
-                <div style={{ width: 16, height: 2, borderRadius: 1, background: "#a78bfa" }} /> Saldo netto
+                <div style={{ width: 16, height: 2, borderRadius: 1, background: "#a78bfa" }} /> {t(lang, "stats.netBalance")}
               </div>
             </div>
 
@@ -3166,21 +3168,21 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
               return (
                 <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                   <div style={{ flex: 1, background: "#111119", borderRadius: 10, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>Mese migliore</div>
+                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>{t(lang, "stats.bestMonth")}</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>{best.label}</div>
                     <div style={{ fontSize: 10, color: "#4ECDC4" }}>{best.saldo >= 0 ? "+" : ""}{formattaValuta(best.saldo)}</div>
                   </div>
                   <div style={{ flex: 1, background: "#111119", borderRadius: 10, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>Mese peggiore</div>
+                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>{t(lang, "stats.worstMonth")}</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>{worst.label}</div>
                     <div style={{ fontSize: 10, color: "#FF6B6B" }}>{worst.saldo >= 0 ? "+" : ""}{formattaValuta(worst.saldo)}</div>
                   </div>
                   <div style={{ flex: 1, background: "#111119", borderRadius: 10, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>Media uscite</div>
+                    <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: 0.5 }}>{t(lang, "stats.avgExpensesLabel")}</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#F0A500", fontFamily: "'Space Mono',monospace", marginTop: 2 }}>
                       {formattaValuta(avgUscite)}
                     </div>
-                    <div style={{ fontSize: 10, color: "#555" }}>al mese</div>
+                    <div style={{ fontSize: 10, color: "#555" }}>{t(lang, "stats.perMonth")}</div>
                   </div>
                 </div>
               );
@@ -3194,7 +3196,7 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals }) {
 }
 
 // ─── Portfolio View ───
-function PortfolioView() {
+function PortfolioView({ lang = "it" }) {
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -3279,18 +3281,20 @@ function PortfolioView() {
   }
 
   async function handleDeleteHolding(trades) {
-    if (!confirm(`Eliminare tutte le ${trades.length > 1 ? trades.length + " operazioni" : "operazione"} per questo titolo?`)) return;
-    await Promise.all(trades.map(t => deletePosition(t.id)));
-    const ids = new Set(trades.map(t => t.id));
+    const opWord = trades.length > 1 ? `${trades.length} ${t(lang, "portfolio.confirmDeleteHoldingAll")}` : t(lang, "portfolio.confirmDeleteHoldingOne");
+    if (!confirm(`${t(lang, "portfolio.confirmDeleteHoldingPrefix")} ${opWord} ${t(lang, "portfolio.confirmDeleteHoldingSuffix")}`)) return;
+    await Promise.all(trades.map(tr => deletePosition(tr.id)));
+    const ids = new Set(trades.map(tr => tr.id));
     setPositions(prev => prev.filter(p => !ids.has(p.id)));
   }
 
-  async function handleDeleteTrade(t) {
-    if (!confirm(`Eliminare ${t.tipo === "sell" ? "la vendita" : "l'acquisto"} del ${t.dataAcquisto} (${t.quantita} pz)?`)) return;
+  async function handleDeleteTrade(trade) {
+    const what = trade.tipo === "sell" ? t(lang, "portfolio.confirmDeleteTradeSell") : t(lang, "portfolio.confirmDeleteTradeBuy");
+    if (!confirm(`${t(lang, "portfolio.confirmDeleteTradePrefix")} ${what} ${t(lang, "portfolio.confirmDeleteTradeConnector")} ${trade.dataAcquisto} (${trade.quantita} ${t(lang, "portfolio.units")})?`)) return;
     try {
-      await deletePosition(t.id);
-      setPositions(prev => prev.filter(p => p.id !== t.id));
-    } catch (e) { toast("Errore nell'eliminazione: " + e.message, "error"); }
+      await deletePosition(trade.id);
+      setPositions(prev => prev.filter(p => p.id !== trade.id));
+    } catch (e) { toast(`${t(lang, "toast.errorDeletePrefix")} ${e.message}`, "error"); }
   }
 
   // ── Manual price overrides (MongoDB) ──
@@ -3381,14 +3385,14 @@ function PortfolioView() {
     return plb - pla;
   });
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Caricamento portfolio...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>{t(lang, "portfolio.loading")}</div>;
 
   return (
     <div style={{ padding: "20px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>Portfolio</div>
-          <div style={{ fontSize: 12, color: "#888" }}>{holdings.length} titoli</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>{t(lang, "nav.portfolio")}</div>
+          <div style={{ fontSize: 12, color: "#888" }}>{holdings.length} {t(lang, "portfolio.tickers")}</div>
         </div>
         <button onClick={() => setShowAdd(!showAdd)} style={{
             background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538",
@@ -3399,24 +3403,24 @@ function PortfolioView() {
       {/* Summary card */}
       {(holdings.length > 0 || closedHoldings.length > 0) && (
         <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "20px", marginBottom: 16, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
-          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>Valore portafoglio</div>
+          <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "portfolio.totalValue")}</div>
           <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: "#eee", marginTop: 4 }}>
             {formattaValuta(totalValore)}
           </div>
           <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 10, color: "#888" }}>Investito</div>
+              <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "portfolio.invested")}</div>
               <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "'Space Mono',monospace", color: "#aaa" }}>{formattaValuta(totalInvestito)}</div>
             </div>
             <div>
-              <div style={{ fontSize: 10, color: "#888" }}>P&L non realizzato</div>
+              <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "portfolio.unrealizedPL")}</div>
               <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totalPL >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
                 {totalPL >= 0 ? "+" : ""}{formattaValuta(totalPL)} ({totalPLPct >= 0 ? "+" : ""}{totalPLPct.toFixed(1)}%)
               </div>
             </div>
             {Math.abs(totalRealizzato) > 0.005 && (
               <div>
-                <div style={{ fontSize: 10, color: "#888" }}>P&L realizzato</div>
+                <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "portfolio.realizedPL")}</div>
                 <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totalRealizzato >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
                   {totalRealizzato >= 0 ? "+" : ""}{formattaValuta(totalRealizzato)}
                 </div>
@@ -3429,8 +3433,8 @@ function PortfolioView() {
       {/* Add form */}
       {showAdd && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "2px solid #6C5CE7" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12 }}>Aggiungi posizione</div>
-          
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12 }}>{t(lang, "portfolio.addPosition")}</div>
+
           {/* Buy/Sell toggle */}
           <div style={{ display: "flex", background: "#111119", borderRadius: 12, padding: 3, marginBottom: 12, border: "1px solid #252538" }}>
             {["buy", "sell"].map(tp => (
@@ -3439,42 +3443,42 @@ function PortfolioView() {
                 fontSize: 13, fontWeight: 600,
                 background: tradeType === tp ? (tp === "buy" ? "#4ECDC422" : "#FF6B6B22") : "transparent",
                 color: tradeType === tp ? (tp === "buy" ? "#4ECDC4" : "#FF6B6B") : "#666",
-              }}>{tp === "buy" ? "▲ Acquista" : "▼ Vendi"}</button>
+              }}>{tp === "buy" ? t(lang, "portfolio.buy") : t(lang, "portfolio.sell")}</button>
             ))}
           </div>
-          
+
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Ticker</label>
+              <label style={labelStyle}>{t(lang, "portfolio.ticker")}</label>
               <input type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} placeholder="AAPL"
                 style={{ ...inputStyle, fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", textTransform: "uppercase", background: "#111119" }} />
             </div>
             <div style={{ flex: 2 }}>
-              <label style={labelStyle}>Nome (opzionale)</label>
+              <label style={labelStyle}>{t(lang, "portfolio.nameOptional")}</label>
               <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder="Apple Inc."
                 style={{ ...inputStyle, background: "#111119" }} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Quantità</label>
+              <label style={labelStyle}>{t(lang, "portfolio.quantity")}</label>
               <input type="number" inputMode="decimal" value={quantita} onChange={e => setQuantita(e.target.value)} placeholder="10"
                 style={{ ...inputStyle, fontFamily: "'Space Mono',monospace", background: "#111119" }} />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Prezzo acquisto (€)</label>
+              <label style={labelStyle}>{t(lang, "portfolio.purchasePrice")}</label>
               <input type="number" inputMode="decimal" value={prezzoAcquisto} onChange={e => setPrezzoAcquisto(e.target.value)} placeholder="150.00"
                 style={{ ...inputStyle, fontFamily: "'Space Mono',monospace", background: "#111119" }} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Data acquisto</label>
+              <label style={labelStyle}>{t(lang, "portfolio.purchaseDate")}</label>
               <input type="date" value={dataAcquisto} onChange={e => setDataAcquisto(e.target.value)}
                 style={{ ...inputStyle, background: "#111119", colorScheme: "dark" }} />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Note</label>
+              <label style={labelStyle}>{t(lang, "portfolio.notes")}</label>
               <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="..."
                 style={{ ...inputStyle, background: "#111119" }} />
             </div>
@@ -3484,35 +3488,35 @@ function PortfolioView() {
             fontSize: 14, fontWeight: 700, color: "#fff",
             background: ticker && quantita && prezzoAcquisto ? (tradeType === "buy" ? "linear-gradient(135deg, #4ECDC4, #3ab8b0)" : "linear-gradient(135deg, #FF6B6B, #e05050)") : "#252538",
             opacity: adding ? 0.6 : 1,
-          }}>{adding ? "Salvataggio..." : (tradeType === "buy" ? "Aggiungi acquisto" : "Registra vendita")}</button>
+          }}>{adding ? t(lang, "viaggi.saving") : (tradeType === "buy" ? t(lang, "portfolio.addBuy") : t(lang, "portfolio.recordSell"))}</button>
         </div>
       )}
 
       {/* Holdings list */}
       {holdings.length === 0 ? (
         <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>
-          Nessuna posizione ancora.<br/>Tocca + per aggiungere un titolo.
+          {t(lang, "portfolio.noPositions")}<br/>{t(lang, "portfolio.tapToAddTicker")}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {/* Sort selector */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>Ordina per</span>
+            <span style={{ fontSize: 11, color: "#555", flexShrink: 0 }}>{t(lang, "portfolio.sortBy")}</span>
             <select value={sortPortfolio} onChange={e => setSortPortfolio(e.target.value)} style={{
               flex: 1, background: "#1a1a28", border: "1px solid #252538", borderRadius: 8,
               color: "#aaa", fontSize: 12, padding: "6px 8px", fontFamily: "'DM Sans',sans-serif",
               colorScheme: "dark", cursor: "pointer",
             }}>
-              <option value="valore-desc">Valore ↓ (più alto)</option>
-              <option value="valore-asc">Valore ↑ (più basso)</option>
-              <option value="pl-desc">P&L € ↓ (migliore)</option>
-              <option value="pl-asc">P&L € ↑ (peggiore)</option>
-              <option value="plpct-desc">P&L % ↓ (migliore)</option>
-              <option value="plpct-asc">P&L % ↑ (peggiore)</option>
-              <option value="investito-desc">Investito ↓</option>
-              <option value="investito-asc">Investito ↑</option>
-              <option value="ticker-asc">Ticker A→Z</option>
-              <option value="ticker-desc">Ticker Z→A</option>
+              <option value="valore-desc">{t(lang, "portfolio.sortValueDesc")}</option>
+              <option value="valore-asc">{t(lang, "portfolio.sortValueAsc")}</option>
+              <option value="pl-desc">{t(lang, "portfolio.sortPlDesc")}</option>
+              <option value="pl-asc">{t(lang, "portfolio.sortPlAsc")}</option>
+              <option value="plpct-desc">{t(lang, "portfolio.sortPlPctDesc")}</option>
+              <option value="plpct-asc">{t(lang, "portfolio.sortPlPctAsc")}</option>
+              <option value="investito-desc">{t(lang, "portfolio.sortInvestedDesc")}</option>
+              <option value="investito-asc">{t(lang, "portfolio.sortInvestedAsc")}</option>
+              <option value="ticker-asc">{t(lang, "portfolio.sortTickerAsc")}</option>
+              <option value="ticker-desc">{t(lang, "portfolio.sortTickerDesc")}</option>
             </select>
           </div>
 
@@ -3533,11 +3537,11 @@ function PortfolioView() {
                       <span style={{ fontSize: 15, fontWeight: 800, color: "#eee", fontFamily: "'Space Mono',monospace", flexShrink: 0 }}>{h.ticker}</span>
                       <span style={{ fontSize: 11, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{h.nome}</span>
                       {isManuale && (
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: "#F0A50022", color: "#F0A500", letterSpacing: 0.3, flexShrink: 0 }}>MANUALE</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: "#F0A50022", color: "#F0A500", letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.manualBadge")}</span>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: "#666", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {h.quantita.toFixed(h.quantita % 1 === 0 ? 0 : 2)} pz × {formattaValuta(h.prezzoMedio)} medio
+                      {h.quantita.toFixed(h.quantita % 1 === 0 ? 0 : 2)} {t(lang, "portfolio.units")} × {formattaValuta(h.prezzoMedio)} {t(lang, "portfolio.avgSuffix")}
                     </div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, maxWidth: "48%" }}>
@@ -3545,7 +3549,7 @@ function PortfolioView() {
                       {prezzoCorrente > 0 ? formattaValuta(valoreCorrente) : "—"}
                     </div>
                     {totalValore > 0 && (
-                      <div style={{ fontSize: 9, color: "#666", fontFamily: "'Space Mono',monospace" }}>{(valoreCorrente / totalValore * 100).toFixed(1)}% del portafoglio</div>
+                      <div style={{ fontSize: 9, color: "#666", fontFamily: "'Space Mono',monospace" }}>{(valoreCorrente / totalValore * 100).toFixed(1)}{t(lang, "portfolio.ofPortfolio")}</div>
                     )}
                     {prezzoCorrente > 0 && (
                       <div style={{ fontSize: 11, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: pl >= 0 ? "#4ECDC4" : "#FF6B6B", wordBreak: "break-all" }}>
@@ -3564,14 +3568,14 @@ function PortfolioView() {
                         <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace", whiteSpace: "nowrap" }}>{formattaValuta(prezzoCorrente)}</span>
                       </div>
                     ) : !isEditing ? (
-                      <span style={{ fontSize: 11, color: "#555" }}>Inserisci prezzo manuale</span>
+                      <span style={{ fontSize: 11, color: "#555" }}>{t(lang, "portfolio.enterManualPrice")}</span>
                     ) : null}
                   </div>
 
                   {/* Edit ✏ + Delete × — always on right, never wrap */}
                   {!isEditing && (
                     <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                      <button onClick={() => startEditPrice(h.ticker, manuale)} title="Aggiorna prezzo manualmente" style={{
+                      <button onClick={() => startEditPrice(h.ticker, manuale)} title={t(lang, "portfolio.updatePriceManually")} style={{
                         background: prezzoCorrente === 0 ? "#6C5CE722" : "none",
                         border: prezzoCorrente === 0 ? "1px solid #6C5CE755" : "none",
                         borderRadius: 7, color: prezzoCorrente === 0 ? "#a78bfa" : "#555",
@@ -3592,14 +3596,14 @@ function PortfolioView() {
                     marginTop: 8, width: "100%", padding: "8px", background: "#6C5CE711",
                     border: "1px dashed #6C5CE755", borderRadius: 10, color: "#a78bfa",
                     cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
-                  }}>✏ Inserisci prezzo manuale</button>
+                  }}>✏ {t(lang, "portfolio.enterManualPrice")}</button>
                 )}
 
                 {/* Inline manual price editor */}
                 {isEditing && (
                   <div style={{ marginTop: 10, padding: "12px", background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
                     <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>
-                      Prezzo manuale — {h.ticker}
+                      {t(lang, "portfolio.manualPricePrefix")} {h.ticker}
                     </div>
                     <input
                       type="number" inputMode="decimal" autoFocus
@@ -3613,7 +3617,7 @@ function PortfolioView() {
                       <button onClick={() => handleSaveManualPrice(h.ticker)} style={{
                         flex: 1, padding: "10px", background: "linear-gradient(135deg, #6C5CE7, #a855f7)", border: "none",
                         borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-                      }}>Salva</button>
+                      }}>{t(lang, "common.save")}</button>
                       <button onClick={() => setEditingTicker(null)} style={{
                         padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10,
                         color: "#888", fontSize: 14, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
@@ -3623,10 +3627,10 @@ function PortfolioView() {
                       <button onClick={() => handleClearManualPrice(h.ticker)} style={{
                         marginTop: 8, background: "none", border: "none", color: "#FF6B6B88", cursor: "pointer",
                         fontSize: 11, fontFamily: "'DM Sans',sans-serif", padding: 0,
-                      }}>Rimuovi prezzo manuale</button>
+                      }}>{t(lang, "portfolio.removeManualPrice")}</button>
                     )}
                     <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
-                      Il prezzo API verrà usato automaticamente se disponibile.
+                      {t(lang, "portfolio.apiPriceNote")}
                     </div>
                   </div>
                 )}
@@ -3638,30 +3642,30 @@ function PortfolioView() {
                     border: "none", color: "#6C5CE7", cursor: "pointer",
                     fontSize: 11, fontFamily: "'DM Sans',sans-serif",
                   }}>
-                    {expandedTicker === h.ticker ? "▲ Nascondi storico" : `▼ Vedi ${h.trades.length} trades`}
+                    {expandedTicker === h.ticker ? t(lang, "portfolio.hideHistory") : `${t(lang, "portfolio.viewTrades")} ${h.trades.length} ${t(lang, "portfolio.trades")}`}
                   </button>
                 )}
 
                 {/* Expandable trade history */}
                 {expandedTicker === h.ticker && h.trades && h.trades.length > 0 && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #252538" }}>
-                    <div style={{ fontSize: 10, color: "#888", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Storico trades</div>
+                    <div style={{ fontSize: 10, color: "#888", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>{t(lang, "portfolio.tradeHistory")}</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((t, i) => (
-                        <div key={t.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: "#111119", borderRadius: 8 }}>
-                          <span style={{ fontSize: 10, color: "#666", minWidth: 60 }}>{t.dataAcquisto}</span>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: t.tipo === "sell" ? "#FF6B6B" : "#4ECDC4", minWidth: 35 }}>
-                            {t.tipo === "sell" ? "SELL" : "BUY"}
+                      {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((tr, i) => (
+                        <div key={tr.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: "#111119", borderRadius: 8 }}>
+                          <span style={{ fontSize: 10, color: "#666", minWidth: 60 }}>{tr.dataAcquisto}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: tr.tipo === "sell" ? "#FF6B6B" : "#4ECDC4", minWidth: 35 }}>
+                            {tr.tipo === "sell" ? "SELL" : "BUY"}
                           </span>
-                          <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{t.quantita} pz</span>
-                          <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(t.prezzoAcquisto)}</span>
-                          <button onClick={() => handleDeleteTrade(t)} title="Elimina questa operazione" style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                          <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{tr.quantita} {t(lang, "portfolio.units")}</span>
+                          <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(tr.prezzoAcquisto)}</span>
+                          <button onClick={() => handleDeleteTrade(tr)} title={t(lang, "portfolio.deleteThisTrade")} style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
                         </div>
                       ))}
                     </div>
                     {Math.abs(h.realizzato) > 0.005 && (
                       <div style={{ marginTop: 8, fontSize: 11, color: "#888", display: "flex", justifyContent: "space-between" }}>
-                        <span>P&L realizzato ({h.ticker})</span>
+                        <span>{t(lang, "portfolio.realizedPL")} ({h.ticker})</span>
                         <span style={{ fontFamily: "'Space Mono',monospace", fontWeight: 700, color: h.realizzato >= 0 ? "#4ECDC4" : "#FF6B6B" }}>
                           {h.realizzato >= 0 ? "+" : ""}{formattaValuta(h.realizzato)}
                         </span>
@@ -3678,7 +3682,7 @@ function PortfolioView() {
       {/* Closed positions */}
       {closedHoldings.length > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 16, marginTop: 16, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12 }}>Posizioni chiuse</div>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12 }}>{t(lang, "portfolio.closedPositions")}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {closedHoldings.map(h => (
               <div key={h.ticker} style={{ background: "#111119", borderRadius: 12, padding: "10px 12px" }}>
@@ -3686,7 +3690,7 @@ function PortfolioView() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{h.ticker}</span>
                     <span style={{ fontSize: 10, color: "#666", marginLeft: 6 }}>{h.nome}</span>
-                    <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>Chiusa il {h.ultimaData} · {h.trades.length} trades</div>
+                    <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>{t(lang, "portfolio.closedOn")} {h.ultimaData} · {h.trades.length} {t(lang, "portfolio.trades")}</div>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: h.realizzato >= 0 ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>
                     {h.realizzato >= 0 ? "+" : ""}{formattaValuta(h.realizzato)}
@@ -3698,13 +3702,13 @@ function PortfolioView() {
                 </div>
                 {expandedTicker === h.ticker && (
                   <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                    {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((t, i) => (
-                      <div key={t.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "#1a1a28", borderRadius: 8 }}>
-                        <span style={{ fontSize: 10, color: "#666", minWidth: 60 }}>{t.dataAcquisto}</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: t.tipo === "sell" ? "#FF6B6B" : "#4ECDC4", minWidth: 35 }}>{t.tipo === "sell" ? "SELL" : "BUY"}</span>
-                        <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{t.quantita} pz</span>
-                        <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(t.prezzoAcquisto)}</span>
-                        <button onClick={() => handleDeleteTrade(t)} title="Elimina questa operazione" style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                    {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((tr, i) => (
+                      <div key={tr.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "#1a1a28", borderRadius: 8 }}>
+                        <span style={{ fontSize: 10, color: "#666", minWidth: 60 }}>{tr.dataAcquisto}</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: tr.tipo === "sell" ? "#FF6B6B" : "#4ECDC4", minWidth: 35 }}>{tr.tipo === "sell" ? "SELL" : "BUY"}</span>
+                        <span style={{ flex: 1, fontSize: 12, color: "#ccc", fontFamily: "'Space Mono',monospace" }}>{tr.quantita} {t(lang, "portfolio.units")}</span>
+                        <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>@{formattaValuta(tr.prezzoAcquisto)}</span>
+                        <button onClick={() => handleDeleteTrade(tr)} title={t(lang, "portfolio.deleteThisTrade")} style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -3718,7 +3722,7 @@ function PortfolioView() {
       {/* Allocation pie chart */}
       {holdings.length >= 2 && totalValore > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Allocazione</div>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "portfolio.allocation")}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <DonutChart segmenti={holdingsByValue.map((h, i) => {
               const prezzo = manualPrices[h.ticker] || 0;
@@ -3749,7 +3753,7 @@ function PortfolioView() {
       {/* P&L Bar Chart */}
       {holdings.length >= 1 && totalValore > 0 && (
         <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538", overflow: "hidden" }}>
-          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>Profit & Loss</div>
+          <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "portfolio.profitLoss")}</div>
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, minWidth: "max-content" }}>
             {holdingsByPL.map(h => {
@@ -3779,17 +3783,7 @@ function PortfolioView() {
 }
 
 // ─── Export View ───
-const ALL_COLUMNS = [
-  { id: "data", label: "Data" },
-  { id: "tipo", label: "Tipo" },
-  { id: "importo", label: "Importo (€)" },
-  { id: "categoria", label: "Categoria" },
-  { id: "descrizione", label: "Descrizione" },
-  { id: "pagatoDa", label: "Pagato da" },
-  { id: "ricevutoDa", label: "Ricevuto da" },
-  { id: "partecipanti", label: "Partecipanti e quote" },
-  { id: "conto", label: "Conto" },
-];
+const ALL_COLUMN_IDS = ["data", "tipo", "importo", "categoria", "descrizione", "pagatoDa", "ricevutoDa", "partecipanti", "conto"];
 
 // ─── Splitwise CSV parser ───
 // Splitwise format: Data, Descrizione, Categorie, Costo, Valuta, <one column per person>
@@ -3915,11 +3909,11 @@ function parseSplitwiseRows(rawRows, persone) {
   return { righe, errori };
 }
 
-function ExportView({ transazioni, persone, positions, conti = [], onImport, onImportComplete, onImportPosition, onImportPositionComplete }) {
+function ExportView({ transazioni, persone, positions, conti = [], onImport, onImportComplete, onImportPosition, onImportPositionComplete, lang = "it" }) {
   const oggi = new Date();
   const [meseDa, setMeseDa] = useState(`${oggi.getFullYear()}-${String(oggi.getMonth()+1).padStart(2,"0")}`);
   const [meseA, setMeseA] = useState(meseDa);
-  const [colonne, setColonne] = useState(ALL_COLUMNS.map(c => c.id));
+  const [colonne, setColonne] = useState(ALL_COLUMN_IDS);
   const [ordinamento, setOrdinamento] = useState("data-asc");
   const [esportando, setEsportando] = useState(false);
   const [includiPortfolio, setIncludiPortfolio] = useState(false);
@@ -3947,7 +3941,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       a.download = `backup-finanza-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { toast("Errore backup: " + e.message, "error"); }
+    } catch (e) { toast(`${t(lang, "toast.errorBackupPrefix")} ${e.message}`, "error"); }
     setBackupBusy(false);
   }
 
@@ -3956,7 +3950,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      if (data.formato !== "balance-tracker-backup") { toast("Questo file non è un backup dell'app.", "error"); return; }
+      if (data.formato !== "balance-tracker-backup") { toast(t(lang, "toast.notABackupFile"), "error"); return; }
       setRestorePreview({ data, counts: {
         transazioni: (data.transactions || []).length,
         conti: (data.accounts || []).length,
@@ -3965,7 +3959,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
         posizioni: (data.positions || []).length,
         prezzi: Object.keys(data.manualPrices || {}).length,
       }});
-    } catch (e) { toast("File non leggibile: " + e.message, "error"); }
+    } catch (e) { toast(`${t(lang, "toast.fileUnreadablePrefix")} ${e.message}`, "error"); }
   }
 
   async function handleConfirmRestore() {
@@ -3976,7 +3970,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       setRestoreDone(res.counts);
       setRestorePreview(null);
       setTimeout(() => window.location.reload(), 2500);
-    } catch (e) { toast("Errore ripristino: " + e.message, "error"); }
+    } catch (e) { toast(`${t(lang, "toast.errorRestorePrefix")} ${e.message}`, "error"); }
     setRestoreBusy(false);
   }
 
@@ -3984,7 +3978,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
     setColonne(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   }
 
-  function selezionaTutte() { setColonne(ALL_COLUMNS.map(c => c.id)); }
+  function selezionaTutte() { setColonne(ALL_COLUMN_IDS); }
   function deselezionaTutte() { setColonne(["data", "importo"]); } // minimo
 
   async function parseImportFile(file) {
@@ -4122,7 +4116,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       }
 
     } catch (err) {
-      toast("Errore nel parsing del file: " + err.message, "error");
+      toast(`${t(lang, "toast.errorParsePrefix")} ${err.message}`, "error");
     } finally {
       setImportando(false);
     }
@@ -4153,12 +4147,12 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
     setImportFile(null);
 
     const parts = [];
-    if (okTx > 0) parts.push(`${okTx} transazioni`);
-    if (okPos > 0) parts.push(`${okPos} posizioni portfolio`);
+    if (okTx > 0) parts.push(`${okTx} ${t(lang, "export.transactions")}`);
+    if (okPos > 0) parts.push(`${okPos} ${t(lang, "export.portfolioPositions")}`);
     const errParts = [];
-    if (failTx > 0) errParts.push(`${failTx} transazioni`);
-    if (failPos > 0) errParts.push(`${failPos} posizioni`);
-    toast(`Import completato: ${parts.join(" e ")} importate${errParts.length ? `, errori: ${errParts.join(", ")}` : ""}.`, "success");
+    if (failTx > 0) errParts.push(`${failTx} ${t(lang, "export.transactions")}`);
+    if (failPos > 0) errParts.push(`${failPos} ${t(lang, "export.positions")}`);
+    toast(`${t(lang, "toast.importCompletePrefix")} ${parts.join(` ${t(lang, "toast.and")} `)} ${t(lang, "toast.importedSuffix")}${errParts.length ? `, ${t(lang, "toast.errorsSuffix")} ${errParts.join(", ")}` : ""}.`, "success");
   }
 
   // Filter transactions by month range
@@ -4255,7 +4249,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       XLSX.writeFile(wb, `finanza_${sheetName}.xlsx`);
     } catch (err) {
       console.error("Export error:", err);
-      toast("Errore durante l'esportazione: " + err.message, "error");
+      toast(`${t(lang, "toast.errorExportPrefix")} ${err.message}`, "error");
     } finally {
       setEsportando(false);
     }
@@ -4266,25 +4260,25 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
   for (let i = 0; i < 24; i++) {
     const d = new Date(oggi.getFullYear(), oggi.getMonth() - i, 1);
     const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    const label = `${MESI[d.getMonth()]} ${d.getFullYear()}`;
+    const label = `${mese(d.getMonth(), lang)} ${d.getFullYear()}`;
     mesiOptions.push({ val, label });
   }
 
   const sortOptions = [
-    { val: "data-asc", label: "Data ↑ (vecchie prima)" },
-    { val: "data-desc", label: "Data ↓ (recenti prima)" },
-    { val: "importo-desc", label: "Importo ↓ (più alto)" },
-    { val: "importo-asc", label: "Importo ↑ (più basso)" },
-    { val: "categoria-asc", label: "Categoria A→Z" },
-    { val: "pagatoDa-asc", label: "Pagato da A→Z" },
+    { val: "data-asc", label: t(lang, "export.sortDateAsc") },
+    { val: "data-desc", label: t(lang, "export.sortDateDesc") },
+    { val: "importo-desc", label: t(lang, "export.sortAmountDesc") },
+    { val: "importo-asc", label: t(lang, "export.sortAmountAsc") },
+    { val: "categoria-asc", label: t(lang, "export.sortCategoryAsc") },
+    { val: "pagatoDa-asc", label: t(lang, "export.sortPaidByAsc") },
   ];
 
   return (
     <div style={{ padding: "20px 16px" }}>
       {/* ─── IMPORT SECTION ─── */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>Importa dati</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>{t(lang, "export.importTitle")}</div>
       <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
-        Carica un file XLSX o CSV con lo stesso formato dell'export
+        {t(lang, "export.importHint")}
       </div>
 
       <label style={{
@@ -4293,7 +4287,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
         color: importFile ? "#ccc" : "#555", fontSize: 13, marginBottom: 12, transition: "all 0.2s",
       }}>
         <span style={{ fontSize: 22, display: "block", marginBottom: 6 }}>📂</span>
-        {importFile ? importFile.name : "Tocca per scegliere un file XLSX o CSV"}
+        {importFile ? importFile.name : t(lang, "export.chooseFile")}
         <input type="file" accept=".xlsx,.csv" style={{ display: "none" }}
           onChange={e => {
             const f = e.target.files?.[0];
@@ -4305,15 +4299,15 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
 
       {importando && (
         <div style={{ textAlign: "center", color: "#6C5CE7", marginBottom: 12, fontSize: 13, padding: "10px 0" }}>
-          Analisi in corso...
+          {t(lang, "export.analyzing")}
         </div>
       )}
 
       {importPreview && !importando && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 10, fontSize: 14 }}>Anteprima import</div>
+          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 10, fontSize: 14 }}>{t(lang, "export.importPreview")}</div>
           <div style={{ fontSize: 13, color: "#4ECDC4", marginBottom: importPreview.errori.length ? 8 : 0 }}>
-            ✓ {importPreview.righe.length} transazioni valide
+            ✓ {importPreview.righe.length} {t(lang, "export.validTransactions")}
           </div>
           {importPreview.errori.length > 0 && (
             <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8, lineHeight: 1.6 }}>
@@ -4332,7 +4326,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
                   </div>
                 ))}
                 {importPreview.righe.length > 3 && (
-                  <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ altre {importPreview.righe.length - 3} righe...</div>
+                  <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ {t(lang, "export.moreRows")} {importPreview.righe.length - 3} {t(lang, "export.rows")}</div>
                 )}
               </div>
               <button onClick={confermaImport} disabled={importando} style={{
@@ -4342,7 +4336,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
                 background: "linear-gradient(135deg, #4ECDC4, #26a69a)",
                 color: "#fff", boxShadow: "0 4px 20px #4ECDC433",
               }}>
-                Importa {(importPreview?.righe?.length || 0) + (importPortfolioPreview?.posizioni?.length || 0)} elementi
+                {t(lang, "export.importItems")} {(importPreview?.righe?.length || 0) + (importPortfolioPreview?.posizioni?.length || 0)} {t(lang, "export.items")}
               </button>
             </>
           )}
@@ -4352,9 +4346,9 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       {/* Portfolio sheet preview */}
       {importPortfolioPreview && !importando && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 8, fontSize: 14 }}>📈 Portfolio trovato</div>
+          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 8, fontSize: 14 }}>{t(lang, "export.portfolioFound")}</div>
           <div style={{ fontSize: 13, color: "#4ECDC4", marginBottom: importPortfolioPreview.errori.length ? 8 : 0 }}>
-            ✓ {importPortfolioPreview.posizioni.length} posizioni valide
+            ✓ {importPortfolioPreview.posizioni.length} {t(lang, "export.validPositions")}
           </div>
           {importPortfolioPreview.errori.length > 0 && (
             <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8, lineHeight: 1.6 }}>
@@ -4365,11 +4359,11 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
             {importPortfolioPreview.posizioni.slice(0, 3).map((p, i) => (
               <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
                 <span style={{ fontFamily: "'Space Mono',monospace", color: "#ccc" }}>{p.ticker}</span>
-                <span>{p.tipo === "sell" ? "Vendita" : "Acquisto"} {p.quantita} pz × €{p.prezzoAcquisto}</span>
+                <span>{p.tipo === "sell" ? t(lang, "export.sell") : t(lang, "export.buy")} {p.quantita} {t(lang, "portfolio.units")} × €{p.prezzoAcquisto}</span>
               </div>
             ))}
             {importPortfolioPreview.posizioni.length > 3 && (
-              <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ altre {importPortfolioPreview.posizioni.length - 3}...</div>
+              <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ {t(lang, "export.more")} {importPortfolioPreview.posizioni.length - 3}...</div>
             )}
           </div>
         </div>
@@ -4378,20 +4372,20 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       <div style={{ borderTop: "1px solid #1e1e2e", margin: "24px 0" }} />
 
       {/* ─── EXPORT SECTION ─── */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>Esporta dati</div>
-      <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>Scarica le transazioni come file Excel</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>{t(lang, "export.exportTitle")}</div>
+      <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>{t(lang, "export.exportHint")}</div>
 
       {/* Month range */}
       <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
         <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Da mese</label>
+          <label style={labelStyle}>{t(lang, "export.fromMonth")}</label>
           <select value={meseDa} onChange={e => { setMeseDa(e.target.value); if (e.target.value > meseA) setMeseA(e.target.value); }}
             style={{ ...inputStyle, colorScheme: "dark", cursor: "pointer" }}>
             {mesiOptions.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
           </select>
         </div>
         <div style={{ flex: 1 }}>
-          <label style={labelStyle}>A mese</label>
+          <label style={labelStyle}>{t(lang, "export.toMonth")}</label>
           <select value={meseA} onChange={e => setMeseA(e.target.value)}
             style={{ ...inputStyle, colorScheme: "dark", cursor: "pointer" }}>
             {mesiOptions.filter(m => m.val >= meseDa).map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
@@ -4402,24 +4396,24 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       {/* Column selector */}
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <label style={{ ...labelStyle, marginBottom: 0 }}>Colonne da esportare</label>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>{t(lang, "export.columnsToExport")}</label>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={selezionaTutte} style={{ background: "none", border: "none", color: "#6C5CE7", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Tutte</button>
-            <button onClick={deselezionaTutte} style={{ background: "none", border: "none", color: "#888", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>Minimo</button>
+            <button onClick={selezionaTutte} style={{ background: "none", border: "none", color: "#6C5CE7", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t(lang, "export.all")}</button>
+            <button onClick={deselezionaTutte} style={{ background: "none", border: "none", color: "#888", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t(lang, "export.minimum")}</button>
           </div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {ALL_COLUMNS.map(c => {
-            const active = colonne.includes(c.id);
+          {ALL_COLUMN_IDS.map(id => {
+            const active = colonne.includes(id);
             return (
-              <button key={c.id} onClick={() => toggleColonna(c.id)} style={{
+              <button key={id} onClick={() => toggleColonna(id)} style={{
                 padding: "7px 12px", borderRadius: 10, cursor: "pointer",
                 fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
                 background: active ? "#6C5CE722" : "#1a1a28",
                 border: active ? "2px solid #6C5CE7" : "2px solid #252538",
                 color: active ? "#6C5CE7" : "#888",
                 transition: "all 0.2s",
-              }}>{c.label}</button>
+              }}>{t(lang, `col.${id}`)}</button>
             );
           })}
         </div>
@@ -4427,7 +4421,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
 
       {/* Sort order */}
       <div style={{ marginBottom: 18 }}>
-        <label style={labelStyle}>Ordinamento</label>
+        <label style={labelStyle}>{t(lang, "export.sortOrder")}</label>
         <select value={ordinamento} onChange={e => setOrdinamento(e.target.value)}
           style={{ ...inputStyle, colorScheme: "dark", cursor: "pointer" }}>
           {sortOptions.map(s => <option key={s.val} value={s.val}>{s.label}</option>)}
@@ -4438,14 +4432,14 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", marginBottom: 20, border: "1px solid #252538" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{ordinate.length} transazioni</div>
-            <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{colonne.length} colonne selezionate</div>
+            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{ordinate.length} {t(lang, "export.transactions")}</div>
+            <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{colonne.length} {t(lang, "export.columnsSelected")}</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace" }}>
               {formattaValuta(ordinate.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0))}
             </div>
-            <div style={{ fontSize: 10, color: "#888" }}>uscite totali</div>
+            <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "export.totalExpenses")}</div>
           </div>
         </div>
       </div>
@@ -4461,8 +4455,8 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
             display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s",
           }}>{includiPortfolio && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1 }}>✓</span>}</div>
           <div>
-            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>Includi portfolio</div>
-            <div style={{ fontSize: 11, color: "#555" }}>{positions.length} posizioni → sheet "Portfolio"</div>
+            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{t(lang, "export.includePortfolio")}</div>
+            <div style={{ fontSize: 11, color: "#555" }}>{positions.length} {t(lang, "export.positionsToSheet")}</div>
           </div>
         </div>
       )}
@@ -4477,43 +4471,43 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
         opacity: esportando ? 0.6 : 1,
         transition: "all 0.3s",
       }}>
-        {esportando ? "Generazione file..." : ordinate.length === 0 ? "Nessuna transazione nel periodo" : `Scarica XLSX (${ordinate.length} righe)`}
+        {esportando ? t(lang, "export.generatingFile") : ordinate.length === 0 ? t(lang, "export.noTransactionsInPeriod") : `${t(lang, "export.downloadXlsx")} (${ordinate.length} ${t(lang, "export.rowsPlain")})`}
       </button>
 
       {/* ─── BACKUP SECTION ─── */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginTop: 32, marginBottom: 6 }}>Backup completo</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginTop: 32, marginBottom: 6 }}>{t(lang, "export.backupTitle")}</div>
       <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
-        Salva tutti i dati in un file JSON: transazioni, conti, obiettivi, viaggi, portfolio, prezzi e categorie. Riporlo al sicuro ti permette di recuperare tutto.
+        {t(lang, "export.backupHint")}
       </div>
       <button onClick={handleDownloadBackup} disabled={backupBusy} style={{
         width: "100%", padding: "14px", border: "1px solid #4ECDC455", borderRadius: 14, cursor: "pointer",
         fontSize: 14, fontWeight: 700, background: "#4ECDC411", color: "#4ECDC4",
         fontFamily: "'DM Sans',sans-serif", marginBottom: 12, opacity: backupBusy ? 0.6 : 1,
-      }}>{backupBusy ? "Preparazione..." : "💾 Scarica backup (JSON)"}</button>
+      }}>{backupBusy ? t(lang, "export.preparing") : t(lang, "export.downloadBackup")}</button>
 
       <label style={{
         display: "block", padding: "14px 16px", borderRadius: 14, cursor: "pointer",
         border: "1px dashed #252538", background: "#1a1a28", textAlign: "center",
         color: "#888", fontSize: 13, marginBottom: 12,
       }}>
-        ♻️ Ripristina da un file di backup
+        {t(lang, "export.restoreFromBackup")}
         <input type="file" accept=".json,application/json" style={{ display: "none" }}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleRestoreFile(f); e.target.value = ""; }} />
       </label>
 
       {restorePreview && (
         <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #F0A50055" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#F0A500", marginBottom: 8 }}>Contenuto del backup{restorePreview.data.creato ? ` (${restorePreview.data.creato.slice(0, 10)})` : ""}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#F0A500", marginBottom: 8 }}>{t(lang, "export.backupContents")}{restorePreview.data.creato ? ` (${restorePreview.data.creato.slice(0, 10)})` : ""}</div>
           <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7 }}>
-            {restorePreview.counts.transazioni} transazioni · {restorePreview.counts.conti} conti · {restorePreview.counts.obiettivi} obiettivi · {restorePreview.counts.viaggi} viaggi · {restorePreview.counts.posizioni} trade portfolio · {restorePreview.counts.prezzi} prezzi manuali
+            {restorePreview.counts.transazioni} {t(lang, "export.transactions")} · {restorePreview.counts.conti} {t(lang, "export.accounts")} · {restorePreview.counts.obiettivi} {t(lang, "export.goals")} · {restorePreview.counts.viaggi} {t(lang, "export.trips")} · {restorePreview.counts.posizioni} {t(lang, "export.portfolioTrades")} · {restorePreview.counts.prezzi} {t(lang, "export.manualPrices")}
           </div>
           <div style={{ fontSize: 11, color: "#F0A500", marginTop: 10 }}>
-            ⚠️ Il ripristino AGGIUNGE i dati a quelli esistenti, non li sostituisce. Se stai ripristinando su dati già presenti, otterrai duplicati — è pensato per recuperare tutto su una casa vuota.
+            {t(lang, "export.restoreWarning")}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => setRestorePreview(null)} style={{ padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: "#888", fontSize: 13, cursor: "pointer" }}>Annulla</button>
+            <button onClick={() => setRestorePreview(null)} style={{ padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: "#888", fontSize: 13, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
             <button onClick={handleConfirmRestore} disabled={restoreBusy} style={{ flex: 1, padding: "10px", background: "linear-gradient(135deg,#F0A500,#e08e00)", border: "none", borderRadius: 10, color: "#111", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: restoreBusy ? 0.6 : 1 }}>
-              {restoreBusy ? "Ripristino in corso..." : "Conferma ripristino"}
+              {restoreBusy ? t(lang, "export.restoring") : t(lang, "export.confirmRestore")}
             </button>
           </div>
         </div>
@@ -4521,7 +4515,7 @@ function ExportView({ transazioni, persone, positions, conti = [], onImport, onI
 
       {restoreDone && (
         <div style={{ background: "#4ECDC411", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #4ECDC455", fontSize: 13, color: "#4ECDC4" }}>
-          ✓ Ripristino completato: {restoreDone.transactions} transazioni, {restoreDone.accounts} conti, {restoreDone.goals} obiettivi, {restoreDone.trips} viaggi, {restoreDone.positions} trade. Ricarico l'app...
+          {t(lang, "export.restoreComplete")}: {restoreDone.transactions} {t(lang, "export.transactions")}, {restoreDone.accounts} {t(lang, "export.accounts")}, {restoreDone.goals} {t(lang, "export.goals")}, {restoreDone.trips} {t(lang, "export.trips")}, {restoreDone.positions} {t(lang, "export.trades")}. {t(lang, "export.reloadingApp")}
         </div>
       )}
     </div>
@@ -5036,7 +5030,7 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange }) {
+function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange, lang = "it", onLangChange }) {
   const [valutaBusy, setValutaBusy] = useState(false);
   const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
 
@@ -5053,9 +5047,9 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
     try {
       await updateValutaBase(nuovaValuta);
       onValutaBaseChange?.(nuovaValuta);
-      toast(`Valuta base impostata a ${nuovaValuta}`, "success");
+      toast(`${t(lang, "toast.currencyBaseSetPrefix")} ${nuovaValuta}`, "success");
     } catch (e) {
-      toast(e.message || "Errore aggiornamento valuta", "error");
+      toast(e.message || t(lang, "toast.errorCurrencyUpdate"), "error");
     } finally {
       setValutaBusy(false);
     }
@@ -5093,7 +5087,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
   async function handleSaveRecoveryEmail() {
     const email = recoveryEmailInput.trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast("Inserisci un'email valida", "error");
+      toast(t(lang, "toast.enterValidEmail"), "error");
       return;
     }
     setRecoveryEmailBusy(true);
@@ -5102,8 +5096,8 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       setHasRecoveryEmail(true);
       setEditingRecoveryEmail(false);
       setRecoveryEmailInput("");
-      toast("Email di recupero salvata.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "toast.recoveryEmailSaved"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setRecoveryEmailBusy(false);
   }
 
@@ -5116,19 +5110,19 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
     try {
       const key = await createWidgetKey();
       setWidgetUrl(`${getApiBase()}/api/widget?key=${key}`);
-      toast("Chiave widget generata. Copiala ora: non sarà più mostrata.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "toast.widgetKeyGenerated"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setWidgetBusy(false);
   }
 
   async function handleRevokeWidgetKey() {
-    if (!confirm("Revocare la chiave widget? I widget configurati smetteranno di funzionare.")) return;
+    if (!confirm(t(lang, "confirm.revokeWidgetKey"))) return;
     setWidgetBusy(true);
     try {
       await revokeWidgetKey();
       setWidgetUrl(null);
-      toast("Chiave revocata.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "toast.widgetKeyRevoked"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setWidgetBusy(false);
   }
 
@@ -5140,7 +5134,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
   async function loadCestino() {
     setCestinoLoading(true);
-    try { setCestino(await fetchTrash()); } catch (e) { toast("Errore nel caricamento del cestino: " + e.message, "error"); }
+    try { setCestino(await fetchTrash()); } catch (e) { toast(`${t(lang, "toast.errorLoadTrashPrefix")} ${e.message}`, "error"); }
     setCestinoLoading(false);
   }
 
@@ -5156,30 +5150,30 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       const restored = await restoreTransaction(id);
       setCestino(prev => prev.filter(t => t.id !== id));
       onRestoreTransazione?.(restored);
-      toast("Transazione ripristinata.", "success");
-    } catch (e) { toast("Errore nel ripristino: " + e.message, "error"); }
+      toast(t(lang, "toast.txRestored"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorRestoreTxPrefix")} ${e.message}`, "error"); }
     setCestinoBusyId(null);
   }
 
   async function handlePermanentDelete(id) {
-    if (!confirm("Eliminare definitivamente questa transazione? Non sarà più recuperabile.")) return;
+    if (!confirm(t(lang, "confirm.permanentDeleteTx"))) return;
     setCestinoBusyId(id);
     try {
       await permanentDeleteTransaction(id);
       setCestino(prev => prev.filter(t => t.id !== id));
-      toast("Transazione eliminata definitivamente.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "toast.txPermanentlyDeleted"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
     setCestinoBusyId(null);
   }
 
   async function handleEmptyCestino() {
     if (cestino.length === 0) return;
-    if (!confirm(`Svuotare il cestino? ${cestino.length} transazioni verranno eliminate definitivamente.`)) return;
+    if (!confirm(`${t(lang, "confirm.emptyTrashPrefix")} ${cestino.length} ${t(lang, "confirm.emptyTrashSuffix")}`)) return;
     try {
       await emptyTrash();
       setCestino([]);
-      toast("Cestino svuotato.", "success");
-    } catch (e) { toast("Errore: " + e.message, "error"); }
+      toast(t(lang, "toast.trashEmptied"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
   }
 
   function giorniRimanenti(deletedAt) {
@@ -5229,12 +5223,12 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
   return (
     <div style={{ padding: "20px 16px" }}>
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 4 }}>Account</div>
-      <div style={{ fontSize: 13, color: "#888", marginBottom: 24 }}>Gestisci il tuo gruppo</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 4 }}>{t(lang, "settings.title")}</div>
+      <div style={{ fontSize: 13, color: "#888", marginBottom: 24 }}>{t(lang, "settings.subtitle")}</div>
 
       {/* Household info card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Gruppo attivo</div>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{t(lang, "settings.activeGroup")}</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#eee", marginBottom: 4 }}>{householdName}</div>
         {householdId && (
           <div style={{ fontSize: 11, color: "#555", fontFamily: "'Space Mono',monospace", marginBottom: 12 }}>ID: {householdId}</div>
@@ -5249,11 +5243,22 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         </div>
       </div>
 
+      {/* Language */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{t(lang, "settings.language")}</div>
+        <select value={lang} onChange={e => onLangChange?.(e.target.value)} style={{
+          width: "100%", padding: "10px 12px", background: "#12121a", border: "1px solid #252538", borderRadius: 10,
+          color: "#eee", fontSize: 14, fontWeight: 600, cursor: "pointer",
+        }}>
+          {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+        </select>
+      </div>
+
       {/* Email di recupero PIN */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Email di recupero PIN</div>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{t(lang, "settings.recoveryEmail")}</div>
         {hasRecoveryEmail === null ? (
-          <div style={{ fontSize: 12, color: "#666" }}>Caricamento...</div>
+          <div style={{ fontSize: 12, color: "#666" }}>{t(lang, "common.loading")}</div>
         ) : hasRecoveryEmail === "error" ? (
           <>
             <div style={{ fontSize: 12, color: "#F0A500", marginBottom: 6 }}>⚠️ Non siamo riusciti a verificare se hai già un'email impostata. Non è detto che manchi davvero — riprova prima di reinserirla.</div>
@@ -5301,18 +5306,18 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
       {/* Widget iPhone card */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>Widget iPhone</div>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{t(lang, "settings.widget")}</div>
         <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
           Genera una chiave per mostrare patrimonio, conti e spese del mese in un widget sulla home screen (tramite l'app gratuita Scriptable), e per aggiungere rapidamente uscite/entrate toccando il widget. La chiave permette anche di aggiungere transazioni: trattala come una password.
         </div>
         {widgetUrl ? (
           <div>
             <div style={{ fontSize: 10, color: "#F0A500", marginBottom: 6 }}>⚠️ Copia ora questo URL: non sarà più mostrato. Incollalo nello script Scriptable.</div>
-            <div onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast("URL copiato!", "success"); }} style={{
+            <div onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
               background: "#111119", border: "1px solid #4ECDC455", borderRadius: 10, padding: "10px 12px",
               fontSize: 10, fontFamily: "'Space Mono',monospace", color: "#4ECDC4", wordBreak: "break-all", cursor: "pointer", marginBottom: 10,
             }}>{widgetUrl}</div>
-            <button onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast("URL copiato!", "success"); }} style={{
+            <button onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
               width: "100%", padding: "10px", background: "#4ECDC422", border: "1px solid #4ECDC455", borderRadius: 10,
               color: "#4ECDC4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8,
             }}>📋 Copia URL</button>
@@ -5334,7 +5339,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
       {/* Category editor */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 24, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>Categorie uscite</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>{t(lang, "settings.categories")}</div>
         {categorie.map(c => (
           <div key={c.id}>
             {editingCatId === c.id ? (
@@ -5382,7 +5387,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
           </div>
         ) : (
           <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", border: "1px dashed #252538", borderRadius: 10, background: "transparent", color: "#666", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
-            + Nuova categoria
+            {t(lang, "settings.newCategory")}
           </button>
         )}
       </div>
@@ -5390,18 +5395,18 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       {/* Cestino */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 20 }}>
         <div onClick={toggleCestino} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee" }}>🗑️ Cestino</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee" }}>{t(lang, "settings.trash")}</div>
           <span style={{ fontSize: 13, color: "#666" }}>{cestinoAperto ? "▲" : "▼"}</span>
         </div>
         {cestinoAperto && (
           <div style={{ marginTop: 14 }}>
             <div style={{ fontSize: 11, color: "#666", marginBottom: 12, lineHeight: 1.5 }}>
-              Le transazioni eliminate restano qui 30 giorni prima di essere rimosse definitivamente.
+              {t(lang, "settings.trashHint")}
             </div>
             {cestinoLoading ? (
-              <div style={{ textAlign: "center", color: "#666", fontSize: 12, padding: 12 }}>Caricamento...</div>
+              <div style={{ textAlign: "center", color: "#666", fontSize: 12, padding: 12 }}>{t(lang, "common.loading")}</div>
             ) : cestino.length === 0 ? (
-              <div style={{ textAlign: "center", color: "#555", fontSize: 12, padding: 12 }}>Il cestino è vuoto.</div>
+              <div style={{ textAlign: "center", color: "#555", fontSize: 12, padding: 12 }}>{t(lang, "settings.trashEmpty")}</div>
             ) : (
               <>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
@@ -5419,14 +5424,14 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
                             {formattaValuta(t.importo)} · {giorniRimanenti(t.deletedAt)}g rimasti
                           </div>
                         </div>
-                        <button disabled={busy} onClick={() => handleRestore(t.id)} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>Ripristina</button>
+                        <button disabled={busy} onClick={() => handleRestore(t.id)} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>{t(lang, "common.restore")}</button>
                         <button disabled={busy} onClick={() => handlePermanentDelete(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B88", fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
                       </div>
                     );
                   })}
                 </div>
                 <button onClick={handleEmptyCestino} style={{ width: "100%", padding: "10px", border: "1px solid #2a1a1a", borderRadius: 10, background: "transparent", color: "#FF6B6B", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
-                  Svuota cestino
+                  {t(lang, "settings.emptyTrash")}
                 </button>
               </>
             )}
@@ -5436,9 +5441,9 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
       {/* Base currency */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 6 }}>💱 Valuta</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 6 }}>{t(lang, "settings.currency")}</div>
         <div style={{ fontSize: 12, color: "#888", marginBottom: 10, lineHeight: 1.5 }}>
-          Valuta base della casa: tutti i saldi e i debiti sono calcolati in questa valuta. Le transazioni in altre valute vengono convertite automaticamente al tasso del giorno.
+          {t(lang, "settings.currencyHint")}
         </div>
         <select value={valutaBase} disabled={valutaBusy} onChange={e => handleValutaBaseChange(e.target.value)} style={{
           width: "100%", padding: "10px 12px", background: "#12121a", border: "1px solid #252538", borderRadius: 10,
@@ -5450,9 +5455,9 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
 
       {/* Delete section */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #2a1a1a" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#FF6B6B", marginBottom: 6 }}>Zona pericolosa</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#FF6B6B", marginBottom: 6 }}>{t(lang, "settings.dangerZone")}</div>
         <div style={{ fontSize: 12, color: "#888", marginBottom: 16, lineHeight: 1.5 }}>
-          Elimina definitivamente l'account e tutte le transazioni. Questa azione non può essere annullata.
+          {t(lang, "settings.dangerZoneHint")}
         </div>
 
         {fase === "idle" && (
@@ -5461,7 +5466,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
             background: "transparent", color: "#FF6B6B", fontFamily: "'DM Sans',sans-serif",
             fontSize: 14, fontWeight: 700, cursor: "pointer",
           }}>
-            Elimina account
+            {t(lang, "settings.deleteAccount")}
           </button>
         )}
 
@@ -5550,8 +5555,10 @@ export default function FinanzaApp() {
   const [goals, setGoals] = useState([]);
   const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
-  const [categorieUscita, setCategorieUscita] = useState(() => getCategorieUscita() || CATEGORIE.filter(c => c.id !== "entrata"));
+  const [categorieUscita, setCategorieUscita] = useState(() => getCategorieUscita() || defaultCategorie(getLang()).filter(c => c.id !== "entrata"));
   const [valutaBase, setValutaBase] = useState("EUR");
+  const [lang, setLangState] = useState(getLang());
+  function handleLangChange(l) { setLang(l); setLangState(l); }
 
   useEffect(() => { fetchHousehold().then(h => setValutaBase(h.valutaBase || "EUR")).catch(() => {}); }, []);
 
@@ -5721,12 +5728,12 @@ export default function FinanzaApp() {
   };
 
   const loadCategorie = useCallback(async () => {
-    const defaults = CATEGORIE.filter(c => c.id !== "entrata");
+    const defaults = defaultCategorie(lang).filter(c => c.id !== "entrata");
     try {
       const cats = await fetchCategorie();
       setCategorieUscita(cats || defaults);
     } catch (e) { console.error("loadCategorie:", e); setCategorieUscita(defaults); }
-  }, []);
+  }, [lang]);
 
   useEffect(() => { if (authed) { loadAll(); loadPositions(); loadCategorie(); loadGoals(); loadConti(); loadRootManualPrices(); } }, [authed, loadAll, loadPositions, loadCategorie, loadGoals, loadConti, loadRootManualPrices]);
   // Keep the Patrimonio card fresh: re-read manual prices when returning to home
@@ -5743,7 +5750,7 @@ export default function FinanzaApp() {
     setAuthed(false);
     setTransazioni([]);
     setPositions([]);
-    setCategorieUscita(CATEGORIE.filter(c => c.id !== "entrata"));
+    setCategorieUscita(defaultCategorie(lang).filter(c => c.id !== "entrata"));
     setTab("home");
   }
 
@@ -5857,12 +5864,12 @@ export default function FinanzaApp() {
       )}
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} />}
-        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} />}
-        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
-        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
-        {tab === "portfolio" && <PortfolioView />}
-        {tab === "viaggi" && <ViaggiView persone={persone} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} lang={lang} />}
+        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
+        {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} lang={lang} />}
+        {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} lang={lang} />}
+        {tab === "portfolio" && <PortfolioView lang={lang} />}
+        {tab === "viaggi" && <ViaggiView persone={persone} lang={lang} />}
         {tab === "impostazioni" && (
           <ImpostazioniView
             householdName={householdName}
@@ -5874,10 +5881,12 @@ export default function FinanzaApp() {
             onRestoreTransazione={(tx) => setTransazioni(prev => [...prev, tx])}
             valutaBase={valutaBase}
             onValutaBaseChange={setValutaBase}
+            lang={lang}
+            onLangChange={handleLangChange}
           />
         )}
       </div>
-      <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} />
+      <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} lang={lang} />
     </div>
   );
 }
