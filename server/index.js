@@ -266,28 +266,33 @@ function sanitizeRicorrenza(r) {
 }
 
 // ─── Multi-currency — exchange rates cached 24h per base currency ───
-const VALUTE_SUPPORTATE = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "CNY", "SEK", "NOK", "PLN"];
+// Any real ISO-4217-shaped code is accepted; the exchange-rate API covers ~160
+// currencies, far more than we'd want to hardcode a whitelist for.
 function sanitizeValuta(v) {
   if (typeof v !== "string") return null;
-  const up = v.toUpperCase();
-  return VALUTE_SUPPORTATE.includes(up) ? up : null;
+  const up = v.toUpperCase().trim();
+  return /^[A-Z]{3}$/.test(up) ? up : null;
 }
 const EXCHANGE_RATE_CACHE_MS = 24 * 60 * 60 * 1000;
-async function getExchangeRate(from, to) {
-  if (from === to) return 1;
-  const cached = await exchangeRatesCol.findOne({ base: from });
+async function fetchRatesTable(base) {
+  const cached = await exchangeRatesCol.findOne({ base });
   let rates = cached?.rates;
   if (!cached || Date.now() - new Date(cached.fetchedAt).getTime() > EXCHANGE_RATE_CACHE_MS) {
     try {
-      const r = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`);
+      const r = await fetch(`https://api.exchangerate-api.com/v4/latest/${base}`);
       if (r.ok) {
         const data = await r.json();
         rates = data.rates;
-        await exchangeRatesCol.updateOne({ base: from }, { $set: { base: from, rates, fetchedAt: new Date() } }, { upsert: true });
+        await exchangeRatesCol.updateOne({ base }, { $set: { base, rates, fetchedAt: new Date() } }, { upsert: true });
       }
     } catch (e) { console.error("exchange rate fetch failed", e); }
   }
-  const rate = rates?.[to];
+  return rates || {};
+}
+async function getExchangeRate(from, to) {
+  if (from === to) return 1;
+  const rates = await fetchRatesTable(from);
+  const rate = rates[to];
   return Number.isFinite(rate) ? rate : 1;
 }
 // Converte importo dalla valuta scelta alla valuta base della casa; se
@@ -853,9 +858,8 @@ app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res
 app.get("/api/exchange-rates", requireHousehold, async (req, res) => {
   try {
     const base = req.household.valutaBase || "EUR";
-    const rates = {};
-    for (const v of VALUTE_SUPPORTATE) rates[v] = v === base ? 1 : await getExchangeRate(base, v);
-    res.json({ base, rates });
+    const rates = await fetchRatesTable(base);
+    res.json({ base, rates: { ...rates, [base]: 1 } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
