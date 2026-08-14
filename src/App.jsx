@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -2116,6 +2116,37 @@ function ViaggiView({ persone }) {
     setExpandedExpenses(prev => ({ ...prev, [tripId]: !prev[tripId] }));
   }
 
+  const [shareBusyId, setShareBusyId] = useState(null);
+
+  async function handleShareTrip(tripId) {
+    setShareBusyId(tripId);
+    try {
+      const token = await createTripShareLink(tripId);
+      setTrips(prev => prev.map(t => t.id === tripId ? { ...t, shareToken: token } : t));
+      const url = `${window.location.origin}${window.location.pathname}?viaggio=${token}`;
+      await navigator.clipboard?.writeText(url).catch(() => {});
+      toast("Link di invito copiato negli appunti.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setShareBusyId(null);
+  }
+
+  async function handleRevokeShare(tripId) {
+    if (!confirm("Revocare il link di invito? Chi lo ha già usato perde l'accesso al viaggio.")) return;
+    setShareBusyId(tripId);
+    try {
+      await revokeTripShareLink(tripId);
+      setTrips(prev => prev.map(t => t.id === tripId ? { ...t, shareToken: undefined } : t));
+      toast("Link revocato.", "success");
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setShareBusyId(null);
+  }
+
+  function handleCopyShareLink(token) {
+    const url = `${window.location.origin}${window.location.pathname}?viaggio=${token}`;
+    navigator.clipboard?.writeText(url);
+    toast("Link copiato negli appunti.", "success");
+  }
+
   const [showCatManager, setShowCatManager] = useState(false);
   const [editingCatId, setEditingCatId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -2342,8 +2373,24 @@ function ViaggiView({ persone }) {
                       {t.startDate && t.endDate ? `${t.startDate} → ${t.endDate}` : t.startDate || t.endDate || ""}
                     </div>
                   </div>
-                  <button onClick={() => handleDeleteTrip(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 18 }}>×</button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                    {!t.settled && (
+                      t.shareToken ? (
+                        <button onClick={() => handleCopyShareLink(t.shareToken)} title="Copia link invito" style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                      ) : (
+                        <button onClick={() => handleShareTrip(t.id)} disabled={shareBusyId === t.id} title="Invita qualcuno a questo viaggio" style={{ background: "none", border: "1px solid #252538", borderRadius: 8, color: "#888", cursor: shareBusyId === t.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                      )
+                    )}
+                    <button onClick={() => handleDeleteTrip(t.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
                 </div>
+
+                {t.shareToken && !t.settled && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>Invito attivo — chiunque abbia il link può unirsi</span>
+                    <button onClick={() => handleRevokeShare(t.id)} disabled={shareBusyId === t.id} style={{ background: "none", border: "none", color: "#FF6B6B", fontSize: 11, fontWeight: 700, cursor: shareBusyId === t.id ? "default" : "pointer", fontFamily: "'DM Sans',sans-serif" }}>Revoca</button>
+                  </div>
+                )}
 
                 <div style={{ marginBottom: 10 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
@@ -2437,6 +2484,179 @@ function TripExpenseForm({ trip, onAdd, categorie }) {
         ))}
       </div>
       <button onClick={handleAdd} disabled={!importo} style={{ width: "100%", padding: "10px", background: importo ? "#6C5CE7" : "#252538", border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: importo ? "pointer" : "default" }}>Aggiungi spesa</button>
+    </div>
+  );
+}
+
+// ─── Trip guest view — reached via ?viaggio=<token>, no household PIN required ───
+const GUEST_TRIP_DEFAULT_CATEGORIE = [
+  { id: "trasporto", emoji: "✈️", nome: "Trasporto", colore: "#74B9FF" },
+  { id: "alloggio", emoji: "🏨", nome: "Alloggio", colore: "#A29BFE" },
+  { id: "cibo", emoji: "🍝", nome: "Cibo", colore: "#55EFC4" },
+  { id: "attivita", emoji: "🎡", nome: "Attività", colore: "#FDCB6E" },
+  { id: "shopping", emoji: "🛍️", nome: "Shopping", colore: "#FF7675" },
+  { id: "altro", emoji: "📦", nome: "Altro", colore: "#A8A8A8" },
+];
+
+function TripGuestView({ token }) {
+  const [trip, setTrip] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [me, setMe] = useState(null); // { id, nome } — this guest's identity, remembered locally per token
+  const [nomeInput, setNomeInput] = useState("");
+  const [joining, setJoining] = useState(false);
+
+  const lsKey = `guest-trip-identity-${token}`;
+
+  async function load() {
+    setLoading(true);
+    try {
+      const t = await fetchSharedTrip(token);
+      setTrip(t);
+      try {
+        const saved = JSON.parse(localStorage.getItem(lsKey) || "null");
+        if (saved && (t.partecipanti || []).some(p => p.id === saved.id)) setMe(saved);
+      } catch {}
+    } catch (e) {
+      setError(e.message || "Link non valido");
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [token]);
+
+  async function handleJoin() {
+    if (!nomeInput.trim()) return;
+    setJoining(true);
+    try {
+      const p = await joinSharedTrip(token, nomeInput.trim());
+      setMe(p);
+      try { localStorage.setItem(lsKey, JSON.stringify(p)); } catch {}
+      await load();
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setJoining(false);
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#666" }}>Caricamento...</div>;
+  if (error || !trip) return (
+    <div style={{ padding: 40, textAlign: "center", color: "#FF6B6B" }}>
+      {error || "Link non valido"}
+    </div>
+  );
+
+  const nameOf = (id) => (trip.partecipanti || []).find(p => p.id === id)?.nome || id;
+  const total = trip.expenses?.reduce((s, e) => s + e.importo, 0) || 0;
+  const settlements = calcolaSettleViaggio(trip);
+
+  return (
+    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", padding: "24px 16px" }}>
+      <ToastHost />
+      <div style={{ fontSize: 11, color: "#6C5CE7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Sei stato invitato a</div>
+      <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{trip.nome}</div>
+      {trip.descrizione && <div style={{ fontSize: 13, color: "#888", marginBottom: 4 }}>{trip.descrizione}</div>}
+      <div style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>
+        {trip.startDate && trip.endDate ? `${trip.startDate} → ${trip.endDate}` : trip.startDate || trip.endDate || ""}
+        {trip.settled && <span style={{ marginLeft: 8, color: "#55EFC4", fontWeight: 700 }}>✓ Chiuso</span>}
+      </div>
+
+      {!me && !trip.settled && (
+        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: "#ccc", marginBottom: 10 }}>Come ti chiami? Usalo per riconoscerti come partecipante.</div>
+          <input type="text" value={nomeInput} onChange={e => setNomeInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleJoin()}
+            placeholder="Il tuo nome" autoFocus style={{ ...inputStyle, marginBottom: 10 }} />
+          <button onClick={handleJoin} disabled={!nomeInput.trim() || joining} style={{
+            width: "100%", padding: "12px", border: "none", borderRadius: 12,
+            background: nomeInput.trim() ? "#6C5CE7" : "#252538", color: "#fff",
+            fontSize: 14, fontWeight: 700, cursor: nomeInput.trim() ? "pointer" : "default",
+          }}>{joining ? "..." : "Unisciti al viaggio"}</button>
+        </div>
+      )}
+
+      {!me && trip.settled && (
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 20 }}>Questo viaggio è già stato chiuso: puoi solo consultare il riepilogo qui sotto.</div>
+      )}
+
+      {me && (
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>Stai partecipando come <strong style={{ color: "#a78bfa" }}>{me.nome}</strong></div>
+      )}
+
+      <div style={{ marginBottom: 16 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
+        <span style={{ fontSize: 12, color: "#666", marginLeft: 6 }}>totale · {trip.expenses?.length || 0} spese</span>
+      </div>
+
+      {settlements.length > 0 && (
+        <div style={{ background: "#1a1a28", borderRadius: 14, padding: 14, marginBottom: 16, border: "1px solid #252538" }}>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{trip.settled ? "Saldato così" : "Da saldare"}</div>
+          {settlements.map((s, i) => (
+            <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+              {nameOf(s.da)} → {nameOf(s.a)}: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {trip.expenses && trip.expenses.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Spese</div>
+          {trip.expenses.map((e, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || "Spesa"}</div>
+                <div style={{ fontSize: 11, color: "#666" }}>{e.categoria} · {nameOf(e.pagatoDa)}</div>
+              </div>
+              <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {me && !trip.settled && (
+        <GuestExpenseForm trip={trip} me={me} token={token} categorie={GUEST_TRIP_DEFAULT_CATEGORIE} onAdded={load} />
+      )}
+    </div>
+  );
+}
+
+function GuestExpenseForm({ trip, me, token, categorie, onAdded }) {
+  const [importo, setImporto] = useState("");
+  const [descrizione, setDescrizione] = useState("");
+  const [categoria, setCategoria] = useState("altro");
+  const [busy, setBusy] = useState(false);
+  const allPars = trip.partecipanti || [];
+
+  async function handleAdd() {
+    const val = parseFloat(importo.replace(",", "."));
+    if (!val || val <= 0) return;
+    setBusy(true);
+    try {
+      const each = Math.round(100 / allPars.length);
+      const splits = allPars.map((p, i) => ({ personaId: p.id, quota: i === allPars.length - 1 ? 100 - each * (allPars.length - 1) : each }));
+      await addSharedTripExpense(token, {
+        importo: val, descrizione: descrizione.trim(), categoria,
+        pagatoDa: me.id, data: new Date().toISOString().slice(0, 10), splits,
+      });
+      setImporto(""); setDescrizione(""); setCategoria("altro");
+      await onAdded();
+    } catch (e) { toast("Errore: " + e.message, "error"); }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#eee", marginBottom: 10 }}>Aggiungi una spesa pagata da te</div>
+      <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)} placeholder="€" style={{ ...inputStyle, marginBottom: 8, fontFamily: "'Space Mono',monospace" }} />
+      <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder="Descrizione spesa" style={{ ...inputStyle, marginBottom: 8 }} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {categorie.map(c => (
+          <button key={c.id} onClick={() => setCategoria(c.id)} style={{ padding: "6px 10px", borderRadius: 8, border: categoria === c.id ? `2px solid ${c.colore}` : "1px solid #252538", background: categoria === c.id ? c.colore + "22" : "#111119", color: categoria === c.id ? c.colore : "#666", fontSize: 11, cursor: "pointer" }}>
+            {c.emoji} {c.nome}
+          </button>
+        ))}
+      </div>
+      <button onClick={handleAdd} disabled={!importo || busy} style={{ width: "100%", padding: "12px", background: importo ? "#6C5CE7" : "#252538", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, cursor: importo ? "pointer" : "default" }}>
+        {busy ? "..." : "Aggiungi spesa"}
+      </button>
     </div>
   );
 }
@@ -5514,6 +5734,9 @@ export default function FinanzaApp() {
       setTransazioni(prev => prev.map(t => t.id === id ? { ...t, ...updated } : t));
     } catch (err) { console.error("Update error:", err); }
   }
+
+  const viaggioToken = new URLSearchParams(window.location.search).get("viaggio");
+  if (viaggioToken) return <TripGuestView token={viaggioToken} />;
 
   if (!authed) return <LoginScreen onLogin={handleLogin} />;
 

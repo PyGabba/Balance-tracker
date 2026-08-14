@@ -852,3 +852,44 @@ export async function deleteTripExpense(tripId, expenseId) {
   try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
   return true;
 }
+
+// ─── Trip share links (owner side, authenticated) ───
+export async function createTripShareLink(tripId) {
+  const res = await fetch(`${API_BASE}/api/trips/${tripId}/share`, { method: "POST", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  const { token } = await res.json();
+  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, shareToken: token } : t);
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  return token;
+}
+
+export async function revokeTripShareLink(tripId) {
+  const res = await fetch(`${API_BASE}/api/trips/${tripId}/share`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error(res.status);
+  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, shareToken: undefined } : t);
+  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  return true;
+}
+
+// ─── Trip share links (guest side, unauthenticated — no household session at all) ───
+export async function fetchSharedTrip(token) {
+  const res = await fetch(`${API_BASE}/api/trips/shared/${token}`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  return await res.json();
+}
+
+export async function joinSharedTrip(token, nome) {
+  const res = await fetch(`${API_BASE}/api/trips/shared/${token}/join`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  return await res.json();
+}
+
+export async function addSharedTripExpense(token, expense) {
+  const res = await fetch(`${API_BASE}/api/trips/shared/${token}/expenses`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(expense),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  return await res.json();
+}
