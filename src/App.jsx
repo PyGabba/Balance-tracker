@@ -5261,27 +5261,27 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
           <div style={{ fontSize: 12, color: "#666" }}>{t(lang, "common.loading")}</div>
         ) : hasRecoveryEmail === "error" ? (
           <>
-            <div style={{ fontSize: 12, color: "#F0A500", marginBottom: 6 }}>⚠️ Non siamo riusciti a verificare se hai già un'email impostata. Non è detto che manchi davvero — riprova prima di reinserirla.</div>
+            <div style={{ fontSize: 12, color: "#F0A500", marginBottom: 6 }}>{t(lang, "settings.recoveryEmailCheckFailed")}</div>
             {recoveryEmailErrDetail && (
               <div style={{ fontSize: 10, color: "#888", fontFamily: "'Space Mono',monospace", marginBottom: 10, wordBreak: "break-word" }}>{recoveryEmailErrDetail}</div>
             )}
             <button onClick={loadRecoveryEmailStatus} style={{
               padding: "10px 14px", background: "#F0A50022", border: "1px solid #F0A50055", borderRadius: 10,
               color: "#F0A500", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-            }}>Riprova</button>
+            }}>{t(lang, "settings.retry")}</button>
           </>
         ) : hasRecoveryEmail && !editingRecoveryEmail ? (
           <>
-            <div style={{ fontSize: 12, color: "#4ECDC4", marginBottom: 10 }}>✓ Email impostata. Se dimentichi il PIN, potrai reimpostarlo da "Hai dimenticato il PIN?" nella schermata di accesso.</div>
+            <div style={{ fontSize: 12, color: "#4ECDC4", marginBottom: 10 }}>{t(lang, "settings.recoveryEmailSetHint")}</div>
             <button onClick={() => setEditingRecoveryEmail(true)} style={{
               padding: "10px 14px", background: "none", border: "1px solid #252538", borderRadius: 10,
               color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-            }}>Cambia email</button>
+            }}>{t(lang, "settings.changeEmail")}</button>
           </>
         ) : (
           <>
             <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
-              {hasRecoveryEmail ? "Inserisci la nuova email di recupero." : "Senza un'email di recupero, un PIN dimenticato significa perdere l'accesso ai tuoi dati senza possibilità di recuperarli. Impostane una ora."}
+              {hasRecoveryEmail ? t(lang, "settings.enterNewRecoveryEmail") : t(lang, "settings.recoveryEmailMissingHint")}
             </div>
             <input type="email" inputMode="email" value={recoveryEmailInput} onChange={e => setRecoveryEmailInput(e.target.value)}
               placeholder="tuaemail@esempio.com" style={{
@@ -5292,13 +5292,13 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
               {editingRecoveryEmail && (
                 <button onClick={() => { setEditingRecoveryEmail(false); setRecoveryEmailInput(""); }} style={{
                   padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: "#888", fontSize: 13, cursor: "pointer",
-                }}>Annulla</button>
+                }}>{t(lang, "common.cancel")}</button>
               )}
               <button onClick={handleSaveRecoveryEmail} disabled={recoveryEmailBusy} style={{
                 flex: 1, padding: "10px", background: recoveryEmailInput.trim() ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
                 border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
                 fontFamily: "'DM Sans',sans-serif", opacity: recoveryEmailBusy ? 0.6 : 1,
-              }}>{recoveryEmailBusy ? "Salvataggio..." : "Salva email"}</button>
+              }}>{recoveryEmailBusy ? t(lang, "settings.savingEmail") : t(lang, "settings.saveEmail")}</button>
             </div>
           </>
         )}
@@ -5308,11 +5308,11 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{t(lang, "settings.widget")}</div>
         <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
-          Genera una chiave per mostrare patrimonio, conti e spese del mese in un widget sulla home screen (tramite l'app gratuita Scriptable), e per aggiungere rapidamente uscite/entrate toccando il widget. La chiave permette anche di aggiungere transazioni: trattala come una password.
+          {t(lang, "settings.widgetHint")}
         </div>
         {widgetUrl ? (
           <div>
-            <div style={{ fontSize: 10, color: "#F0A500", marginBottom: 6 }}>⚠️ Copia ora questo URL: non sarà più mostrato. Incollalo nello script Scriptable.</div>
+            <div style={{ fontSize: 10, color: "#F0A500", marginBottom: 6 }}>{t(lang, "settings.widgetCopyNow")}</div>
             <div onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
               background: "#111119", border: "1px solid #4ECDC455", borderRadius: 10, padding: "10px 12px",
               fontSize: 10, fontFamily: "'Space Mono',monospace", color: "#4ECDC4", wordBreak: "break-all", cursor: "pointer", marginBottom: 10,
@@ -5320,20 +5320,20 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
             <button onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
               width: "100%", padding: "10px", background: "#4ECDC422", border: "1px solid #4ECDC455", borderRadius: 10,
               color: "#4ECDC4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8,
-            }}>📋 Copia URL</button>
+            }}>{t(lang, "settings.copyUrl")}</button>
           </div>
         ) : (
           <button onClick={handleCreateWidgetKey} disabled={widgetBusy} style={{
             width: "100%", padding: "12px", background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 10,
             color: "#a78bfa", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8, opacity: widgetBusy ? 0.6 : 1,
-          }}>{widgetBusy ? "Generazione..." : "🔑 Genera chiave widget"}</button>
+          }}>{widgetBusy ? t(lang, "settings.generatingKey") : t(lang, "settings.generateWidgetKey")}</button>
         )}
         <button onClick={handleRevokeWidgetKey} disabled={widgetBusy} style={{
           width: "100%", padding: "10px", background: "none", border: "1px solid #FF6B6B33", borderRadius: 10,
           color: "#FF6B6B99", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-        }}>Revoca chiave esistente</button>
+        }}>{t(lang, "settings.revokeExistingKey")}</button>
         <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
-          Rigenerare la chiave invalida quella precedente. Se pensi che l'URL sia finito in mani sbagliate, revoca o rigenera.
+          {t(lang, "settings.widgetRegenerateHint")}
         </div>
       </div>
 
