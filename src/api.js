@@ -264,6 +264,26 @@ export async function fetchHousehold() {
   return await res.json();
 }
 
+export async function updateValutaBase(valutaBase) {
+  const res = await fetch(`${API_BASE}/api/household/valuta`, {
+    method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify({ valutaBase }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Errore");
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, valutaBase: json.valutaBase };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return json;
+}
+
+export async function fetchExchangeRates() {
+  const res = await fetch(`${API_BASE}/api/exchange-rates`, { headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error("Errore tassi di cambio");
+  return await res.json();
+}
+
 export async function changePin(newPin) {
   const res = await fetch(`${API_BASE}/api/auth/pin`, {
     method: "PUT",

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -1599,7 +1599,10 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
             {personaIntestata && t.tipo === "entrata" && <span style={{ background: personaIntestata.colore + "33", color: personaIntestata.colore, borderRadius: 6, padding: "1px 5px", fontSize: 10, fontWeight: 600 }}>{personaIntestata.emoji}</span>}
           </div>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: t.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>{t.tipo === "entrata" ? "+" : "-"}{formattaValuta(t.importo)}</div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: t.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B" }}>{t.tipo === "entrata" ? "+" : "-"}{formattaValuta(t.importo)}</div>
+          {t.valuta && <div style={{ fontSize: 10, color: "#666", fontFamily: "'Space Mono',monospace" }}>{t.importoOriginale} {t.valuta}</div>}
+        </div>
       </div>
     );
   }
@@ -1727,6 +1730,7 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
 }
 
 // ─── Add ───
+const VALUTE_SUPPORTATE = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "CNY", "SEK", "NOK", "PLN"];
 const RICORRENZA_OPTIONS = [
   { id: "no", label: "Nessuna" },
   { id: "settimanale", label: "Ogni settimana" },
@@ -1744,7 +1748,7 @@ function calcolaProssimaData(data, frequenza) {
   return d.toISOString().slice(0, 10);
 }
 
-function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "" }) {
+function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "", valutaBase = "EUR" }) {
   const [tipo, setTipo] = useState(initialTipo);
   const [importoRaw, setImportoRaw] = useState(initialImporto);
   const importoInputRef = useRef(null);
@@ -1778,6 +1782,9 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
   const [contoId, setContoId] = useState("");
   const [contoDa, setContoDa] = useState("");
   const [contoA, setContoA] = useState("");
+  const [valuta, setValuta] = useState(valutaBase);
+
+  useEffect(() => { setValuta(valutaBase); }, [valutaBase]);
 
   useEffect(() => {
     if (initialImporto) setImportoRaw(initialImporto);
@@ -1838,8 +1845,9 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
       intestataA: tipo === "entrata" ? intestataA : null,
       contoId: contoId || null,
       ricorrenza: ricorrenzaData,
+      valuta: valuta !== valutaBase ? valuta : null,
     });
-    setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setImportoVariabile(false); setSalvato(true);
+    setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setImportoVariabile(false); setValuta(valutaBase); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
 
@@ -1860,9 +1868,24 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         ))}
       </div>
       <div style={{ marginBottom: 18 }}>
-        <label style={labelStyle}>Importo (€)</label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <label style={labelStyle}>Importo</label>
+          {tipo !== "trasferimento" && (
+            <select value={valuta} onChange={e => setValuta(e.target.value)} style={{
+              background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: valuta !== valutaBase ? "#6C5CE7" : "#888",
+              fontSize: 11, fontWeight: 600, padding: "3px 6px", cursor: "pointer",
+            }}>
+              {VALUTE_SUPPORTATE.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          )}
+        </div>
         <input type="text" ref={importoInputRef} inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo==="uscita"?"#FF6B6B":tipo==="trasferimento"?"#a78bfa":"#4ECDC4" }} />
+        {valuta !== valutaBase && (
+          <div style={{ fontSize: 11, color: "#6C5CE7", textAlign: "center", marginTop: 4 }}>
+            Convertito in {valutaBase} al salvataggio (tasso del giorno)
+          </div>
+        )}
         {isComputed && (
           <div style={{ fontSize: 12, color: "#6C5CE7", textAlign: "center", marginTop: 4, fontFamily: "'Space Mono',monospace" }}>
             = {formattaValuta(computedImporto)}
@@ -4999,7 +5022,23 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione }) {
+function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange }) {
+  const [valutaBusy, setValutaBusy] = useState(false);
+
+  async function handleValutaBaseChange(nuovaValuta) {
+    if (nuovaValuta === valutaBase) return;
+    setValutaBusy(true);
+    try {
+      await updateValutaBase(nuovaValuta);
+      onValutaBaseChange?.(nuovaValuta);
+      toast(`Valuta base impostata a ${nuovaValuta}`, "success");
+    } catch (e) {
+      toast(e.message || "Errore aggiornamento valuta", "error");
+    } finally {
+      setValutaBusy(false);
+    }
+  }
+
   const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
@@ -5373,6 +5412,20 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         )}
       </div>
 
+      {/* Base currency */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 6 }}>💱 Valuta</div>
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 10, lineHeight: 1.5 }}>
+          Valuta base della casa: tutti i saldi e i debiti sono calcolati in questa valuta. Le transazioni in altre valute vengono convertite automaticamente al tasso del giorno.
+        </div>
+        <select value={valutaBase} disabled={valutaBusy} onChange={e => handleValutaBaseChange(e.target.value)} style={{
+          width: "100%", padding: "10px 12px", background: "#12121a", border: "1px solid #252538", borderRadius: 10,
+          color: "#eee", fontSize: 14, fontWeight: 600, cursor: valutaBusy ? "default" : "pointer",
+        }}>
+          {VALUTE_SUPPORTATE.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </div>
+
       {/* Delete section */}
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #2a1a1a" }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: "#FF6B6B", marginBottom: 6 }}>Zona pericolosa</div>
@@ -5476,6 +5529,9 @@ export default function FinanzaApp() {
   const [positions, setPositions] = useState([]);
   const [meseOffset, setMeseOffset] = useState(0);
   const [categorieUscita, setCategorieUscita] = useState(() => getCategorieUscita() || CATEGORIE.filter(c => c.id !== "entrata"));
+  const [valutaBase, setValutaBase] = useState("EUR");
+
+  useEffect(() => { fetchHousehold().then(h => setValutaBase(h.valutaBase || "EUR")).catch(() => {}); }, []);
 
   // Warm up Render server on app open (fire and forget)
   useEffect(() => { wakeupServer(); }, []);
@@ -5780,7 +5836,7 @@ export default function FinanzaApp() {
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} />}
-        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} />}
+        {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} />}
         {tab === "portfolio" && <PortfolioView />}
@@ -5794,6 +5850,8 @@ export default function FinanzaApp() {
             categorie={categorieUscita}
             onCategorieChange={(cats) => { setCategorieUscita(cats); saveCategorie(cats); }}
             onRestoreTransazione={(tx) => setTransazioni(prev => [...prev, tx])}
+            valutaBase={valutaBase}
+            onValutaBaseChange={setValutaBase}
           />
         )}
       </div>
