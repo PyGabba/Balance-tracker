@@ -187,7 +187,7 @@ const COOKIE_OPTS = {
   path: "/",
 };
 
-let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol;
+let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
   db = client.db(DB_NAME);
@@ -199,6 +199,8 @@ async function connectDB() {
   activeTokensCol = db.collection("active_tokens");
   auditCol = db.collection("audit_log");
   tripsCol = db.collection("trips");
+  exchangeRatesCol = db.collection("exchange_rates_cache");
+  await exchangeRatesCol.createIndex({ base: 1 }, { unique: true });
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
@@ -261,6 +263,44 @@ function sanitizeRicorrenza(r) {
   if (!RICORRENZA_FREQUENZE.includes(r.frequenza)) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.prossimaData))) return null;
   return { frequenza: r.frequenza, prossimaData: r.prossimaData, variabile: !!r.variabile };
+}
+
+// ─── Multi-currency — exchange rates cached 24h per base currency ───
+const VALUTE_SUPPORTATE = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "CNY", "SEK", "NOK", "PLN"];
+function sanitizeValuta(v) {
+  if (typeof v !== "string") return null;
+  const up = v.toUpperCase();
+  return VALUTE_SUPPORTATE.includes(up) ? up : null;
+}
+const EXCHANGE_RATE_CACHE_MS = 24 * 60 * 60 * 1000;
+async function getExchangeRate(from, to) {
+  if (from === to) return 1;
+  const cached = await exchangeRatesCol.findOne({ base: from });
+  let rates = cached?.rates;
+  if (!cached || Date.now() - new Date(cached.fetchedAt).getTime() > EXCHANGE_RATE_CACHE_MS) {
+    try {
+      const r = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`);
+      if (r.ok) {
+        const data = await r.json();
+        rates = data.rates;
+        await exchangeRatesCol.updateOne({ base: from }, { $set: { base: from, rates, fetchedAt: new Date() } }, { upsert: true });
+      }
+    } catch (e) { console.error("exchange rate fetch failed", e); }
+  }
+  const rate = rates?.[to];
+  return Number.isFinite(rate) ? rate : 1;
+}
+// Converte importo dalla valuta scelta alla valuta base della casa; se
+// coincidono o non è specificata, l'importo resta invariato (nessun campo extra).
+async function applyValutaTransazione(doc, importoInput, valutaInput, householdValutaBase) {
+  const valuta = sanitizeValuta(valutaInput);
+  const base = householdValutaBase || "EUR";
+  if (!valuta || valuta === base) return;
+  const tasso = await getExchangeRate(valuta, base);
+  doc.valuta = valuta;
+  doc.importoOriginale = importoInput;
+  doc.tassoCambio = tasso;
+  doc.importo = Math.round(importoInput * tasso * 100) / 100;
 }
 
 // ─── Recurring transactions — server-side generator ───
@@ -493,6 +533,7 @@ async function findHousehold(hid) {
     tripCategories: dbH.tripCategories || null,
     requiresPinChange: dbH.requiresPinChange || false,
     email: dbH.email || null,
+    valutaBase: dbH.valutaBase || "EUR",
   };
   return null;
 }
@@ -791,7 +832,26 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
 
 // ─── GET household info ───
 app.get("/api/household", requireHousehold, (req, res) => {
-  res.json({ id: req.household.id, nome: req.household.nome, persone: req.household.persone, hasRecoveryEmail: !!req.household.email });
+  res.json({ id: req.household.id, nome: req.household.nome, persone: req.household.persone, hasRecoveryEmail: !!req.household.email, valutaBase: req.household.valutaBase || "EUR" });
+});
+
+// ─── Base currency ───
+app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const valuta = sanitizeValuta(req.body?.valutaBase);
+    if (!valuta) return res.status(400).json({ error: "Valuta non supportata" });
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { valutaBase: valuta, updatedAt: new Date() } });
+    res.json({ valutaBase: valuta });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.get("/api/exchange-rates", requireHousehold, async (req, res) => {
+  try {
+    const base = req.household.valutaBase || "EUR";
+    const rates = {};
+    for (const v of VALUTE_SUPPORTATE) rates[v] = v === base ? 1 : await getExchangeRate(base, v);
+    res.json({ base, rates });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
 // ─── GET transactions ───
@@ -842,6 +902,7 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
       daVerificare: !!b.daVerificare,
       createdAt: new Date(),
     };
+    if (b.valuta) await applyValutaTransazione(doc, doc.importo, b.valuta, req.household.valutaBase);
     const result = await transactionsCol.insertOne(doc);
     const id = result.insertedId.toString();
     delete doc.householdId;
@@ -918,10 +979,20 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
         else update[key] = req.body[key];
       }
     }
+    const unset = {};
+    if (req.body.valuta !== undefined && update.importo !== undefined) {
+      if (req.body.valuta) {
+        await applyValutaTransazione(update, update.importo, req.body.valuta, req.household.valutaBase);
+      } else {
+        unset.valuta = ""; unset.importoOriginale = ""; unset.tassoCambio = "";
+      }
+    }
     update.updatedAt = new Date();
+    const setOp = { $set: update };
+    if (Object.keys(unset).length) setOp.$unset = unset;
     const result = await transactionsCol.findOneAndUpdate(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
-      { $set: update }, { returnDocument: "after" }
+      setOp, { returnDocument: "after" }
     );
     if (!result) return res.status(404).json({ error: "Non trovata" });
     const id = result._id.toString(); delete result._id; delete result.householdId;
