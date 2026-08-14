@@ -1868,12 +1868,17 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
         ))}
       </div>
       <div style={{ marginBottom: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <label style={labelStyle}>Importo</label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>Importo</label>
           {tipo !== "trasferimento" && (
             <select value={valuta} onChange={e => setValuta(e.target.value)} style={{
-              background: "#1a1a28", border: "1px solid #252538", borderRadius: 8, color: valuta !== valutaBase ? "#6C5CE7" : "#888",
-              fontSize: 11, fontWeight: 600, padding: "3px 6px", cursor: "pointer",
+              background: valuta !== valutaBase ? "#6C5CE722" : "#1a1a28",
+              border: `1px solid ${valuta !== valutaBase ? "#6C5CE766" : "#252538"}`,
+              borderRadius: 10, color: valuta !== valutaBase ? "#a78bfa" : "#999",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: 0.3,
+              padding: "8px 14px", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+              backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center", paddingRight: 28,
             }}>
               {VALUTE_SUPPORTATE.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
