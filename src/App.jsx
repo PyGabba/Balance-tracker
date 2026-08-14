@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase, fetchExchangeRates } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -1730,7 +1730,9 @@ function TransactionRow({ t, persone, categorie, conti = [], isEditing, onTap, o
 }
 
 // ─── Add ───
-const VALUTE_SUPPORTATE = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "CNY", "SEK", "NOK", "PLN"];
+// Fallback list shown before the live rates table loads (or if offline) — the
+// real option list is the keys of GET /api/exchange-rates, ~160 currencies.
+const VALUTE_FALLBACK = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "CNY", "SEK", "NOK", "PLN"];
 const RICORRENZA_OPTIONS = [
   { id: "no", label: "Nessuna" },
   { id: "settimanale", label: "Ogni settimana" },
@@ -1783,8 +1785,15 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
   const [contoDa, setContoDa] = useState("");
   const [contoA, setContoA] = useState("");
   const [valuta, setValuta] = useState(valutaBase);
+  const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
 
   useEffect(() => { setValuta(valutaBase); }, [valutaBase]);
+  useEffect(() => {
+    fetchExchangeRates().then(r => {
+      const codes = Object.keys(r.rates || {});
+      if (codes.length > 0) setValuteDisponibili(codes.sort());
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (initialImporto) setImportoRaw(initialImporto);
@@ -1880,7 +1889,7 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
               backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
               backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center", paddingRight: 28,
             }}>
-              {VALUTE_SUPPORTATE.map(v => <option key={v} value={v}>{v}</option>)}
+              {valuteDisponibili.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           )}
         </div>
@@ -5029,6 +5038,14 @@ function LoginScreen({ onLogin }) {
 
 function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange }) {
   const [valutaBusy, setValutaBusy] = useState(false);
+  const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
+
+  useEffect(() => {
+    fetchExchangeRates().then(r => {
+      const codes = Object.keys(r.rates || {});
+      if (codes.length > 0) setValuteDisponibili(codes.sort());
+    }).catch(() => {});
+  }, []);
 
   async function handleValutaBaseChange(nuovaValuta) {
     if (nuovaValuta === valutaBase) return;
@@ -5427,7 +5444,7 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
           width: "100%", padding: "10px 12px", background: "#12121a", border: "1px solid #252538", borderRadius: 10,
           color: "#eee", fontSize: 14, fontWeight: 600, cursor: valutaBusy ? "default" : "pointer",
         }}>
-          {VALUTE_SUPPORTATE.map(v => <option key={v} value={v}>{v}</option>)}
+          {valuteDisponibili.map(v => <option key={v} value={v}>{v}</option>)}
         </select>
       </div>
 
