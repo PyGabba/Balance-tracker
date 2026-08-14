@@ -25,8 +25,6 @@ Finanza Tracker is a full-stack finance app for households that share money — 
 
 Beyond basic expense tracking it covers the situations that usually need a spreadsheet: multi-way cost splitting, recurring bills that renew themselves, one-off group trips with temporary guests, savings goals, a stock/crypto portfolio, and multiple bank accounts with transfers between them.
 
-The UI is in Italian; this document is in English.
-
 ---
 
 ## Feature summary
@@ -115,71 +113,6 @@ Add stock or crypto positions by ticker; quotes refresh from a live source and c
 - **Backup** — download the full household dataset as JSON, or restore from a previous backup.
 - **Email di recupero** — set a recovery email so a forgotten PIN can be reset.
 - **Zona pericolosa** — permanently delete the household and all its data (PIN-confirmed, irreversible).
-
----
-
-## Architecture
-
-```
-┌─────────────────┐         ┌──────────────────┐         ┌───────────┐
-│   React SPA     │  REST   │   Express API    │         │  MongoDB  │
-│   Vite + PWA    │────────▶│   Node.js        │────────▶│  Atlas    │
-│   Vercel        │         │   Render         │         │           │
-└─────────────────┘         └──────────────────┘         └───────────┘
-        │                                                       │
-        └──── localStorage fallback (if API unreachable) ───────┘
-```
-
-The frontend auto-detects whether the backend is reachable. If it isn't, it falls back to `localStorage` scoped by household — no data is lost, and it syncs back once the connection returns.
-
-The backend also runs a few background jobs on an interval (checked every 6 hours, and once at boot): generating due recurring transactions, purging trash older than 30 days, and auto-closing/settling trips past their end date.
-
----
-
-## Local development
-
-```bash
-# from the repo root
-npm install
-cd server && npm install && cd ..
-
-# frontend + backend together
-npm run dev
-```
-
-| Command | Description |
-|---|---|
-| `npm run dev` | Start frontend + backend concurrently |
-| `npm run dev:client` | Frontend only (Vite) |
-| `npm run dev:server` | Backend only (Node `--watch`) |
-| `npm run build` | Build frontend for production |
-| `npm start` | Start backend (production) |
-| `cd server && node migrate-household.js` | One-off migration script for legacy transactions missing a `householdId` |
-
-### Environment variables
-
-Frontend (`.env`):
-
-| Variable | Description | Default |
-|---|---|---|
-| `VITE_API_URL` | Backend base URL | `http://localhost:3001` |
-
-Backend (`server/.env`):
-
-| Variable | Description | Default |
-|---|---|---|
-| `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
-| `DB_NAME` | Database name | `finanza_tracker` |
-| `PORT` | Server port | `3001` |
-| `JWT_SECRET` | Secret for signing session tokens | required in production |
-
-Households are **not** configured in code — they're created at runtime via the in-app registration screen.
-
----
-
-## Deployment
-
-Frontend on Vercel, backend on Render, database on MongoDB Atlas. Any Node-compatible host works for the backend as long as the environment variables above are set and the Mongo instance is reachable.
 
 ---
 
