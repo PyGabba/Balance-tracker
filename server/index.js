@@ -1260,6 +1260,10 @@ app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, 
 
 app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAccess, async (req, res) => {
   try {
+    const idemKey = idempotencyKeyFrom(req);
+    const replay = await findIdempotentReplay(req.householdId, idemKey);
+    if (replay) return res.status(replay.status).json(replay.body);
+
     const b = req.body;
     if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return res.status(400).json({ error: "Campi obbligatori: ticker, quantita, prezzoAcquisto" });
     const ticker = b.ticker.toUpperCase().trim();
@@ -1278,7 +1282,9 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
     };
     const result = await db.collection("positions").insertOne(doc);
     const id = result.insertedId.toString(); delete doc.householdId;
-    res.status(201).json({ id, ...doc });
+    const responseBody = { id, ...doc };
+    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -1346,6 +1352,10 @@ app.get("/api/goals", requireHousehold, async (req, res) => {
 
 app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
   try {
+    const idemKey = idempotencyKeyFrom(req);
+    const replay = await findIdempotentReplay(req.householdId, idemKey);
+    if (replay) return res.status(replay.status).json(replay.body);
+
     const b = req.body;
     if (!b.nome || !b.targetAmount) return res.status(400).json({ error: "Campi obbligatori: nome, targetAmount" });
     const doc = {
@@ -1363,7 +1373,9 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
     const result = await db.collection("goals").insertOne(doc);
     const id = result.insertedId.toString();
     delete doc.householdId;
-    res.status(201).json({ id, ...doc });
+    const responseBody = { id, ...doc };
+    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -1406,6 +1418,10 @@ app.get("/api/accounts", requireHousehold, async (req, res) => {
 
 app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
   try {
+    const idemKey = idempotencyKeyFrom(req);
+    const replay = await findIdempotentReplay(req.householdId, idemKey);
+    if (replay) return res.status(replay.status).json(replay.body);
+
     const b = req.body;
     if (!b.nome) return res.status(400).json({ error: "Campo obbligatorio: nome" });
     const saldoIniziale = parseFloat(b.saldoIniziale);
@@ -1419,7 +1435,9 @@ app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
     const result = await db.collection("accounts").insertOne(doc);
     const id = result.insertedId.toString();
     delete doc.householdId;
-    res.status(201).json({ id, ...doc });
+    const responseBody = { id, ...doc };
+    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -1860,6 +1878,10 @@ app.get("/api/trips", requireHousehold, async (req, res) => {
 
 app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
   try {
+    const idemKey = idempotencyKeyFrom(req);
+    const replay = await findIdempotentReplay(req.householdId, idemKey);
+    if (replay) return res.status(replay.status).json(replay.body);
+
     const t = req.body;
     const doc = {
       householdId: req.householdId,
@@ -1876,7 +1898,9 @@ app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
     if (!doc.nome) return res.status(400).json({ error: "Nome richiesto" });
     const result = await tripsCol.insertOne(doc);
     delete doc.householdId;
-    res.json({ id: result.insertedId.toString(), ...doc });
+    const responseBody = { id: result.insertedId.toString(), ...doc };
+    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    res.json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 

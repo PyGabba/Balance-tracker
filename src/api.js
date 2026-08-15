@@ -1,11 +1,46 @@
 // ─── API Client with household auth ───
 
+import {
+  enqueueWrite, fetchAndMergeSnapshot, getCachedEntities, cacheEntityOnly,
+  startAutoSync, stopAutoSync, getSyncStatus, onSyncStatusChange as onSyncStatusChangeImpl,
+  discardOperation, retryOperation, getFailedOperations, clearOfflineData,
+} from "./lib/syncEngine.js";
+
 // Production: always use relative paths so Vercel proxy forwards /api/* to Render (same-origin, Safari-safe)
 // Development: use VITE_API_URL or fall back to localhost
 const API_BASE = import.meta.env.PROD ? "" : (import.meta.env.VITE_API_URL || "http://localhost:3001");
 
 let apiAvailable = null;
 let currentHousehold = null; // { householdId, nome, persone }
+
+// Fresh context for the sync engine on every call (never a stale closure —
+// currentHousehold can change between login/logout during the app's life).
+function syncCtx() {
+  return { apiBase: API_BASE, householdId: currentHousehold?.householdId || null, authHeaders };
+}
+
+// Shared GET path for the four entity types that don't need a special
+// two-phase callback (transactions' fetchTransactions above does its own
+// thing since it also drives the recurring-transaction generator on load).
+// Returns the cached snapshot immediately on any failure/offline; merges
+// and re-caches on success (MOD-003: pending local changes always win over
+// a stale server value — see mergeServerSnapshot in lib/outboxLogic.js).
+async function fetchAndCacheEntities(entityType, path) {
+  const cached = await getCachedEntities(syncCtx, entityType);
+  if (!(await checkAPI()) || !currentHousehold) return cached;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(), credentials: "include" });
+    if (await checkAuthError(res)) return cached;
+    if (!res.ok) return cached;
+    const serverData = await res.json();
+    apiAvailable = true;
+    return await fetchAndMergeSnapshot(syncCtx, entityType, serverData);
+  } catch (err) {
+    console.error(`fetch${entityType}:`, err);
+    apiAvailable = false;
+    return cached;
+  }
+}
 
 // ─── Session (sessionStorage = clears when app/tab is closed) ───
 function saveSession(data) {
@@ -46,7 +81,14 @@ function getDeviceId() {
 
 // ─── Init: restore session (sessionStorage first, then persistent) ───
 const saved = loadSession() || loadPersistentSession();
-if (saved) currentHousehold = saved;
+if (saved) {
+  currentHousehold = saved;
+  // Resume the offline outbox immediately on load — this is what makes
+  // "closing and reopening the browser doesn't lose pending operations"
+  // actually true: a reload alone (no explicit login) must still pick the
+  // sync loop back up (MOD-003).
+  startAutoSync(syncCtx);
+}
 
 // ─── API check (non-blocking: returns cached result immediately if known) ───
 async function checkAPI() {
@@ -69,15 +111,13 @@ function authHeaders() {
   return { "Content-Type": "application/json" };
 }
 
-function generateIdempotencyKey() {
-  try { return crypto.randomUUID ? crypto.randomUUID() : null; } catch { return null; }
-}
-
 // Thrown when the server actually responded but rejected the request
-// (validation error, auth, conflict, etc.). Distinguished on purpose from a
-// genuine network failure: a rejection is NOT an "offline" condition, so it
-// must reach the caller instead of being silently written to local storage
-// as if it had succeeded (see addTransaction/updateTransaction below).
+// (validation error, auth, conflict, etc.) for API calls that don't go
+// through the offline outbox (lib/syncEngine.js has its own equivalent —
+// SyncRejectedError — for the five entity types that do). Distinguished on
+// purpose from a genuine network failure: a rejection is NOT an "offline"
+// condition and must reach the caller rather than being silently treated
+// as success.
 export class ApiRequestError extends Error {
   constructor(status, body) {
     const code = body?.error?.code || null;
@@ -117,16 +157,9 @@ async function checkAuthError(res) {
   return false;
 }
 
-// ─── localStorage fallback (scoped by household) ───
-function lsKey() {
-  return `finanza-tx-${currentHousehold?.householdId || "default"}`;
-}
-function lsLoad() {
-  try { const raw = localStorage.getItem(lsKey()); return raw ? JSON.parse(raw) : []; } catch { return []; }
-}
-function lsSave(txs) {
-  try { localStorage.setItem(lsKey(), JSON.stringify(txs)); } catch {}
-}
+// (The old localStorage-array transaction fallback that used to live here
+// was replaced by the IndexedDB-backed offline outbox — see
+// lib/syncEngine.js and lib/offlineDb.js, MOD-003.)
 
 // ─── Auth ───
 
@@ -190,6 +223,7 @@ export async function login(pin) {
     savePersistentSession(sessionData);
     savePinHash(pin);
     apiAvailable = true;
+    startAutoSync(syncCtx);
     return sessionData;
   }
 
@@ -199,6 +233,7 @@ export async function login(pin) {
     saveSession(cached);
     apiAvailable = false;
     wakeupServer();
+    startAutoSync(syncCtx); // will pick up any pending outbox ops once connectivity actually returns
     return { ...cached, _fromCache: true };
   }
 
@@ -224,6 +259,7 @@ export async function register({ nome, persone, pin, email }) {
   savePersistentSession(data);
   savePinHash(pin);
   apiAvailable = true;
+  startAutoSync(syncCtx);
   return data;
 }
 
@@ -339,6 +375,12 @@ export async function logout() {
       signal: AbortSignal.timeout(5000),
     });
   } catch {}
+  // Stop the background sync loop, but deliberately leave any queued
+  // offline outbox data in IndexedDB — logging out is not "this household
+  // no longer exists" (see deleteHousehold below for that case), and a
+  // pending operation must survive a logout/login cycle just as it
+  // survives a browser restart (MOD-003).
+  stopAutoSync();
   clearSession();
   clearPersistentSession();
   try { localStorage.removeItem(LS_PIN_HASH_KEY); } catch {}
@@ -363,90 +405,39 @@ export function getHouseholdName() {
 }
 
 // ─── Transactions ───
-
-// Returns localStorage data immediately (fast), then syncs from server in background.
-// Pass onSync callback to update UI when background sync completes.
+// Routed through the offline outbox (MOD-003) — see lib/syncEngine.js.
+// Returns cached (IndexedDB) data immediately, then syncs from server in
+// background. Pass onSync callback to update UI when the merged server
+// snapshot arrives.
 export async function fetchTransactions(onSync) {
-  const localData = lsLoad();
-
-  // If we know API is up (or unknown), try to sync in background
-  if (currentHousehold) {
-    const syncFromServer = async () => {
+  const cached = await getCachedEntities(syncCtx, "transactions");
+  if (currentHousehold && apiAvailable !== false) {
+    (async () => {
       try {
         const res = await fetch(`${API_BASE}/api/transactions`, {
-          headers: authHeaders(),
-          credentials: "include",
-          signal: AbortSignal.timeout(15000),
+          headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(15000),
         });
         if (await checkAuthError(res)) return;
         if (!res.ok) return;
         const serverData = await res.json();
         apiAvailable = true;
-        lsSave(serverData);
-        if (onSync) onSync(serverData);
-      } catch {
+        const merged = await fetchAndMergeSnapshot(syncCtx, "transactions", serverData);
+        if (onSync) onSync(merged);
+      } catch (err) {
+        console.error("fetchTransactions (background sync):", err);
         apiAvailable = false;
       }
-    };
-
-    if (apiAvailable === false) {
-      // Known offline: just return local, no background attempt
-    } else {
-      // Unknown or online: sync in background without blocking
-      syncFromServer();
-    }
+    })();
   }
-
-  return localData;
+  return cached;
 }
 
 export async function addTransaction(tx) {
-  if (await checkAPI() && currentHousehold) {
-    const idemKey = generateIdempotencyKey();
-    let res;
-    try {
-      res = await fetch(`${API_BASE}/api/transactions`, {
-        method: "POST",
-        headers: idemKey ? { ...authHeaders(), "Idempotency-Key": idemKey } : authHeaders(),
-        credentials: "include",
-        body: JSON.stringify(tx),
-      });
-    } catch (err) {
-      // Genuine network failure (offline, timeout, DNS...) — fall back to local storage below.
-      console.error("addTransaction (network):", err);
-      apiAvailable = false;
-    }
-    if (res) {
-      if (res.ok) return await res.json();
-      if (await checkAuthError(res)) throw new ApiRequestError(res.status, await parseErrorBody(res));
-      // Server responded but rejected the request (validation, conflict, etc.)
-      // — this is NOT an offline condition. Surface it to the caller instead
-      // of silently writing invalid/rejected data to local storage as if it
-      // had succeeded (that used to happen here for every 4xx/5xx).
-      throw new ApiRequestError(res.status, await parseErrorBody(res));
-    }
-  }
-  const all = lsLoad();
-  const newTx = { ...tx, id: tx.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 7) };
-  all.push(newTx);
-  lsSave(all);
-  return newTx;
+  return enqueueWrite(syncCtx, { entityType: "transactions", operation: "create", payload: tx });
 }
 
 export async function deleteTransaction(id) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/transactions/${id}`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
-      if (!res.ok) throw new Error(res.status);
-      return true;
-    } catch (err) {
-      console.error("deleteTransaction:", err);
-      apiAvailable = false;
-    }
-  }
-  const all = lsLoad().filter(t => t.id !== id);
-  lsSave(all);
-  return true;
+  return enqueueWrite(syncCtx, { entityType: "transactions", operation: "delete", entityId: id, payload: null });
 }
 
 export async function fetchTrash() {
@@ -480,28 +471,7 @@ export async function emptyTrash() {
 }
 
 export async function updateTransaction(id, updates) {
-  if (await checkAPI() && currentHousehold) {
-    let res;
-    try {
-      res = await fetch(`${API_BASE}/api/transactions/${id}`, {
-        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
-      });
-    } catch (err) {
-      // Genuine network failure — fall back to local storage below.
-      console.error("updateTransaction (network):", err);
-      apiAvailable = false;
-    }
-    if (res) {
-      if (res.ok) return await res.json();
-      if (await checkAuthError(res)) throw new ApiRequestError(res.status, await parseErrorBody(res));
-      // Rejected by the server (validation, not found, etc.) — surface it
-      // rather than silently overwriting local state as if it had saved.
-      throw new ApiRequestError(res.status, await parseErrorBody(res));
-    }
-  }
-  const all = lsLoad().map(t => t.id === id ? { ...t, ...updates } : t);
-  lsSave(all);
-  return all.find(t => t.id === id);
+  return enqueueWrite(syncCtx, { entityType: "transactions", operation: "update", entityId: id, payload: updates });
 }
 
 export function isAPIConnected() {
@@ -510,6 +480,23 @@ export function isAPIConnected() {
 
 export function resetAPICheck() {
   apiAvailable = null;
+}
+
+// ─── Offline outbox status (MOD-003) — for a sync indicator in the UI ───
+export async function fetchSyncStatus() {
+  return getSyncStatus(currentHousehold?.householdId);
+}
+export function onSyncStatusChange(cb) {
+  return onSyncStatusChangeImpl(cb);
+}
+export async function fetchFailedSyncOperations() {
+  return getFailedOperations(currentHousehold?.householdId);
+}
+export async function discardSyncOperation(operationId) {
+  return discardOperation(currentHousehold?.householdId, operationId);
+}
+export async function retrySyncOperation(operationId) {
+  return retryOperation(syncCtx, operationId);
 }
 
 export async function deleteHousehold(pin) {
@@ -523,44 +510,26 @@ export async function deleteHousehold(pin) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || "Eliminazione fallita");
   }
+  // The household is gone server-side, so any offline outbox entries still
+  // queued for it are now moot garbage rather than "pending" — clear them
+  // rather than have them sit around retrying forever against an account
+  // that no longer exists.
+  stopAutoSync();
+  await clearOfflineData(currentHousehold?.householdId);
   return true;
 }
 
-// ─── Stock Positions ───
+// ─── Stock Positions ─── (MOD-003: routed through the offline outbox; no update endpoint exists for positions)
 export async function fetchPositions() {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/positions`, { headers: authHeaders(), credentials: "include" });
-      if (await checkAuthError(res)) return [];
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("fetchPositions:", err); }
-  }
-  return [];
+  return fetchAndCacheEntities("positions", "/api/positions");
 }
 
 export async function addPosition(pos) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/positions`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(pos),
-      });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("addPosition:", err); }
-  }
-  return { ...pos, id: Date.now().toString(36) };
+  return enqueueWrite(syncCtx, { entityType: "positions", operation: "create", payload: pos });
 }
 
 export async function deletePosition(id) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/positions/${id}`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
-      if (!res.ok) throw new Error(res.status);
-      return true;
-    } catch (err) { console.error("deletePosition:", err); }
-  }
-  return true;
+  return enqueueWrite(syncCtx, { entityType: "positions", operation: "delete", entityId: id, payload: null });
 }
 
 // ─── Custom Categories ───
@@ -641,56 +610,21 @@ export async function saveManualPricesRemote(prices) {
 
 // fetchQuotes removed — Yahoo API disabled, use manual prices only
 
-// ─── Savings Goals ───
+// ─── Savings Goals ─── (MOD-003: routed through the offline outbox)
 export async function fetchGoals() {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/goals`, { headers: authHeaders(), credentials: "include" });
-      if (await checkAuthError(res)) return [];
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("fetchGoals:", err); }
-  }
-  return [];
+  return fetchAndCacheEntities("goals", "/api/goals");
 }
 
 export async function addGoal(goal) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/goals`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(goal),
-      });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("addGoal:", err); }
-  }
-  return { id: Date.now().toString(36), ...goal, currentAmount: 0 };
+  return enqueueWrite(syncCtx, { entityType: "goals", operation: "create", payload: goal });
 }
 
 export async function updateGoal(id, updates) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/goals/${id}`, {
-        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("updateGoal:", err); }
-  }
-  return { ok: true };
+  return enqueueWrite(syncCtx, { entityType: "goals", operation: "update", entityId: id, payload: updates });
 }
 
 export async function deleteGoal(id) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/goals/${id}`, {
-        method: "DELETE", headers: authHeaders(), credentials: "include",
-      });
-      if (!res.ok) throw new Error(res.status);
-      return true;
-    } catch (err) { console.error("deleteGoal:", err); }
-  }
-  return true;
+  return enqueueWrite(syncCtx, { entityType: "goals", operation: "delete", entityId: id, payload: null });
 }
 
 // ─── Categorie viaggi (sincronizzate) ───
@@ -771,129 +705,45 @@ export async function restoreBackup(data) {
   throw new Error("Server non raggiungibile");
 }
 
-// ─── Accounts (conti) ───
+// ─── Accounts (conti) ─── (MOD-003: routed through the offline outbox)
 export async function fetchAccounts() {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/accounts`, { headers: authHeaders(), credentials: "include" });
-      if (await checkAuthError(res)) return [];
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("fetchAccounts:", err); }
-  }
-  return [];
+  return fetchAndCacheEntities("accounts", "/api/accounts");
 }
 
 export async function addAccount(account) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/accounts`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(account),
-      });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("addAccount:", err); }
-  }
-  return { id: Date.now().toString(36), ...account };
+  return enqueueWrite(syncCtx, { entityType: "accounts", operation: "create", payload: account });
 }
 
 export async function updateAccount(id, updates) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/accounts/${id}`, {
-        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
-    } catch (err) { console.error("updateAccount:", err); }
-  }
-  return { ok: true };
+  return enqueueWrite(syncCtx, { entityType: "accounts", operation: "update", entityId: id, payload: updates });
 }
 
 export async function deleteAccount(id) {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/accounts/${id}`, {
-        method: "DELETE", headers: authHeaders(), credentials: "include",
-      });
-      if (!res.ok) throw new Error(res.status);
-      return true;
-    } catch (err) { console.error("deleteAccount:", err); }
-  }
-  return true;
+  return enqueueWrite(syncCtx, { entityType: "accounts", operation: "delete", entityId: id, payload: null });
 }
 
 // ─── Trips API ───
-let cachedTrips = [];
+// MOD-003: trip create/update/delete routed through the offline outbox,
+// same as the other four entity types. Trip EXPENSES are sub-document
+// writes inside a trip's `expenses` array rather than their own top-level
+// entity, so they are NOT yet covered by the generic per-entity outbox —
+// an expense added while offline is cached locally for display but isn't
+// durably queued for later sync (same limitation the old implementation
+// had; extending the outbox to sub-document operations is follow-up work).
 export async function fetchTrips() {
-  if (await checkAPI() && currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/trips`, { headers: authHeaders(), credentials: "include" });
-      if (await checkAuthError(res)) return cachedTrips;
-      if (!res.ok) throw new Error(res.status);
-      cachedTrips = await res.json();
-      try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-      return cachedTrips;
-    } catch (err) { console.error("fetchTrips:", err); }
-  }
-  try { cachedTrips = JSON.parse(localStorage.getItem("trips") || "[]"); } catch {}
-  return cachedTrips;
+  return fetchAndCacheEntities("trips", "/api/trips");
 }
 
 export async function addTrip(trip) {
-  if (currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/trips`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(trip), signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) {
-        apiAvailable = true;
-        const newTrip = await res.json();
-        cachedTrips = [newTrip, ...cachedTrips];
-        try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-        return newTrip;
-      }
-    } catch (err) { console.error("addTrip:", err); }
-  }
-  const localTrip = { id: Date.now().toString(36), ...trip, expenses: [], settled: false };
-  cachedTrips = [localTrip, ...cachedTrips];
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-  return localTrip;
+  return enqueueWrite(syncCtx, { entityType: "trips", operation: "create", payload: { ...trip, expenses: [], settled: false } });
 }
 
 export async function updateTrip(id, updates) {
-  if (currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/trips/${id}`, {
-        method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates), signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) {
-        apiAvailable = true;
-        const updated = await res.json();
-        cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updated } : t);
-        try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-        return updated;
-      }
-    } catch (err) { console.error("updateTrip:", err); }
-  }
-  cachedTrips = cachedTrips.map(t => t.id === id ? { ...t, ...updates } : t);
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-  return { ok: true };
+  return enqueueWrite(syncCtx, { entityType: "trips", operation: "update", entityId: id, payload: updates });
 }
 
 export async function deleteTrip(id) {
-  // Always try server first, don't skip if offline
-  if (currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/trips/${id}`, {
-        method: "DELETE", headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) apiAvailable = true;
-    } catch (err) { console.error("deleteTrip:", err); }
-  }
-  cachedTrips = cachedTrips.filter(t => t.id !== id);
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
-  return true;
+  return enqueueWrite(syncCtx, { entityType: "trips", operation: "delete", entityId: id, payload: null });
 }
 
 export async function addTripExpense(tripId, expense) {
@@ -905,15 +755,15 @@ export async function addTripExpense(tripId, expense) {
       if (res.ok) {
         apiAvailable = true;
         const newExp = await res.json();
-        cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: [...(t.expenses || []), newExp] } : t);
-        try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+        const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
+        if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, expenses: [...(trip.expenses || []), newExp] });
         return newExp;
       }
     } catch (err) { console.error("addTripExpense:", err); }
   }
-  const localExp = { id: Date.now().toString(36), ...expense };
-  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: [...(t.expenses || []), localExp] } : t);
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  const localExp = { id: `local:${Date.now().toString(36)}`, ...expense };
+  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
+  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, expenses: [...(trip.expenses || []), localExp] });
   return localExp;
 }
 
@@ -926,8 +776,8 @@ export async function deleteTripExpense(tripId, expenseId) {
       if (res.ok) apiAvailable = true;
     } catch (err) { console.error("deleteTripExpense:", err); }
   }
-  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, expenses: (t.expenses || []).filter(e => e.id !== expenseId) } : t);
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
+  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, expenses: (trip.expenses || []).filter(e => e.id !== expenseId) });
   return true;
 }
 
@@ -936,16 +786,16 @@ export async function createTripShareLink(tripId) {
   const res = await fetch(`${API_BASE}/api/trips/${tripId}/share`, { method: "POST", headers: authHeaders(), credentials: "include" });
   if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
   const { token } = await res.json();
-  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, shareToken: token } : t);
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
+  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, shareToken: token });
   return token;
 }
 
 export async function revokeTripShareLink(tripId) {
   const res = await fetch(`${API_BASE}/api/trips/${tripId}/share`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
   if (!res.ok) throw new Error(res.status);
-  cachedTrips = cachedTrips.map(t => t.id === tripId ? { ...t, shareToken: undefined } : t);
-  try { localStorage.setItem("trips", JSON.stringify(cachedTrips)); } catch {}
+  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
+  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, shareToken: undefined });
   return true;
 }
 

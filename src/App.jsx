@@ -6,6 +6,7 @@ import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses } from "./lib/finance.js";
 import { LANGUAGES, getLang, setLang, t, mese, detectGuestLang } from "./lib/i18n.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
+import { SyncStatusBadge } from "./components/SyncStatusBadge.jsx";
 
 // Default categories, seeded client-side only until a household customizes
 // them (nothing is written server-side until then — see loadCategorie).
@@ -5976,6 +5977,7 @@ export default function FinanzaApp() {
           <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || t(lang, "header.tracker")}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <SyncStatusBadge lang={lang} />
           <button onClick={toggleNascondiImporti} title={nascondiImporti ? t(lang, "header.showAmounts") : t(lang, "header.hideAmounts")} style={{
             background: nascondiImporti ? "#6C5CE722" : "none", border: nascondiImporti ? "1px solid #6C5CE7" : "1px solid #252538",
             borderRadius: 8, cursor: "pointer", color: nascondiImporti ? "#a78bfa" : "#888",
