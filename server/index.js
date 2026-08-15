@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, ValidationError } from "./validation.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -187,7 +188,7 @@ const COOKIE_OPTS = {
   path: "/",
 };
 
-let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol;
+let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol, idempotencyCol;
 async function connectDB() {
   const client = new MongoClient(MONGO_URI); await client.connect();
   db = client.db(DB_NAME);
@@ -200,7 +201,12 @@ async function connectDB() {
   auditCol = db.collection("audit_log");
   tripsCol = db.collection("trips");
   exchangeRatesCol = db.collection("exchange_rates_cache");
+  idempotencyCol = db.collection("idempotency_keys");
   await exchangeRatesCol.createIndex({ base: 1 }, { unique: true });
+  // MOD-004: one stored result per (household, idempotency key) — a retried
+  // create request replays the original response instead of inserting again.
+  await idempotencyCol.createIndex({ householdId: 1, key: 1 }, { unique: true });
+  await idempotencyCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7d: comfortably longer than any realistic retry/reconnect window
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
@@ -249,21 +255,38 @@ function sanitizeSplits(arr) {
   }).filter(Boolean);
 }
 
-function sanitizeExtraPersone(arr) {
-  if (!Array.isArray(arr) || arr.length === 0) return null;
-  if (arr.length > 20) return null;
-  return arr.map(p => {
-    if (!p || typeof p !== "object") return null;
-    return { id: sanitizeText(p.id, 50), nome: sanitizeText(p.nome, 100) };
-  }).filter(Boolean);
-}
+// (sanitizeExtraPersone/sanitizeRicorrenza formerly lived here — superseded by
+// validateExtraPersone/validateRicorrenza in ./validation.js, used by the
+// transaction endpoints below. sanitizeSplits above is still used by the
+// trip-expense endpoints further down.)
 
-const RICORRENZA_FREQUENZE = ["settimanale", "mensile", "trimestrale", "annuale"];
-function sanitizeRicorrenza(r) {
-  if (!r || typeof r !== "object") return null;
-  if (!RICORRENZA_FREQUENZE.includes(r.frequenza)) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.prossimaData))) return null;
-  return { frequenza: r.frequenza, prossimaData: r.prossimaData, variabile: !!r.variabile };
+// ─── Idempotency for write APIs (MOD-004) ───
+// Client sends an `Idempotency-Key` header on create requests (see api.js).
+// The first successful request for a given (household, key) pair is
+// remembered; a retry with the same key replays the original response
+// instead of creating a duplicate entity. Requests without a key proceed
+// normally (no idempotency guarantee) so this stays backward-compatible
+// with any caller that doesn't send one yet.
+function idempotencyKeyFrom(req) {
+  const key = req.headers["idempotency-key"];
+  if (typeof key !== "string") return null;
+  const trimmed = key.trim();
+  if (!trimmed || trimmed.length > 100) return null;
+  return trimmed;
+}
+async function findIdempotentReplay(householdId, key) {
+  if (!key) return null;
+  return idempotencyCol.findOne({ householdId, key });
+}
+async function storeIdempotentResult(householdId, key, status, body) {
+  if (!key) return;
+  try {
+    await idempotencyCol.insertOne({ householdId, key, status, body, createdAt: new Date() });
+  } catch (e) {
+    // Duplicate key = a concurrent retry already stored it first — harmless,
+    // that's the same replay this request would have gotten anyway.
+    if (e.code !== 11000) console.error("idempotency store failed:", e.message);
+  }
 }
 
 // ─── Multi-currency — exchange rates cached 24h per base currency ───
@@ -275,38 +298,65 @@ function sanitizeValuta(v) {
   return /^[A-Z]{3}$/.test(up) ? up : null;
 }
 const EXCHANGE_RATE_CACHE_MS = 24 * 60 * 60 * 1000;
+
+// Thrown when a currency conversion can't be completed (rate provider down,
+// unsupported currency, malformed response, AND no usable cache to fall
+// back on). Callers must surface this to the client instead of proceeding —
+// see MOD-005: a missing rate must never silently become 1.
+export class ConversionUnavailableError extends Error {}
+
+// Returns { rates, stale }. `stale` is true when we could not refresh from
+// the provider and are serving a cache older than EXCHANGE_RATE_CACHE_MS (or
+// { rates: null, stale: true } if there's no cache at all to fall back on).
+// Never invents a rate — the caller decides what to do with staleness.
 async function fetchRatesTable(base) {
   const cached = await exchangeRatesCol.findOne({ base });
-  let rates = cached?.rates;
-  if (!cached || Date.now() - new Date(cached.fetchedAt).getTime() > EXCHANGE_RATE_CACHE_MS) {
-    try {
-      const r = await fetch(`https://api.exchangerate-api.com/v4/latest/${base}`);
-      if (r.ok) {
-        const data = await r.json();
-        rates = data.rates;
-        await exchangeRatesCol.updateOne({ base }, { $set: { base, rates, fetchedAt: new Date() } }, { upsert: true });
+  const isFresh = cached && Date.now() - new Date(cached.fetchedAt).getTime() <= EXCHANGE_RATE_CACHE_MS;
+  if (isFresh) return { rates: cached.rates, stale: false };
+  try {
+    const r = await fetch(`https://api.exchangerate-api.com/v4/latest/${base}`, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      const data = await r.json();
+      if (data && data.rates && typeof data.rates === "object") {
+        await exchangeRatesCol.updateOne(
+          { base },
+          { $set: { base, rates: data.rates, fetchedAt: new Date(), source: "exchangerate-api.com" } },
+          { upsert: true }
+        );
+        return { rates: data.rates, stale: false };
       }
-    } catch (e) { console.error("exchange rate fetch failed", e); }
-  }
-  return rates || {};
+    }
+  } catch (e) { console.error("exchange rate fetch failed", e); }
+  // Provider unreachable or returned something unexpected: fall back to a
+  // stale cache rather than inventing a rate. No cache at all → unavailable.
+  if (cached?.rates) return { rates: cached.rates, stale: true };
+  return { rates: null, stale: true };
 }
 async function getExchangeRate(from, to) {
-  if (from === to) return 1;
-  const rates = await fetchRatesTable(from);
-  const rate = rates[to];
-  return Number.isFinite(rate) ? rate : 1;
+  if (from === to) return { rate: 1, stale: false };
+  const { rates, stale } = await fetchRatesTable(from);
+  const rate = rates ? rates[to] : undefined;
+  if (!Number.isFinite(rate)) return { rate: null, stale };
+  return { rate, stale };
 }
 // Converte importo dalla valuta scelta alla valuta base della casa; se
 // coincidono o non è specificata, l'importo resta invariato (nessun campo extra).
+// Se il tasso non è disponibile, lancia ConversionUnavailableError invece di
+// assumere silenziosamente un cambio 1:1 (MOD-005).
 async function applyValutaTransazione(doc, importoInput, valutaInput, householdValutaBase) {
   const valuta = sanitizeValuta(valutaInput);
   const base = householdValutaBase || "EUR";
-  if (!valuta || valuta === base) return;
-  const tasso = await getExchangeRate(valuta, base);
+  if (!valuta) throw new ConversionUnavailableError(`Valuta non valida: ${valutaInput}`);
+  if (valuta === base) return;
+  const { rate, stale } = await getExchangeRate(valuta, base);
+  if (rate == null) {
+    throw new ConversionUnavailableError(`Cambio non disponibile: ${valuta} → ${base}`);
+  }
   doc.valuta = valuta;
   doc.importoOriginale = importoInput;
-  doc.tassoCambio = tasso;
-  doc.importo = Math.round(importoInput * tasso * 100) / 100;
+  doc.tassoCambio = rate;
+  if (stale) doc.tassoCambioObsoleto = true; // explicit stale-rate flag (MOD-005) — surfaced to the client rather than hidden
+  doc.importo = Math.round(importoInput * rate * 100) / 100;
 }
 
 // ─── Recurring transactions — server-side generator ───
@@ -859,8 +909,11 @@ app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res
 app.get("/api/exchange-rates", requireHousehold, async (req, res) => {
   try {
     const base = req.household.valutaBase || "EUR";
-    const rates = await fetchRatesTable(base);
-    res.json({ base, rates: { ...rates, [base]: 1 } });
+    const { rates, stale } = await fetchRatesTable(base);
+    if (!rates) {
+      return res.status(503).json({ error: { code: "EXCHANGE_RATE_UNAVAILABLE", message: "Cambio valuta non disponibile al momento, riprova più tardi." } });
+    }
+    res.json({ base, rates: { ...rates, [base]: 1 }, stale });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -882,41 +935,53 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
 });
 
 // ─── POST transaction ───
+// Validation flows through the centralized validateTransactionInput
+// (MOD-001, MOD-002) so this endpoint, the PUT below, and widget-created
+// transactions all reject the same malformed/out-of-household input instead
+// of trusting client-provided relationships. Idempotency-Key support
+// (MOD-004) means a retried request can't create a duplicate transaction.
 app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    const b = req.body;
-    if (!b.tipo || !b.importo || !b.data) return res.status(400).json({ error: "Campi obbligatori" });
-    if (!["uscita", "entrata", "saldo", "trasferimento"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido" });
-    if (!Number.isFinite(parseFloat(b.importo))) return res.status(400).json({ error: "Importo non valido" });
-    if (b.tipo === "trasferimento") {
-      if (!b.contoDa || !b.contoA) return res.status(400).json({ error: "Trasferimento: contoDa e contoA obbligatori" });
-      if (b.contoDa === b.contoA) return res.status(400).json({ error: "Trasferimento: i due conti devono essere diversi" });
+    const idemKey = idempotencyKeyFrom(req);
+    const replay = await findIdempotentReplay(req.householdId, idemKey);
+    if (replay) return res.status(replay.status).json(replay.body);
+
+    const b = req.body || {};
+    const householdPersonIds = (req.household.persone || []).map(p => p.id);
+    const accountDocs = await db.collection("accounts").find({ householdId: req.householdId }, { projection: { _id: 1 } }).toArray();
+    const accountIds = new Set(accountDocs.map(a => a._id.toString()));
+
+    let validated;
+    try {
+      validated = validateTransactionInput(b, { householdPersonIds, accountIds });
+    } catch (ve) {
+      if (ve instanceof ValidationError) return res.status(400).json({ error: { code: ve.code, message: ve.message, fields: ve.fields } });
+      throw ve;
     }
-    const doc = {
-      householdId: req.householdId,
-      tipo: b.tipo,
-      importo: parseFloat(b.importo),
-      categoria: b.categoria || "altro",
-      descrizione: sanitizeText(b.descrizione),
-      data: b.data,
-      pagatoDa: b.pagatoDa || null,
-      ricevutoDa: b.ricevutoDa || null,
-      splits: sanitizeSplits(b.splits),
-      extraPersone: sanitizeExtraPersone(b.extraPersone),
-      splitPagante: b.splitPagante != null ? parseInt(b.splitPagante) : null,
-      intestataA: b.intestataA || null,
-      contoId: b.contoId || null,
-      contoDa: b.contoDa || null,
-      contoA: b.contoA || null,
-      ricorrenza: sanitizeRicorrenza(b.ricorrenza),
-      daVerificare: !!b.daVerificare,
-      createdAt: new Date(),
-    };
-    if (b.valuta) await applyValutaTransazione(doc, doc.importo, b.valuta, req.household.valutaBase);
+
+    const doc = { householdId: req.householdId, ...validated, createdAt: new Date() };
+    // Optional client-generated id, echoed back so a future offline queue
+    // (MOD-003) can correlate a locally-created transaction with its server
+    // copy without guessing.
+    if (typeof b.clientId === "string" && b.clientId.trim()) doc.clientId = sanitizeText(b.clientId, 60);
+
+    if (b.valuta) {
+      try {
+        await applyValutaTransazione(doc, doc.importo, b.valuta, req.household.valutaBase);
+      } catch (ce) {
+        if (ce instanceof ConversionUnavailableError) {
+          return res.status(422).json({ error: { code: "EXCHANGE_RATE_UNAVAILABLE", message: "Cambio valuta non disponibile al momento, riprova più tardi." } });
+        }
+        throw ce;
+      }
+    }
+
     const result = await transactionsCol.insertOne(doc);
     const id = result.insertedId.toString();
     delete doc.householdId;
-    res.status(201).json({ id, ...doc });
+    const responseBody = { id, ...doc };
+    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -972,29 +1037,41 @@ app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, asyn
 });
 
 // ─── PUT transaction ───
+// Same centralized validator as POST, run in partial mode: only fields
+// present in the request body are validated/returned, but cross-field rules
+// (transfer accounts, split participants) still see the full picture via
+// the existing document (MOD-001, MOD-002).
 app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
-    const update = {};
-    const allowed = ["tipo","importo","categoria","descrizione","data","pagatoDa","ricevutoDa","splitPagante","intestataA","splits","extraPersone","contoId","contoDa","contoA","ricorrenza","daVerificare"];
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) {
-        if (key === "importo") update[key] = parseFloat(req.body[key]);
-        else if (key === "splitPagante") update[key] = req.body[key] != null ? parseInt(req.body[key]) : null;
-        else if (key === "splits") update[key] = sanitizeSplits(req.body[key]);
-        else if (key === "extraPersone") update[key] = sanitizeExtraPersone(req.body[key]);
-        else if (key === "descrizione") update[key] = sanitizeText(req.body[key]);
-        else if (key === "ricorrenza") update[key] = sanitizeRicorrenza(req.body[key]);
-        else if (key === "daVerificare") update[key] = !!req.body[key];
-        else update[key] = req.body[key];
-      }
+    const existing = await transactionsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (!existing) return res.status(404).json({ error: "Non trovata" });
+
+    const householdPersonIds = (req.household.persone || []).map(p => p.id);
+    const accountDocs = await db.collection("accounts").find({ householdId: req.householdId }, { projection: { _id: 1 } }).toArray();
+    const accountIds = new Set(accountDocs.map(a => a._id.toString()));
+
+    let update;
+    try {
+      update = validateTransactionInput(req.body, { householdPersonIds, accountIds, partial: true, existing });
+    } catch (ve) {
+      if (ve instanceof ValidationError) return res.status(400).json({ error: { code: ve.code, message: ve.message, fields: ve.fields } });
+      throw ve;
     }
+
     const unset = {};
     if (req.body.valuta !== undefined && update.importo !== undefined) {
       if (req.body.valuta) {
-        await applyValutaTransazione(update, update.importo, req.body.valuta, req.household.valutaBase);
+        try {
+          await applyValutaTransazione(update, update.importo, req.body.valuta, req.household.valutaBase);
+        } catch (ce) {
+          if (ce instanceof ConversionUnavailableError) {
+            return res.status(422).json({ error: { code: "EXCHANGE_RATE_UNAVAILABLE", message: "Cambio valuta non disponibile al momento, riprova più tardi." } });
+          }
+          throw ce;
+        }
       } else {
-        unset.valuta = ""; unset.importoOriginale = ""; unset.tassoCambio = "";
+        unset.valuta = ""; unset.importoOriginale = ""; unset.tassoCambio = ""; unset.tassoCambioObsoleto = "";
       }
     }
     update.updatedAt = new Date();
@@ -1619,12 +1696,26 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     const persone = household.persone || [];
     const personeIds = new Set(persone.map(p => p.id));
 
+    // Idempotency (MOD-004): same key + household → replay the original
+    // result instead of inserting a second transaction on retry.
+    const idemKey = idempotencyKeyFrom(req);
+    const replay = await findIdempotentReplay(hid, idemKey);
+    if (replay) return res.status(replay.status).json(replay.body);
+
     const b = req.body || {};
     if (!["uscita", "entrata"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido (uscita/entrata)" });
-    const importo = parseFloat(b.importo);
-    if (!Number.isFinite(importo) || importo <= 0 || importo > 1000000) return res.status(400).json({ error: "Importo non valido" });
-    let data = typeof b.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.data) ? b.data : null;
-    if (!data) data = new Date().toISOString().slice(0, 10);
+
+    // Amount: same rule as every other transaction entry point (finite,
+    // strictly > 0, normalized to cents) — MOD-001/MOD-005.
+    let importo;
+    try { importo = validateAmount(b.importo); } catch { return res.status(400).json({ error: "Importo non valido" }); }
+    if (importo > 1000000) return res.status(400).json({ error: "Importo non valido" });
+
+    // Date: same calendar-validity check as the main endpoints; falls back
+    // to today rather than hard-failing, since this is a deliberately
+    // forgiving, minimal write surface for third-party widgets/shortcuts.
+    let data;
+    try { data = validateDateStr(b.data); } catch { data = new Date().toISOString().slice(0, 10); }
 
     // Categoria: solo per uscite, validata contro le categorie reali della casa
     let categoria = b.tipo === "entrata" ? "entrata" : "altro";
@@ -1640,15 +1731,14 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     if (b.tipo === "uscita" && b.pagatoDa && personeIds.has(b.pagatoDa)) pagatoDa = b.pagatoDa;
     if (b.tipo === "entrata" && b.intestataA && personeIds.has(b.intestataA)) intestataA = b.intestataA;
 
-    // Split: solo per uscite, solo se pagatoDa è valido, quote validate e
-    // ricondotte a persone reali della casa (silenziosamente scartate altrimenti)
+    // Split: solo per uscite, solo se pagatoDa è valido. Stessa regola di
+    // validità (quote 0-100, partecipanti reali, somma 100 con tolleranza)
+    // degli altri endpoint via computeValidSplits — qui una ripartizione
+    // invalida viene scartata silenziosamente invece di far fallire l'intera
+    // richiesta, coerente con la natura "best effort" di questo endpoint.
     let splits = null;
-    if (b.tipo === "uscita" && pagatoDa && Array.isArray(b.splits) && b.splits.length > 0 && b.splits.length <= persone.length) {
-      const cleaned = b.splits
-        .filter(s => s && personeIds.has(s.personaId) && Number.isFinite(parseFloat(s.quota)))
-        .map(s => ({ personaId: s.personaId, quota: Math.max(0, Math.min(100, parseFloat(s.quota))) }));
-      const somma = cleaned.reduce((s, x) => s + x.quota, 0);
-      if (cleaned.length > 0 && Math.abs(somma - 100) < 1) splits = cleaned;
+    if (b.tipo === "uscita" && pagatoDa && Array.isArray(b.splits) && b.splits.length > 0) {
+      splits = computeValidSplits(b.splits, personeIds);
     }
 
     // Conto: deve appartenere davvero alla casa
@@ -1672,7 +1762,9 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     };
     await transactionsCol.insertOne(doc);
     await auditCol.insertOne({ householdId: hid, action: "widget_transaction_added", tipo: b.tipo, importo, at: new Date() });
-    res.status(201).json({ ok: true });
+    const responseBody = { ok: true };
+    await storeIdempotentResult(hid, idemKey, 201, responseBody);
+    res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 

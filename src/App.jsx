@@ -51,6 +51,17 @@ function formattaValuta(n) {
   return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n);
 }
 function formattaData(d) { return new Date(d).toLocaleDateString("it-IT", { day: "numeric", month: "short" }); }
+
+// Same tolerance as the server (server/validation.js, MOD-002) — keeps the
+// pre-submit check and the server's final authority in agreement, so a
+// split that passes here won't unexpectedly bounce off the API.
+const SPLIT_TOTAL_TOLERANCE = 0.05;
+function splitsTotalOk(splits) {
+  if (!splits || splits.length === 0) return true; // no split configured = nothing to check here
+  const total = splits.reduce((s, x) => s + (x.quota || 0), 0);
+  return Math.abs(total - 100) <= SPLIT_TOTAL_TOLERANCE;
+}
+
 function evalImporto(val) {
   if (!val) return 0;
   // Replace Italian comma with dot, allow both , and . in input
@@ -1496,6 +1507,11 @@ function TransactionRow({ t: tx, persone, categorie, conti = [], isEditing, onTa
   function handleSave() {
     const val = parseFloat(String(importo).replace(",", "."));
     if (!val || val <= 0) return;
+    if (tipo === "uscita" && !splitsTotalOk(splits)) {
+      const total = (splits || []).reduce((s, x) => s + (x.quota || 0), 0);
+      toast(t(lang, "form.splitTotalError").replace("{total}", String(Math.round(total * 100) / 100)), "error");
+      return;
+    }
     onSave({
       tipo, importo: val,
       categoria: tipo === "entrata" ? "entrata" : categoria,
@@ -1829,7 +1845,8 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
     const val = importo; // already computed from evalImporto
     if (!val || val <= 0) return;
     if (tipo === "trasferimento") {
-      if (!contoDa || !contoA || contoDa === contoA) return;
+      if (!contoDa || !contoA) return;
+      if (contoDa === contoA) { toast(t(lang, "form.transferSameAccountError"), "error"); return; }
       onAggiungi({
         id: generaId(), tipo: "trasferimento", importo: val,
         categoria: "trasferimento", descrizione: descrizione.trim(), data,
@@ -1838,6 +1855,11 @@ function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti 
       });
       setImportoRaw(""); setImporto(0); setDescrizione(""); setSalvato(true);
       setTimeout(() => setSalvato(false), 1500);
+      return;
+    }
+    if (tipo === "uscita" && !splitsTotalOk(splits)) {
+      const total = (splits || []).reduce((s, x) => s + (x.quota || 0), 0);
+      toast(t(lang, "form.splitTotalError").replace("{total}", String(Math.round(total * 100) / 100)), "error");
       return;
     }
     const ricorrenzaData = ricorrenza !== "no" ? {
@@ -5883,7 +5905,15 @@ export default function FinanzaApp() {
       }
       
       setTab("home");
-    } catch (err) { console.error("Add error:", err); }
+    } catch (err) {
+      // Server-rejected writes (bad splits, unknown account/participant,
+      // exchange-rate unavailable, etc.) used to be swallowed silently here
+      // and the transaction quietly saved to local storage instead — the
+      // user had no idea it failed. Now surfaced like every other error in
+      // the app (see api.js: ApiRequestError vs. genuine network failure).
+      console.error("Add error:", err);
+      toast(`${t(lang, "toast.errorSavePrefix")} ${err.message}`, "error");
+    }
   }
 
   // Same but without setTab — used by bulk import
@@ -5897,7 +5927,10 @@ export default function FinanzaApp() {
     try {
       const saved = await addTransaction(t);
       setTransazioni(prev => [...prev, saved]);
-    } catch (err) { console.error("Saldo error:", err); }
+    } catch (err) {
+      console.error("Saldo error:", err);
+      toast(`${t(lang, "toast.errorSavePrefix")} ${err.message}`, "error");
+    }
   }
 
   async function aggiungiPositioneSilente(pos) {
@@ -5910,14 +5943,20 @@ export default function FinanzaApp() {
     try {
       await deleteTransaction(id);
       setTransazioni(prev => prev.filter(t => t.id !== id));
-    } catch (err) { console.error("Delete error:", err); }
+    } catch (err) {
+      console.error("Delete error:", err);
+      toast(`${t(lang, "toast.errorDeletePrefix")} ${err.message}`, "error");
+    }
   }
 
   async function modificaTransazione(id, updates) {
     try {
       const updated = await updateTransaction(id, updates);
       setTransazioni(prev => prev.map(t => t.id === id ? { ...t, ...updated } : t));
-    } catch (err) { console.error("Update error:", err); }
+    } catch (err) {
+      console.error("Update error:", err);
+      toast(`${t(lang, "toast.errorSavePrefix")} ${err.message}`, "error");
+    }
   }
 
   const viaggioToken = new URLSearchParams(window.location.search).get("viaggio");

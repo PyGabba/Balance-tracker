@@ -69,6 +69,31 @@ function authHeaders() {
   return { "Content-Type": "application/json" };
 }
 
+function generateIdempotencyKey() {
+  try { return crypto.randomUUID ? crypto.randomUUID() : null; } catch { return null; }
+}
+
+// Thrown when the server actually responded but rejected the request
+// (validation error, auth, conflict, etc.). Distinguished on purpose from a
+// genuine network failure: a rejection is NOT an "offline" condition, so it
+// must reach the caller instead of being silently written to local storage
+// as if it had succeeded (see addTransaction/updateTransaction below).
+export class ApiRequestError extends Error {
+  constructor(status, body) {
+    const code = body?.error?.code || null;
+    const message = (typeof body?.error === "string" ? body.error : body?.error?.message) || `Richiesta non riuscita (${status})`;
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+    this.fields = body?.error?.fields || null;
+  }
+}
+
+async function parseErrorBody(res) {
+  try { return await res.clone().json(); } catch { return null; }
+}
+
 // ─── Central auth-error handler ───
 // App.jsx registers a callback so any 401/403 from the server forces re-auth
 // regardless of which endpoint fired it (positions, categorie, etc.)
@@ -377,15 +402,28 @@ export async function fetchTransactions(onSync) {
 
 export async function addTransaction(tx) {
   if (await checkAPI() && currentHousehold) {
+    const idemKey = generateIdempotencyKey();
+    let res;
     try {
-      const res = await fetch(`${API_BASE}/api/transactions`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(tx),
+      res = await fetch(`${API_BASE}/api/transactions`, {
+        method: "POST",
+        headers: idemKey ? { ...authHeaders(), "Idempotency-Key": idemKey } : authHeaders(),
+        credentials: "include",
+        body: JSON.stringify(tx),
       });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
     } catch (err) {
-      console.error("addTransaction:", err);
+      // Genuine network failure (offline, timeout, DNS...) — fall back to local storage below.
+      console.error("addTransaction (network):", err);
       apiAvailable = false;
+    }
+    if (res) {
+      if (res.ok) return await res.json();
+      if (await checkAuthError(res)) throw new ApiRequestError(res.status, await parseErrorBody(res));
+      // Server responded but rejected the request (validation, conflict, etc.)
+      // — this is NOT an offline condition. Surface it to the caller instead
+      // of silently writing invalid/rejected data to local storage as if it
+      // had succeeded (that used to happen here for every 4xx/5xx).
+      throw new ApiRequestError(res.status, await parseErrorBody(res));
     }
   }
   const all = lsLoad();
@@ -443,15 +481,22 @@ export async function emptyTrash() {
 
 export async function updateTransaction(id, updates) {
   if (await checkAPI() && currentHousehold) {
+    let res;
     try {
-      const res = await fetch(`${API_BASE}/api/transactions/${id}`, {
+      res = await fetch(`${API_BASE}/api/transactions/${id}`, {
         method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error(res.status);
-      return await res.json();
     } catch (err) {
-      console.error("updateTransaction:", err);
+      // Genuine network failure — fall back to local storage below.
+      console.error("updateTransaction (network):", err);
       apiAvailable = false;
+    }
+    if (res) {
+      if (res.ok) return await res.json();
+      if (await checkAuthError(res)) throw new ApiRequestError(res.status, await parseErrorBody(res));
+      // Rejected by the server (validation, not found, etc.) — surface it
+      // rather than silently overwriting local state as if it had saved.
+      throw new ApiRequestError(res.status, await parseErrorBody(res));
     }
   }
   const all = lsLoad().map(t => t.id === id ? { ...t, ...updates } : t);
