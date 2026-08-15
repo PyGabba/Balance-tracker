@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase, fetchExchangeRates } from "./api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase, fetchExchangeRates } from "./api.js";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
 import { LANGUAGES, getLang, setLang, t, mese, detectGuestLang } from "./lib/i18n.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
@@ -5129,6 +5129,31 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
     setWidgetBusy(false);
   }
 
+  // Calendar sync key state
+  const [calendarUrl, setCalendarUrl] = useState(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+
+  async function handleCreateCalendarKey() {
+    setCalendarBusy(true);
+    try {
+      const key = await createCalendarKey();
+      setCalendarUrl(`${getApiBase()}/api/calendar.ics?key=${key}`);
+      toast(t(lang, "toast.calendarKeyGenerated"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
+    setCalendarBusy(false);
+  }
+
+  async function handleRevokeCalendarKey() {
+    if (!confirm(t(lang, "confirm.revokeCalendarKey"))) return;
+    setCalendarBusy(true);
+    try {
+      await revokeCalendarKey();
+      setCalendarUrl(null);
+      toast(t(lang, "toast.calendarKeyRevoked"), "success");
+    } catch (e) { toast(`${t(lang, "toast.errorPrefix")} ${e.message}`, "error"); }
+    setCalendarBusy(false);
+  }
+
   // Cestino (trash) state
   const [cestinoAperto, setCestinoAperto] = useState(false);
   const [cestino, setCestino] = useState([]);
@@ -5337,6 +5362,38 @@ function ImpostazioniView({ householdName, householdId, persone, onDeleted, cate
         }}>{t(lang, "settings.revokeExistingKey")}</button>
         <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
           {t(lang, "settings.widgetRegenerateHint")}
+        </div>
+      </div>
+
+      {/* Calendar sync card */}
+      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 11, color: "#555", letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>{t(lang, "settings.calendar")}</div>
+        <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5, marginBottom: 12 }}>
+          {t(lang, "settings.calendarHint")}
+        </div>
+        {calendarUrl ? (
+          <div>
+            <div onClick={() => { navigator.clipboard?.writeText(calendarUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
+              background: "#111119", border: "1px solid #4ECDC455", borderRadius: 10, padding: "10px 12px",
+              fontSize: 10, fontFamily: "'Space Mono',monospace", color: "#4ECDC4", wordBreak: "break-all", cursor: "pointer", marginBottom: 10,
+            }}>{calendarUrl}</div>
+            <button onClick={() => { navigator.clipboard?.writeText(calendarUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
+              width: "100%", padding: "10px", background: "#4ECDC422", border: "1px solid #4ECDC455", borderRadius: 10,
+              color: "#4ECDC4", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8,
+            }}>{t(lang, "settings.copyUrl")}</button>
+          </div>
+        ) : (
+          <button onClick={handleCreateCalendarKey} disabled={calendarBusy} style={{
+            width: "100%", padding: "12px", background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 10,
+            color: "#a78bfa", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", marginBottom: 8, opacity: calendarBusy ? 0.6 : 1,
+          }}>{calendarBusy ? t(lang, "settings.generatingKey") : t(lang, "settings.generateCalendarKey")}</button>
+        )}
+        <button onClick={handleRevokeCalendarKey} disabled={calendarBusy} style={{
+          width: "100%", padding: "10px", background: "none", border: "1px solid #FF6B6B33", borderRadius: 10,
+          color: "#FF6B6B99", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+        }}>{t(lang, "settings.revokeExistingKey")}</button>
+        <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
+          {t(lang, "settings.calendarSubscribeHint")}
         </div>
       </div>
 

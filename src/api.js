@@ -689,6 +689,19 @@ export async function revokeWidgetKey() {
   return true;
 }
 
+export async function createCalendarKey() {
+  const res = await fetch(`${API_BASE}/api/calendar-key`, { method: "POST", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error("Errore " + res.status);
+  const json = await res.json();
+  return json.key;
+}
+
+export async function revokeCalendarKey() {
+  const res = await fetch(`${API_BASE}/api/calendar-key`, { method: "DELETE", headers: authHeaders(), credentials: "include" });
+  if (!res.ok) throw new Error("Errore " + res.status);
+  return true;
+}
+
 export function getApiBase() { return API_BASE || window.location.origin; }
 
 // ─── Backup completo ───
