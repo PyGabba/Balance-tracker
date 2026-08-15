@@ -206,6 +206,7 @@ async function connectDB() {
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
   await tripsCol.createIndex({ householdId: 1 });
   await tripsCol.createIndex({ shareToken: 1 }, { unique: true, sparse: true });
+  await householdsCol.createIndex({ calendarKey: 1 }, { unique: true, sparse: true });
   await auditCol.createIndex({ ts: -1 });
   await auditCol.createIndex({ householdId: 1, ts: -1 });
   await auditCol.createIndex({ ts: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // 90-day retention
@@ -1673,6 +1674,88 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     await auditCol.insertOne({ householdId: hid, action: "widget_transaction_added", tipo: b.tipo, importo, at: new Date() });
     res.status(201).json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+// ─── Calendar sync: read-only .ics feed of recurring transactions ───
+// Same capability-URL pattern as the widget key. Google Calendar, Apple
+// Calendar and Outlook all support "subscribe by URL" natively, so one
+// endpoint covers every calendar app without any OAuth/provider integration.
+app.post("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const key = randomBytes(24).toString("base64url");
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { calendarKey: key, calendarKeyCreatedAt: new Date() } });
+    await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_created", at: new Date() });
+    res.json({ key });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+app.delete("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { calendarKey: "", calendarKeyCreatedAt: "" } });
+    await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_revoked", at: new Date() });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+});
+
+function icsEscape(s) {
+  return String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
+const RRULE_BY_FREQUENZA = {
+  settimanale: "FREQ=WEEKLY",
+  mensile: "FREQ=MONTHLY",
+  trimestrale: "FREQ=MONTHLY;INTERVAL=3",
+  annuale: "FREQ=YEARLY",
+};
+const calendarLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+app.get("/api/calendar.ics", calendarLimiter, async (req, res) => {
+  try {
+    const key = req.query.key;
+    if (!key || typeof key !== "string" || key.length < 20) return res.status(401).send("Chiave mancante");
+    const household = await householdsCol.findOne({ calendarKey: key });
+    if (!household) return res.status(401).send("Chiave non valida");
+    const hid = household.householdId;
+
+    const templates = await transactionsCol.find({
+      householdId: hid, deletedAt: null, "ricorrenza.frequenza": { $exists: true },
+    }).toArray();
+
+    const catById = {};
+    for (const c of (household.categorieUscita || [])) catById[c.id] = c.nome;
+
+    const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Finanza Tracker//Recurring Transactions//IT",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      `X-WR-CALNAME:${icsEscape(household.nome)} — Spese ricorrenti`,
+      "X-PUBLISHED-TTL:PT12H",
+      "REFRESH-INTERVAL;VALUE=DURATION:PT12H",
+    ];
+    for (const t of templates) {
+      const rrule = RRULE_BY_FREQUENZA[t.ricorrenza.frequenza];
+      if (!rrule || !/^\d{4}-\d{2}-\d{2}$/.test(t.ricorrenza.prossimaData)) continue;
+      const dtstart = t.ricorrenza.prossimaData.replace(/-/g, "");
+      const catNome = catById[t.categoria] || t.categoria || "";
+      const summary = `${t.tipo === "entrata" ? "💰" : "💸"} ${t.descrizione || catNome} — €${Number(t.importo).toFixed(2)}`;
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:${t._id.toString()}@finanza-tracker`,
+        `DTSTAMP:${now}`,
+        `DTSTART;VALUE=DATE:${dtstart}`,
+        `RRULE:${rrule}`,
+        `SUMMARY:${icsEscape(summary)}`,
+        `DESCRIPTION:${icsEscape(t.ricorrenza.variabile ? "Importo variabile — verificare ad ogni rinnovo" : "")}`,
+        "END:VEVENT",
+      );
+    }
+    lines.push("END:VCALENDAR");
+
+    res.set("Content-Type", "text/calendar; charset=utf-8");
+    res.set("Content-Disposition", 'inline; filename="finanza-ricorrenti.ics"');
+    res.send(lines.join("\r\n"));
+  } catch (e) { console.error(e); res.status(500).send("Errore"); }
 });
 
 // ─── Trips API ───
