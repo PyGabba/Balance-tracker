@@ -3,13 +3,13 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from "mongodb";
-import { createHmac, randomUUID, randomBytes } from "crypto";
+import { createHmac, createHash, randomUUID, randomBytes } from "crypto";
 import dotenv from "dotenv";
 // Yahoo Finance disabled — manual prices only
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, ValidationError } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, ValidationError } from "./validation.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -211,8 +211,18 @@ async function connectDB() {
   await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
   await tripsCol.createIndex({ householdId: 1 });
+  // MOD-011: capability tokens (widget key, calendar key, trip share token)
+  // are stored as a SHA-256 hash, never plaintext — see hashCapabilityToken
+  // below. The legacy plaintext fields (shareToken/calendarKey/widgetKey)
+  // are kept only as a sparse lookup fallback for tokens issued before this
+  // change; findByCapabilityToken migrates them to a hash on first use.
+  // New indexes are on the hash fields; the old plaintext indexes stay in
+  // place until nothing references them anymore.
   await tripsCol.createIndex({ shareToken: 1 }, { unique: true, sparse: true });
+  await tripsCol.createIndex({ shareTokenHash: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ calendarKey: 1 }, { unique: true, sparse: true });
+  await householdsCol.createIndex({ calendarKeyHash: 1 }, { unique: true, sparse: true });
+  await householdsCol.createIndex({ widgetKeyHash: 1 }, { unique: true, sparse: true });
   await auditCol.createIndex({ ts: -1 });
   await auditCol.createIndex({ householdId: 1, ts: -1 });
   await auditCol.createIndex({ ts: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 }); // 90-day retention
@@ -243,22 +253,11 @@ function sanitizeText(s, maxLen = 500) {
   return String(s).trim().slice(0, maxLen);
 }
 
-// #7: whitelist splits/extraPersone sub-object keys to prevent stored XSS via arbitrary fields
-function sanitizeSplits(arr) {
-  if (!Array.isArray(arr) || arr.length === 0) return null;
-  if (arr.length > 20) return null; // more splits than people = suspicious
-  return arr.map(s => {
-    if (!s || typeof s !== "object") return null;
-    const quota = typeof s.quota === "number" ? s.quota : parseFloat(s.quota);
-    if (!Number.isFinite(quota) || quota < 0 || quota > 100) return null;
-    return { personaId: sanitizeText(s.personaId, 50), quota };
-  }).filter(Boolean);
-}
-
-// (sanitizeExtraPersone/sanitizeRicorrenza formerly lived here — superseded by
-// validateExtraPersone/validateRicorrenza in ./validation.js, used by the
-// transaction endpoints below. sanitizeSplits above is still used by the
-// trip-expense endpoints further down.)
+// (sanitizeSplits/sanitizeExtraPersone/sanitizeRicorrenza formerly lived
+// here — superseded by computeValidSplits/validateSplits/
+// validateExtraPersone/validateRicorrenza in ./validation.js, now used
+// everywhere any of these are accepted: transactions, widget transactions,
+// and trip expenses.)
 
 // ─── Idempotency for write APIs (MOD-004) ───
 // Client sends an `Idempotency-Key` header on create requests (see api.js).
@@ -287,6 +286,37 @@ async function storeIdempotentResult(householdId, key, status, body) {
     // that's the same replay this request would have gotten anyway.
     if (e.code !== 11000) console.error("idempotency store failed:", e.message);
   }
+}
+
+// ─── Capability tokens (MOD-011) ───
+// Widget key, calendar key, and trip share tokens are bearer credentials:
+// anyone holding the raw value gets the access it grants, no other check.
+// They're stored as a SHA-256 hash rather than plaintext — hashing here is
+// purely about limiting exposure if the database (or a backup of it) is
+// ever read by someone who shouldn't have it; it is NOT a defense against
+// guessing, since these are already 192 bits of randomBytes(24) and a fast
+// hash is fine (unlike a low-entropy PIN, where a fast hash would be a
+// real weakness — see MOD-010's offline PIN verifier for that case).
+function hashCapabilityToken(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+// `field` is the legacy plaintext field name (e.g. "widgetKey"); the hash
+// lives in `${field}Hash`. Checks the hash first; falls back to a plaintext
+// match for tokens issued before this change existed, and opportunistically
+// migrates a plaintext hit to a hash so it isn't stored in the clear any
+// longer than necessary.
+async function findByCapabilityToken(col, field, token, extraFilter = {}) {
+  const hashField = `${field}Hash`;
+  const hash = hashCapabilityToken(token);
+  let doc = await col.findOne({ [hashField]: hash, ...extraFilter });
+  if (doc) return doc;
+  doc = await col.findOne({ [field]: token, ...extraFilter });
+  if (doc) {
+    const idField = col === tripsCol ? { _id: doc._id } : { householdId: doc.householdId };
+    await col.updateOne(idField, { $set: { [hashField]: hash }, $unset: { [field]: "" } });
+  }
+  return doc;
 }
 
 // ─── Multi-currency — exchange rates cached 24h per base currency ───
@@ -619,26 +649,41 @@ async function findHouseholdByPin(pin) {
 // Routes allowed even when requiresPinChange is set
 const PIN_CHANGE_EXEMPT = ["/api/auth/pin", "/api/auth/logout"];
 
+// ─── Standard error response shape (MOD-022) ───
+// { error: { code, message, fields? } } — lets the frontend (or any other
+// client, e.g. the widget/shortcuts integrations) distinguish an
+// authentication failure from a validation failure from a rate limit
+// programmatically instead of pattern-matching free text. Applied to the
+// authentication gate (every request passes through it) and to the
+// endpoints touched in this security-hardening pass; older endpoints
+// elsewhere in the file still return the plain { error: "message" } shape
+// pending a full pass (see MOD-022 in the modification plan).
+function sendError(res, status, code, message, fields = undefined) {
+  const body = { error: { code, message } };
+  if (fields) body.error.fields = fields;
+  return res.status(status).json(body);
+}
+
 async function requireHousehold(req, res, next) {
   const rawToken = req.cookies?.token;
-  if (!rawToken) return res.status(401).json({ error: "Household non valido" });
+  if (!rawToken) return sendError(res, 401, "NOT_AUTHENTICATED", "Accesso richiesto");
   let payload;
   try { payload = jwt.verify(rawToken, JWT_SECRET, { algorithms: ["HS256"] }); }
-  catch { return res.status(401).json({ error: "Token non valido" }); }
+  catch { return sendError(res, 401, "INVALID_TOKEN", "Token non valido"); }
   const { householdId: hid, jti } = payload;
-  if (!jti) return res.status(401).json({ error: "Token non valido" });
+  if (!jti) return sendError(res, 401, "INVALID_TOKEN", "Token non valido");
   try {
     const [household, active] = await Promise.all([
       findHousehold(hid),
       activeTokensCol.findOne({ jti }),
     ]);
-    if (!household || !active) return res.status(401).json({ error: "Sessione scaduta, accedi nuovamente" });
+    if (!household || !active) return sendError(res, 401, "SESSION_EXPIRED", "Sessione scaduta, accedi nuovamente");
     // #2: enforce PIN change server-side — token is valid but access is locked until PIN updated
     if (household.requiresPinChange && !PIN_CHANGE_EXEMPT.includes(req.path)) {
-      return res.status(403).json({ error: "PIN_CHANGE_REQUIRED" });
+      return sendError(res, 403, "PIN_CHANGE_REQUIRED", "Cambio PIN richiesto prima di continuare");
     }
     req.household = household; req.householdId = hid; req.jti = jti; next();
-  } catch (e) { res.status(500).json({ error: "Errore autenticazione" }); }
+  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore autenticazione"); }
 }
 
 app.post("/api/auth/login", loginLimiter, async (req, res) => {
@@ -657,7 +702,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     ]);
     if (ipBanned || devBanned) {
       audit("login_blocked", { ip, deviceId, success: false, detail: "blacklisted" });
-      return res.status(403).json({ error: "Accesso permanentemente bloccato" });
+      return sendError(res, 403, "ACCESS_BLOCKED", "Accesso permanentemente bloccato");
     }
 
     // Check all three locks — IP, device, and PIN-hash
@@ -670,7 +715,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     if (activeLock) {
       const mins = Math.ceil((activeLock.lockedUntil - new Date()) / 60000);
       audit("login_blocked", { ip, deviceId, success: false, detail: `locked ${mins}m` });
-      return res.status(429).json({ error: `Accesso bloccato. Riprova tra ${mins} minuti.` });
+      return sendError(res, 429, "RATE_LIMITED", `Accesso bloccato. Riprova tra ${mins} minuti.`, { retryAfterMinutes: mins });
     }
 
     const household = await findHouseholdByPin(req.body?.pin);
@@ -682,7 +727,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       ]);
       if (ipNowLocked || devNowLocked || pinNowLocked) sendLockoutAlert(ip, deviceId).catch(console.error);
       audit("login_fail", { ip, deviceId, success: false });
-      return res.status(401).json({ error: "PIN non valido" });
+      return sendError(res, 401, "INVALID_PIN", "PIN non valido");
     }
 
     await Promise.all([clearLock(ipKey), devKey ? clearLock(devKey) : null, pinKey ? clearLock(pinKey) : null]);
@@ -691,7 +736,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     audit("login_success", { householdId: household.householdId, ip, deviceId });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ...household });
-  } catch (e) { res.status(500).json({ error: "Errore login" }); }
+  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore login"); }
 });
 
 app.post("/api/auth/logout", requireHousehold, async (req, res) => {
@@ -1250,6 +1295,23 @@ function requirePortfolioAccess(req, res, next) {
   next();
 }
 
+// ─── Household-ownership guard (MOD-009) ───
+// Reusable check for a client-supplied account id that must actually
+// belong to the requesting household, not just be well-formed. Transaction
+// participants and accounts already get this via validateTransactionInput
+// (server/validation.js, MOD-001) — the gap this phase found and closes is
+// goals' contoId, which was accepted from the client with no such check at
+// all (see below). Trip participants are deliberately NOT checked against
+// the household's participant list here: trips have their own, separate
+// participant set that legitimately includes guests who joined via a share
+// link and were never household members (see buildTripExpense in
+// validation.js, which validates against trip.partecipanti instead).
+async function isHouseholdAccount(id, householdId) {
+  if (!id || !ObjectId.isValid(id)) return false;
+  const acc = await db.collection("accounts").findOne({ _id: new ObjectId(id), householdId }, { projection: { _id: 1 } });
+  return !!acc;
+}
+
 app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, res) => {
   try {
     const col = db.collection("positions");
@@ -1357,7 +1419,11 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
     if (replay) return res.status(replay.status).json(replay.body);
 
     const b = req.body;
-    if (!b.nome || !b.targetAmount) return res.status(400).json({ error: "Campi obbligatori: nome, targetAmount" });
+    if (!b.nome || !b.targetAmount) return sendError(res, 400, "MISSING_FIELDS", "Campi obbligatori: nome, targetAmount");
+    // MOD-009: contoId must actually belong to this household, not just be a well-formed ObjectId.
+    if (b.contoId && !(await isHouseholdAccount(b.contoId, req.householdId))) {
+      return sendError(res, 400, "UNKNOWN_ACCOUNT", "Conto non valido", { contoId: b.contoId });
+    }
     const doc = {
       householdId: req.householdId,
       nome: sanitizeText(b.nome, 100),
@@ -1383,6 +1449,11 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     const b = req.body;
+    // MOD-009: same ownership check as create — a PUT can just as easily
+    // try to attach the goal to someone else's account.
+    if (b.contoId !== undefined && b.contoId && !(await isHouseholdAccount(b.contoId, req.householdId))) {
+      return sendError(res, 400, "UNKNOWN_ACCOUNT", "Conto non valido", { contoId: b.contoId });
+    }
     const update = {};
     if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 100);
     if (b.targetAmount !== undefined) update.targetAmount = parseFloat(b.targetAmount);
@@ -1610,7 +1681,9 @@ const WIDGET_DEFAULT_CATEGORIE = [
 app.post("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const key = randomBytes(24).toString("base64url");
-    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { widgetKey: key, widgetKeyCreatedAt: new Date() } });
+    // MOD-011: store only the hash — the plaintext key exists only in this
+    // response, shown to the person once, never persisted server-side.
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { widgetKeyHash: hashCapabilityToken(key), widgetKeyCreatedAt: new Date() }, $unset: { widgetKey: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_created", at: new Date() });
     res.json({ key });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
@@ -1618,7 +1691,7 @@ app.post("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => 
 
 app.delete("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { widgetKey: "", widgetKeyCreatedAt: "" } });
+    await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { widgetKey: "", widgetKeyHash: "", widgetKeyCreatedAt: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_revoked", at: new Date() });
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
@@ -1629,7 +1702,7 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
   try {
     const key = req.query.key;
     if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
-    const household = await householdsCol.findOne({ widgetKey: key });
+    const household = await findByCapabilityToken(householdsCol, "widgetKey", key);
     if (!household) return res.status(401).json({ error: "Chiave non valida" });
     const hid = household.householdId;
 
@@ -1708,7 +1781,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
   try {
     const key = req.query.key;
     if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
-    const household = await householdsCol.findOne({ widgetKey: key });
+    const household = await findByCapabilityToken(householdsCol, "widgetKey", key);
     if (!household) return res.status(401).json({ error: "Chiave non valida" });
     const hid = household.householdId;
     const persone = household.persone || [];
@@ -1793,7 +1866,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
 app.post("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const key = randomBytes(24).toString("base64url");
-    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { calendarKey: key, calendarKeyCreatedAt: new Date() } });
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { calendarKeyHash: hashCapabilityToken(key), calendarKeyCreatedAt: new Date() }, $unset: { calendarKey: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_created", at: new Date() });
     res.json({ key });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
@@ -1801,7 +1874,7 @@ app.post("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) =
 
 app.delete("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { calendarKey: "", calendarKeyCreatedAt: "" } });
+    await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { calendarKey: "", calendarKeyHash: "", calendarKeyCreatedAt: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_revoked", at: new Date() });
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
@@ -1821,7 +1894,7 @@ app.get("/api/calendar.ics", calendarLimiter, async (req, res) => {
   try {
     const key = req.query.key;
     if (!key || typeof key !== "string" || key.length < 20) return res.status(401).send("Chiave mancante");
-    const household = await householdsCol.findOne({ calendarKey: key });
+    const household = await findByCapabilityToken(householdsCol, "calendarKey", key);
     if (!household) return res.status(401).send("Chiave non valida");
     const hid = household.householdId;
 
@@ -1937,19 +2010,14 @@ app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, 
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
     if (!trip) return res.status(404).json({ error: "Viaggio non trovato" });
     if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
-    
-    const e = req.body;
-    const expense = {
-      id: randomUUID(),
-      pagatoDa: sanitizeText(e.pagatoDa, 50),
-      importo: parseFloat(e.importo) || 0,
-      descrizione: sanitizeText(e.descrizione, 200),
-      categoria: sanitizeText(e.categoria, 50) || "altro",
-      data: e.data || new Date().toISOString().slice(0, 10),
-      splits: sanitizeSplits(e.splits),
-    };
-    if (!expense.importo || expense.importo <= 0) return res.status(400).json({ error: "Importo non valido" });
-    
+
+    let expense;
+    try { expense = buildTripExpense(req.body, trip); }
+    catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
+    }
+
     await tripsCol.updateOne(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
       { $push: { expenses: expense }, $set: { updatedAt: new Date() } }
@@ -1982,11 +2050,12 @@ app.post("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res
     const shareToken = randomBytes(24).toString("base64url");
     const r = await tripsCol.findOneAndUpdate(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
-      { $set: { shareToken, shareTokenCreatedAt: new Date() } }, { returnDocument: "after" }
+      { $set: { shareTokenHash: hashCapabilityToken(shareToken), shareTokenCreatedAt: new Date() }, $unset: { shareToken: "" } },
+      { returnDocument: "after" }
     );
     if (!r) return res.status(404).json({ error: "Viaggio non trovato" });
     audit("trip_share_created", { householdId: req.householdId, ip: clientIp(req) });
-    res.json({ token: shareToken });
+    res.json({ token: shareToken, expiresInDays: TRIP_SHARE_TOKEN_TTL_DAYS });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -1995,7 +2064,7 @@ app.delete("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, r
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
     await tripsCol.updateOne(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
-      { $unset: { shareToken: "", shareTokenCreatedAt: "" } }
+      { $unset: { shareToken: "", shareTokenHash: "", shareTokenCreatedAt: "" } }
     );
     audit("trip_share_revoked", { householdId: req.householdId, ip: clientIp(req) });
     res.json({ ok: true });
@@ -2004,6 +2073,22 @@ app.delete("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, r
 
 const tripShareLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
 const tripShareWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
+
+// MOD-011: trip share links expire — unlike the widget/calendar keys (meant
+// to be long-lived "subscribe once" capability URLs by design), a trip is
+// an inherently time-bound event, and a forgotten share link circulating
+// long after the trip is over is a real residual-risk case with no
+// legitimate use. 30 days comfortably covers "still settling up after the
+// trip" while not lingering indefinitely.
+const TRIP_SHARE_TOKEN_TTL_DAYS = 30;
+const TRIP_SHARE_TOKEN_TTL_MS = TRIP_SHARE_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+async function findTripByShareToken(token) {
+  const trip = await findByCapabilityToken(tripsCol, "shareToken", token);
+  if (!trip) return null;
+  const createdAt = trip.shareTokenCreatedAt ? new Date(trip.shareTokenCreatedAt).getTime() : 0;
+  if (!createdAt || Date.now() - createdAt > TRIP_SHARE_TOKEN_TTL_MS) return null; // expired: treated exactly like "not found"
+  return trip;
+}
 
 function stripTripForGuest(trip) {
   const id = trip._id.toString();
@@ -2018,8 +2103,8 @@ app.get("/api/trips/shared/:token", tripShareLimiter, async (req, res) => {
   try {
     const token = req.params.token;
     if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
-    const trip = await tripsCol.findOne({ shareToken: token });
-    if (!trip) return res.status(404).json({ error: "Link non valido o revocato" });
+    const trip = await findTripByShareToken(token);
+    if (!trip) return res.status(404).json({ error: "Link non valido, scaduto o revocato" });
     res.json(stripTripForGuest(trip));
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -2028,8 +2113,8 @@ app.post("/api/trips/shared/:token/join", tripShareWriteLimiter, async (req, res
   try {
     const token = req.params.token;
     if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
-    const trip = await tripsCol.findOne({ shareToken: token });
-    if (!trip) return res.status(404).json({ error: "Link non valido o revocato" });
+    const trip = await findTripByShareToken(token);
+    if (!trip) return res.status(404).json({ error: "Link non valido, scaduto o revocato" });
     if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
 
     const nome = sanitizeText(req.body?.nome, 100);
@@ -2051,25 +2136,23 @@ app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req,
   try {
     const token = req.params.token;
     if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
-    const trip = await tripsCol.findOne({ shareToken: token });
-    if (!trip) return res.status(404).json({ error: "Link non valido o revocato" });
+    const trip = await findTripByShareToken(token);
+    if (!trip) return res.status(404).json({ error: "Link non valido, scaduto o revocato" });
     if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
 
-    const e = req.body || {};
-    const partecipantiIds = new Set((trip.partecipanti || []).map(p => p.id));
-    if (!partecipantiIds.has(e.pagatoDa)) return res.status(400).json({ error: "Partecipante non valido: unisciti al viaggio prima di aggiungere una spesa" });
-
-    const splitsFiltrati = (sanitizeSplits(e.splits) || []).filter(s => partecipantiIds.has(s.personaId));
-    const expense = {
-      id: randomUUID(),
-      pagatoDa: e.pagatoDa,
-      importo: parseFloat(e.importo) || 0,
-      descrizione: sanitizeText(e.descrizione, 200),
-      categoria: sanitizeText(e.categoria, 50) || "altro",
-      data: e.data || new Date().toISOString().slice(0, 10),
-      splits: splitsFiltrati.length > 0 ? splitsFiltrati : null,
-    };
-    if (!expense.importo || expense.importo <= 0) return res.status(400).json({ error: "Importo non valido" });
+    let expense;
+    try { expense = buildTripExpense(req.body, trip); }
+    catch (ve) {
+      if (ve instanceof ValidationError) {
+        // Friendlier message for the one case a guest is actually likely to
+        // hit: trying to log an expense before joining the trip.
+        const message = ve.code === "UNKNOWN_TRIP_PARTICIPANT"
+          ? "Partecipante non valido: unisciti al viaggio prima di aggiungere una spesa"
+          : ve.message;
+        return sendError(res, 400, ve.code, message, ve.fields);
+      }
+      throw ve;
+    }
 
     await tripsCol.updateOne({ _id: trip._id }, { $push: { expenses: expense }, $set: { updatedAt: new Date() } });
     res.status(201).json(expense);

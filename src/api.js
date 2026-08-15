@@ -111,6 +111,20 @@ function authHeaders() {
   return { "Content-Type": "application/json" };
 }
 
+// Extracts a human-readable message from either error shape the API can
+// return: the older `{ error: "text" }` (most endpoints, for now) or the
+// newer `{ error: { code, message, fields } }` (MOD-022 — currently the
+// authentication gate and the endpoints touched in the security-hardening
+// pass). Lets every call site stay agnostic to which shape a given
+// endpoint currently returns, and keeps working once more endpoints move
+// to the structured shape over time.
+function errorMessageFrom(body, fallback) {
+  const e = body?.error;
+  if (typeof e === "string" && e) return e;
+  if (e && typeof e === "object" && typeof e.message === "string" && e.message) return e.message;
+  return fallback;
+}
+
 // Thrown when the server actually responded but rejected the request
 // (validation error, auth, conflict, etc.) for API calls that don't go
 // through the offline outbox (lib/syncEngine.js has its own equivalent —
@@ -166,19 +180,66 @@ async function checkAuthError(res) {
 // Fast login: tries server with 6s timeout. If server is slow/down but a
 // cached session with matching PIN hash exists, logs in immediately from cache
 // and syncs in background. This eliminates the 10-20s Render cold-start wait.
+// ─── Offline PIN verifier (MOD-010) ───
+// This value NEVER proves identity to the server — it only gates whether a
+// CACHED session can be used while the server is unreachable (cold start,
+// outage, no connectivity). The real credential check always happens
+// server-side via bcrypt (server/index.js), completely independent of
+// this. Threat model: anyone who can read this device's localStorage
+// already has meaningful local access, but a PIN is short (commonly 4-6
+// digits), so a single fast unsalted hash — what this used to be — lets
+// that value be brute-forced offline in well under a second on ordinary
+// hardware. PBKDF2 with a per-device random salt and a high iteration
+// count raises that cost by roughly the iteration count (hundreds of
+// thousands of times), without changing the UX: the legitimate device
+// owner's offline-fallback login works exactly the same. A hash written
+// before this change won't verify against the new format — that's fine,
+// it just means the offline-fallback path is unavailable until the next
+// successful online login rewrites it (savePinHash runs on every login,
+// register, and PIN change), which happens transparently.
 const LS_PIN_HASH_KEY = "finanza-pin-hash";
-async function hashPin(pin) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+const LS_PIN_SALT_KEY = "finanza-pin-salt";
+const PIN_KDF_ITERATIONS = 250000;
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function getOrCreatePinSalt() {
+  try {
+    let saltHex = localStorage.getItem(LS_PIN_SALT_KEY);
+    if (!saltHex) {
+      saltHex = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+      localStorage.setItem(LS_PIN_SALT_KEY, saltHex);
+    }
+    return saltHex;
+  } catch { return null; }
+}
+async function derivePinVerifier(pin, saltHex) {
+  const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: hexToBytes(saltHex), iterations: PIN_KDF_ITERATIONS, hash: "SHA-256" },
+    keyMaterial, 256
+  );
+  return bytesToHex(new Uint8Array(bits));
 }
 function savePinHash(pin) {
-  hashPin(pin).then(h => { try { localStorage.setItem(LS_PIN_HASH_KEY, h); } catch {} });
+  const salt = getOrCreatePinSalt();
+  if (!salt) return;
+  derivePinVerifier(pin, salt)
+    .then(h => { try { localStorage.setItem(LS_PIN_HASH_KEY, h); } catch {} })
+    .catch(err => console.error("savePinHash:", err));
 }
 async function checkPinMatchesCache(pin) {
   try {
     const stored = localStorage.getItem(LS_PIN_HASH_KEY);
-    if (!stored) return false;
-    return (await hashPin(pin)) === stored;
+    const salt = localStorage.getItem(LS_PIN_SALT_KEY);
+    if (!stored || !salt) return false;
+    return (await derivePinVerifier(pin, salt)) === stored;
   } catch { return false; }
 }
 
@@ -205,7 +266,7 @@ export async function login(pin) {
       serverResult = await res.json();
     } else {
       const err = await res.json().catch(() => ({}));
-      serverError = new Error(err.error || "Login fallito");
+      serverError = new Error(errorMessageFrom(err, "Login fallito"));
     }
   } catch (err) {
     // Translate AbortError into a readable message
@@ -250,7 +311,7 @@ export async function register({ nome, persone, pin, email }) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Registrazione fallita");
+    throw new Error(errorMessageFrom(err, "Registrazione fallita"));
   }
   const raw = await res.json();
   const { token: _token, ...data } = raw; // token is in httpOnly cookie
@@ -278,7 +339,7 @@ export async function requestPinReset(email) {
     throw err;
   }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || "Richiesta fallita");
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Richiesta fallita"));
   return json;
 }
 
@@ -297,7 +358,7 @@ export async function confirmPinReset({ email, code, newPin }) {
     throw err;
   }
   const raw = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(raw.error || "Reimpostazione fallita");
+  if (!res.ok) throw new Error(errorMessageFrom(raw, "Reimpostazione fallita"));
   const { token: _token, ...sessionData } = raw; // token is in httpOnly cookie
   currentHousehold = sessionData;
   saveSession(sessionData);
@@ -312,7 +373,7 @@ export async function setRecoveryEmail(email) {
     method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify({ email }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || "Errore");
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
   return json;
 }
 
@@ -330,7 +391,7 @@ export async function updateValutaBase(valutaBase) {
     method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify({ valutaBase }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || "Errore");
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
   if (currentHousehold) {
     currentHousehold = { ...currentHousehold, valutaBase: json.valutaBase };
     saveSession(currentHousehold);
@@ -354,7 +415,7 @@ export async function changePin(newPin) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Aggiornamento PIN fallito");
+    throw new Error(errorMessageFrom(err, "Aggiornamento PIN fallito"));
   }
   savePinHash(newPin);
   if (currentHousehold) {
@@ -508,7 +569,7 @@ export async function deleteHousehold(pin) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Eliminazione fallita");
+    throw new Error(errorMessageFrom(err, "Eliminazione fallita"));
   }
   // The household is gone server-side, so any offline outbox entries still
   // queued for it are now moot garbage rather than "pending" — clear them
@@ -699,7 +760,7 @@ export async function restoreBackup(data) {
       method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(data),
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || "Errore " + res.status);
+    if (!res.ok) throw new Error(errorMessageFrom(json, "Errore " + res.status));
     return json;
   }
   throw new Error("Server non raggiungibile");
@@ -784,7 +845,7 @@ export async function deleteTripExpense(tripId, expenseId) {
 // ─── Trip share links (owner side, authenticated) ───
 export async function createTripShareLink(tripId) {
   const res = await fetch(`${API_BASE}/api/trips/${tripId}/share`, { method: "POST", headers: authHeaders(), credentials: "include" });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  if (!res.ok) throw new Error(errorMessageFrom(await res.json().catch(() => ({})), String(res.status)));
   const { token } = await res.json();
   const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
   if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, shareToken: token });
@@ -802,7 +863,7 @@ export async function revokeTripShareLink(tripId) {
 // ─── Trip share links (guest side, unauthenticated — no household session at all) ───
 export async function fetchSharedTrip(token) {
   const res = await fetch(`${API_BASE}/api/trips/shared/${token}`);
-  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  if (!res.ok) throw new Error(errorMessageFrom(await res.json().catch(() => ({})), String(res.status)));
   return await res.json();
 }
 
@@ -810,7 +871,7 @@ export async function joinSharedTrip(token, nome) {
   const res = await fetch(`${API_BASE}/api/trips/shared/${token}/join`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome }),
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  if (!res.ok) throw new Error(errorMessageFrom(await res.json().catch(() => ({})), String(res.status)));
   return await res.json();
 }
 
@@ -818,6 +879,6 @@ export async function addSharedTripExpense(token, expense) {
   const res = await fetch(`${API_BASE}/api/trips/shared/${token}/expenses`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(expense),
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.status);
+  if (!res.ok) throw new Error(errorMessageFrom(await res.json().catch(() => ({})), String(res.status)));
   return await res.json();
 }

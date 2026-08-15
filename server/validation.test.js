@@ -6,6 +6,7 @@ import {
   validateSplits,
   computeValidSplits,
   validateTransactionInput,
+  buildTripExpense,
   ValidationError,
 } from "./validation.js";
 
@@ -238,5 +239,54 @@ describe("validateTransactionInput — partial (PUT) validation", () => {
       { ...base, partial: true, existing: existingWithGuest }
     );
     expect(doc.splits.find(s => s.personaId === "ospite")).toBeTruthy();
+  });
+});
+
+describe("buildTripExpense", () => {
+  const trip = { partecipanti: [{ id: "g", nome: "Gabriele" }, { id: "l", nome: "Luca" }] };
+
+  it("accepts a well-formed expense", () => {
+    const exp = buildTripExpense({ pagatoDa: "g", importo: 42, data: "2026-03-01", descrizione: "Cena" }, trip);
+    expect(exp.pagatoDa).toBe("g");
+    expect(exp.importo).toBe(42);
+    expect(exp.id).toBeTruthy();
+  });
+
+  it("rejects a payer who isn't a participant of THIS trip (household members and other trips' guests don't count)", () => {
+    expect(() => buildTripExpense({ pagatoDa: "mallory", importo: 10 }, trip)).toThrow(ValidationError);
+  });
+
+  it("rejects splits referencing someone outside the trip", () => {
+    expect(() => buildTripExpense({
+      pagatoDa: "g", importo: 10, splits: [{ personaId: "g", quota: 50 }, { personaId: "mallory", quota: 50 }],
+    }, trip)).toThrow(ValidationError);
+  });
+
+  it("rejects splits that don't sum to 100 instead of silently dropping them", () => {
+    expect(() => buildTripExpense({
+      pagatoDa: "g", importo: 10, splits: [{ personaId: "g", quota: 40 }, { personaId: "l", quota: 40 }],
+    }, trip)).toThrow(ValidationError);
+  });
+
+  it("accepts a valid even split between trip participants", () => {
+    const exp = buildTripExpense({
+      pagatoDa: "g", importo: 10, splits: [{ personaId: "g", quota: 50 }, { personaId: "l", quota: 50 }],
+    }, trip);
+    expect(exp.splits).toHaveLength(2);
+  });
+
+  it("rejects a non-positive amount", () => {
+    expect(() => buildTripExpense({ pagatoDa: "g", importo: 0 }, trip)).toThrow(ValidationError);
+    expect(() => buildTripExpense({ pagatoDa: "g", importo: -5 }, trip)).toThrow(ValidationError);
+  });
+
+  it("falls back to today's date rather than rejecting on a missing/malformed date", () => {
+    const exp = buildTripExpense({ pagatoDa: "g", importo: 10, data: "not-a-date" }, trip);
+    expect(exp.data).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("has no cross-trip leakage: a participant valid on one trip is rejected on another", () => {
+    const otherTrip = { partecipanti: [{ id: "m", nome: "Marco" }] };
+    expect(() => buildTripExpense({ pagatoDa: "g", importo: 10 }, otherTrip)).toThrow(ValidationError);
   });
 });

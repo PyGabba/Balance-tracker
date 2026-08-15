@@ -6,7 +6,10 @@
 // looser validation just by hitting a different endpoint.
 //
 // Pure functions only — no MongoDB/Express imports — so this module can be
-// unit-tested in isolation (see validation.test.js).
+// unit-tested in isolation (see validation.test.js). (randomUUID is a pure
+// Node builtin, not a framework/DB dependency, so it's fine to use here.)
+
+import { randomUUID } from "crypto";
 
 export const TRANSACTION_TYPES = ["uscita", "entrata", "saldo", "trasferimento"];
 
@@ -248,4 +251,33 @@ export function validateTransactionInput(body, { householdPersonIds = [], accoun
   if (b.daVerificare !== undefined) doc.daVerificare = !!b.daVerificare;
 
   return doc;
+}
+
+// ─── Trip expenses (MOD-002, MOD-009) ───
+// Shared by both the household-authenticated and guest-share-link expense
+// endpoints, so a trip expense is validated exactly the same way regardless
+// of which one submitted it: payer and every split participant must
+// actually be in trip.partecipanti — not the household's participant list,
+// since trip guests joined via a share link are deliberately NOT household
+// members — and, if splits are given, quotas must sum to 100 within
+// tolerance rather than being silently dropped.
+export function buildTripExpense(body, trip) {
+  const b = body || {};
+  const partecipantiIds = new Set((trip.partecipanti || []).map(p => p.id));
+  if (!partecipantiIds.has(b.pagatoDa)) {
+    throw new ValidationError("UNKNOWN_TRIP_PARTICIPANT", "Partecipante non valido per questo viaggio", { pagatoDa: b.pagatoDa });
+  }
+  const importo = validateAmount(b.importo);
+  let data;
+  try { data = validateDateStr(b.data); } catch { data = new Date().toISOString().slice(0, 10); }
+  const splits = b.splits != null ? validateSplits(b.splits, partecipantiIds) : null;
+  return {
+    id: randomUUID(),
+    pagatoDa: b.pagatoDa,
+    importo,
+    descrizione: sanitizeText(b.descrizione, 200),
+    categoria: sanitizeText(b.categoria, 50) || "altro",
+    data,
+    splits,
+  };
 }
