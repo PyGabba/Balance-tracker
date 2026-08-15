@@ -16,7 +16,7 @@
 import {
   makeOperation, makeTempId, compactEnqueue, sortForSync, isOpReady,
   resolveOperationForSend, applyIdPromotion, recordIdAlias, nextBackoffMs,
-  isRetryableStatus, summarizeOutbox, mergeServerSnapshot,
+  isRetryableStatus, summarizeOutbox, mergeServerSnapshot, mergeTripExpenses,
 } from "./outboxLogic.js";
 import {
   getAllEntities, putEntity, deleteEntity, replaceAllEntities,
@@ -30,6 +30,9 @@ const ENTITY_ENDPOINTS = {
   goals: { base: "/api/goals", hasUpdate: true },
   trips: { base: "/api/trips", hasUpdate: true },
   positions: { base: "/api/positions", hasUpdate: false },
+  // tripExpenses is deliberately NOT here — it's not a top-level REST
+  // resource (no /api/tripExpenses, no dedicated IndexedDB entity store).
+  // buildRequest and the ack handling in runSync special-case it below.
 };
 
 let syncing = false;
@@ -47,15 +50,30 @@ function isOnline() {
   return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
+// Trip expenses live inside trip.expenses (POST/DELETE under
+// /api/trips/:tripId/expenses[/:expenseId]), not their own REST resource —
+// tripId travels in the operation's payload (present on both create AND
+// delete, unlike the generic entities where a delete's payload is null,
+// because there's no other way to know which trip an expense belongs to).
+// It's stripped back out before the request body is sent, since the
+// server endpoint doesn't expect it there — it's already in the URL.
 function buildRequest(ctx, op) {
+  if (op.entityType === "tripExpenses") {
+    const tripId = op.payload?.tripId;
+    if (op.operation === "create") {
+      const { tripId: _drop, ...body } = op.payload || {};
+      return { url: `${ctx.apiBase}/api/trips/${tripId}/expenses`, method: "POST", headers: { ...ctx.authHeaders(), "Idempotency-Key": op.operationId }, body };
+    }
+    return { url: `${ctx.apiBase}/api/trips/${tripId}/expenses/${op.entityId}`, method: "DELETE", headers: ctx.authHeaders(), body: null };
+  }
   const cfg = ENTITY_ENDPOINTS[op.entityType];
   if (op.operation === "create") {
-    return { url: `${ctx.apiBase}${cfg.base}`, method: "POST", headers: { ...ctx.authHeaders(), "Idempotency-Key": op.operationId } };
+    return { url: `${ctx.apiBase}${cfg.base}`, method: "POST", headers: { ...ctx.authHeaders(), "Idempotency-Key": op.operationId }, body: op.payload };
   }
   if (op.operation === "update") {
-    return { url: `${ctx.apiBase}${cfg.base}/${op.entityId}`, method: "PUT", headers: ctx.authHeaders() };
+    return { url: `${ctx.apiBase}${cfg.base}/${op.entityId}`, method: "PUT", headers: ctx.authHeaders(), body: op.payload };
   }
-  return { url: `${ctx.apiBase}${cfg.base}/${op.entityId}`, method: "DELETE", headers: ctx.authHeaders() };
+  return { url: `${ctx.apiBase}${cfg.base}/${op.entityId}`, method: "DELETE", headers: ctx.authHeaders(), body: null };
 }
 
 async function trySendOperation(ctx, op, idAliases) {
@@ -66,7 +84,7 @@ async function trySendOperation(ctx, op, idAliases) {
   try {
     res = await fetch(req.url, {
       method: req.method, headers: req.headers, credentials: "include",
-      body: sendable.payload != null ? JSON.stringify(sendable.payload) : undefined,
+      body: req.body != null ? JSON.stringify(req.body) : undefined,
       signal: AbortSignal.timeout(15000),
     });
   } catch (err) {
@@ -118,15 +136,49 @@ export async function runSync(ctxProvider) {
 
         if (result.ok) {
           anyProgress = true;
-          if (op.operation === "create" && !result.alreadyGone && result.body?.id) {
+          if (op.entityType === "tripExpenses") {
+            if (op.operation === "create" && !result.alreadyGone && result.body?.id) {
+              const realId = result.body.id;
+              idAliases = recordIdAlias(idAliases, op.entityId, realId);
+              // eslint-disable-next-line no-await-in-loop
+              await setMeta(ctx.householdId, "idAliases", idAliases);
+              // Replace the temp expense with the server one inside its
+              // parent trip's cached expenses array — there's no
+              // standalone "tripExpenses" entity store to update instead.
+              const tripId = op.payload?.tripId;
+              const resolvedTripId = idAliases[tripId] || tripId;
+              // eslint-disable-next-line no-await-in-loop
+              const trips = await getAllEntities("trips", ctx.householdId);
+              const trip = trips.find(t => t.id === resolvedTripId);
+              if (trip) {
+                const expenses = (trip.expenses || []).map(e => e.id === op.entityId ? result.body : e);
+                // eslint-disable-next-line no-await-in-loop
+                await putEntity("trips", ctx.householdId, { ...trip, expenses });
+              }
+            }
+            // delete: the optimistic local removal already happened at
+            // enqueue time — nothing further to reconcile.
+          } else if (op.operation === "create" && !result.alreadyGone && result.body?.id) {
             const realId = result.body.id;
             idAliases = recordIdAlias(idAliases, op.entityId, realId);
             // eslint-disable-next-line no-await-in-loop
             await setMeta(ctx.householdId, "idAliases", idAliases);
+            let newEntity = result.body;
+            if (op.entityType === "trips") {
+              // The server's trip-create response always returns a fresh
+              // expenses: [] — it has no way to know about a trip-expense
+              // create that was queued locally in the same offline batch
+              // and hasn't synced yet (see enqueueTripExpenseWrite /
+              // tripExpenses handling below). Preserve whatever's in the
+              // local cache rather than let this ack silently wipe it.
+              // eslint-disable-next-line no-await-in-loop
+              const existingLocal = (await getAllEntities("trips", ctx.householdId)).find(e => e.id === op.entityId);
+              if (existingLocal?.expenses?.length) newEntity = { ...result.body, expenses: existingLocal.expenses };
+            }
             // eslint-disable-next-line no-await-in-loop
             await deleteEntity(op.entityType, op.entityId);
             // eslint-disable-next-line no-await-in-loop
-            await putEntity(op.entityType, ctx.householdId, result.body);
+            await putEntity(op.entityType, ctx.householdId, newEntity);
           } else if (op.operation === "update" && result.body?.id) {
             // eslint-disable-next-line no-await-in-loop
             await putEntity(op.entityType, ctx.householdId, result.body);
@@ -209,6 +261,65 @@ export async function enqueueWrite(ctxProvider, { entityType, operation, entityI
   return stored || { id: finalEntityId, ...payload };
 }
 
+/**
+ * The trip-expense equivalent of enqueueWrite above — same durability
+ * guarantees (durable-before-UI-update, immediate-attempt-when-online,
+ * synchronous-rejection-surfaced, background retry otherwise), adapted for
+ * a sub-document that lives inside its parent trip rather than its own
+ * top-level entity. This is what closes the gap where an expense added
+ * while offline used to be cached locally for display but never actually
+ * queued for later sync.
+ */
+export async function enqueueTripExpenseWrite(ctxProvider, { operation, tripId, expenseId, payload }) {
+  const ctx = ctxProvider();
+  if (!ctx || !ctx.householdId) throw new Error("Nessuna casa attiva");
+  const householdId = ctx.householdId;
+  const finalExpenseId = expenseId || makeTempId();
+  // tripId travels in the payload for BOTH create and delete (unlike the
+  // generic entities, where delete's payload is null) — there's no other
+  // way to know which trip this expense belongs to once it's just an
+  // operationId + expenseId sitting in the outbox.
+  const opPayload = operation === "delete" ? { tripId } : { ...payload, tripId };
+  const newOp = makeOperation({ entityType: "tripExpenses", entityId: finalExpenseId, operation, payload: opPayload, householdId });
+
+  const compacted = compactEnqueue(await getOutboxOps(householdId), newOp);
+  await replaceOutbox(householdId, compacted);
+
+  // Optimistic local update: mutate the parent trip's cached expenses
+  // array directly — there's no standalone entity store for expenses.
+  const idAliasesForLookup = await getMeta(householdId, "idAliases", {});
+  const trips = await getAllEntities("trips", householdId);
+  const resolvedTripId = idAliasesForLookup[tripId] || tripId;
+  const trip = trips.find(t => t.id === tripId || t.id === resolvedTripId);
+  if (trip) {
+    const expenses = operation === "delete"
+      ? (trip.expenses || []).filter(e => e.id !== finalExpenseId)
+      : [...(trip.expenses || []), { ...payload, id: finalExpenseId }];
+    await putEntity("trips", householdId, { ...trip, expenses });
+  }
+  notifyStatus();
+
+  if (isOnline()) {
+    try { await runSync(ctxProvider); } catch (e) { console.error("syncEngine: immediate sync attempt failed", e); }
+  }
+
+  const [thisOp] = (await getOutboxOps(householdId)).filter(o => o.entityType === "tripExpenses" && o.entityId === finalExpenseId);
+  if (thisOp?.status === "failed") {
+    const err = new Error(thisOp.lastError || "Richiesta rifiutata dal server");
+    err.name = "SyncRejectedError";
+    err.operationId = thisOp.operationId;
+    throw err;
+  }
+
+  if (operation === "delete") return true;
+  const idAliases = await getMeta(householdId, "idAliases", {});
+  const resolvedId = idAliases[finalExpenseId] || finalExpenseId;
+  const updatedTrips = await getAllEntities("trips", householdId);
+  const updatedTrip = updatedTrips.find(t => t.id === (idAliases[tripId] || tripId));
+  const stored = updatedTrip?.expenses?.find(e => e.id === resolvedId);
+  return stored || { id: finalExpenseId, ...payload };
+}
+
 // Merges a fresh server snapshot with whatever's still pending for this
 // entity type (MOD-003: never let a refresh clobber a pending local
 // change) and makes the merged result the new local cache.
@@ -218,6 +329,23 @@ export async function fetchAndMergeSnapshot(ctxProvider, entityType, serverEntit
   const ops = (await getOutboxOps(ctx.householdId)).filter(o => o.entityType === entityType);
   const merged = mergeServerSnapshot(serverEntities, ops);
   await replaceAllEntities(entityType, ctx.householdId, merged);
+  return merged;
+}
+
+// Trips-specific version: merges pending trip-level ops (create/update/
+// delete on the trip itself) AND pending trip-expense ops (sub-document
+// creates/deletes inside trip.expenses) — the latter isn't something
+// fetchAndMergeSnapshot's generic top-level-entity logic can handle, hence
+// mergeTripExpenses as a second overlay pass.
+export async function fetchAndMergeTripsSnapshot(ctxProvider, serverTrips) {
+  const ctx = ctxProvider();
+  if (!ctx || !ctx.householdId) return serverTrips;
+  const ops = await getOutboxOps(ctx.householdId);
+  const tripOps = ops.filter(o => o.entityType === "trips");
+  const expenseOps = ops.filter(o => o.entityType === "tripExpenses");
+  let merged = mergeServerSnapshot(serverTrips, tripOps);
+  merged = mergeTripExpenses(merged, expenseOps);
+  await replaceAllEntities("trips", ctx.householdId, merged);
   return merged;
 }
 

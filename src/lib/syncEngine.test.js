@@ -285,3 +285,169 @@ describe("syncEngine — idempotent retries never duplicate", () => {
     expect(seenKeys[0]).toBeTruthy();
   });
 });
+
+describe("syncEngine — enqueueTripExpenseWrite (trip-expense outbox gap closed)", () => {
+  let syncEngine, offlineDb, ctx;
+  beforeEach(async () => {
+    ({ syncEngine, offlineDb } = await freshModules());
+    ctx = makeCtx();
+    vi.restoreAllMocks();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("persists a durable outbox operation for an expense added while offline (the original gap)", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", nome: "Roma", expenses: [] });
+    const result = await syncEngine.enqueueTripExpenseWrite(ctx, {
+      operation: "create", tripId: "trip1", payload: { pagatoDa: "g", importo: 20 },
+    });
+    expect(result.id).toMatch(/^local:/);
+
+    const ops = await offlineDb.getOutboxOps("h1");
+    expect(ops).toHaveLength(1);
+    expect(ops[0].entityType).toBe("tripExpenses");
+    expect(ops[0].payload.tripId).toBe("trip1"); // present even though this is (effectively) the create case
+
+    const trips = await offlineDb.getAllEntities("trips", "h1");
+    expect(trips[0].expenses).toHaveLength(1);
+  });
+
+  it("survives a simulated browser restart (durable, not just an in-memory cache write)", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", nome: "Roma", expenses: [] });
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "create", tripId: "trip1", payload: { pagatoDa: "g", importo: 5 } });
+
+    vi.resetModules();
+    const offlineDb2 = await import("./offlineDb.js");
+    const ops = await offlineDb2.getOutboxOps("h1");
+    expect(ops).toHaveLength(1);
+    expect(ops[0].payload.importo).toBe(5);
+  });
+
+  it("resolves with the real server expense when online and the immediate send succeeds", async () => {
+    vi.stubGlobal("navigator", { onLine: true });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", nome: "Roma", expenses: [] });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      expect(url).toBe("https://api.test/api/trips/trip1/expenses");
+      return jsonResponse(201, { id: "real-exp-1", pagatoDa: "g", importo: 20 });
+    }));
+    const result = await syncEngine.enqueueTripExpenseWrite(ctx, {
+      operation: "create", tripId: "trip1", payload: { pagatoDa: "g", importo: 20 },
+    });
+    expect(result.id).toBe("real-exp-1");
+    expect(await offlineDb.getOutboxOps("h1")).toHaveLength(0);
+    const trips = await offlineDb.getAllEntities("trips", "h1");
+    expect(trips[0].expenses).toEqual([{ id: "real-exp-1", pagatoDa: "g", importo: 20 }]);
+  });
+
+  it("does not send tripId in the request body — only in the URL", async () => {
+    vi.stubGlobal("navigator", { onLine: true });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", expenses: [] });
+    vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      expect(body.tripId).toBeUndefined();
+      expect(body.pagatoDa).toBe("g");
+      return jsonResponse(201, { id: "real1", pagatoDa: "g", importo: 1 });
+    }));
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "create", tripId: "trip1", payload: { pagatoDa: "g", importo: 1 } });
+  });
+
+  it("a delete queued while offline removes the expense locally and queues the operation", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", expenses: [{ id: "exp1", pagatoDa: "g", importo: 5 }] });
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "delete", tripId: "trip1", expenseId: "exp1", payload: null });
+
+    const trips = await offlineDb.getAllEntities("trips", "h1");
+    expect(trips[0].expenses).toHaveLength(0);
+    const ops = await offlineDb.getOutboxOps("h1");
+    expect(ops).toHaveLength(1);
+    expect(ops[0].operation).toBe("delete");
+    expect(ops[0].payload.tripId).toBe("trip1"); // needed to build the DELETE URL later
+  });
+
+  it("cancels a create+delete pair for the same offline-created expense that never reached the server", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", expenses: [] });
+    const created = await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "create", tripId: "trip1", payload: { pagatoDa: "g", importo: 5 } });
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "delete", tripId: "trip1", expenseId: created.id, payload: null });
+    expect(await offlineDb.getOutboxOps("h1")).toHaveLength(0);
+    const trips = await offlineDb.getAllEntities("trips", "h1");
+    expect(trips[0].expenses).toHaveLength(0);
+  });
+
+  it("promotes a trip created offline in the same batch, then syncs the dependent expense with the real tripId", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    const trip = await syncEngine.enqueueWrite(ctx, { entityType: "trips", operation: "create", payload: { nome: "Roma", expenses: [] } });
+    expect(trip.id).toMatch(/^local:/);
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "create", tripId: trip.id, payload: { pagatoDa: "g", importo: 20 } });
+
+    let tripCreateSeen = false;
+    vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
+      if (url === "https://api.test/api/trips") { tripCreateSeen = true; return jsonResponse(201, { id: "trip-real", nome: "Roma", expenses: [] }); }
+      if (url === "https://api.test/api/trips/trip-real/expenses") {
+        expect(tripCreateSeen).toBe(true);
+        const body = JSON.parse(opts.body);
+        expect(body.pagatoDa).toBe("g");
+        return jsonResponse(201, { id: "exp-real", pagatoDa: "g", importo: 20 });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+    vi.stubGlobal("navigator", { onLine: true });
+    await syncEngine.runSync(ctx);
+
+    expect(await offlineDb.getOutboxOps("h1")).toHaveLength(0);
+    const trips = await offlineDb.getAllEntities("trips", "h1");
+    expect(trips[0].id).toBe("trip-real");
+    expect(trips[0].expenses).toEqual([{ id: "exp-real", pagatoDa: "g", importo: 20 }]);
+  });
+
+  it("throws immediately on a synchronous validation rejection, while keeping the operation visible in the outbox", async () => {
+    vi.stubGlobal("navigator", { onLine: true });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", expenses: [] });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(400, { error: { code: "UNKNOWN_TRIP_PARTICIPANT", message: "partecipante non valido" } })));
+    await expect(syncEngine.enqueueTripExpenseWrite(ctx, {
+      operation: "create", tripId: "trip1", payload: { pagatoDa: "mallory", importo: 20 },
+    })).rejects.toThrow(/partecipante non valido/);
+    const ops = await offlineDb.getOutboxOps("h1");
+    expect(ops).toHaveLength(1);
+    expect(ops[0].status).toBe("failed");
+  });
+});
+
+describe("syncEngine — fetchAndMergeTripsSnapshot (trip-level + expense-level reconciliation)", () => {
+  let syncEngine, offlineDb, ctx;
+  beforeEach(async () => {
+    ({ syncEngine, offlineDb } = await freshModules());
+    ctx = makeCtx();
+    vi.restoreAllMocks();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("keeps a not-yet-synced offline expense visible after a server refresh", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", nome: "Roma", expenses: [] });
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "create", tripId: "trip1", payload: { pagatoDa: "g", importo: 20 } });
+
+    const merged = await syncEngine.fetchAndMergeTripsSnapshot(ctx, [{ id: "trip1", nome: "Roma", expenses: [] }]);
+    expect(merged[0].expenses).toHaveLength(1);
+    expect(merged[0].expenses[0]._pendingSync).toBe(true);
+  });
+
+  it("hides an expense with a pending delete from the merged snapshot", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", expenses: [{ id: "exp1", importo: 5 }] });
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "delete", tripId: "trip1", expenseId: "exp1", payload: null });
+
+    const merged = await syncEngine.fetchAndMergeTripsSnapshot(ctx, [{ id: "trip1", expenses: [{ id: "exp1", importo: 5 }] }]);
+    expect(merged[0].expenses).toHaveLength(0);
+  });
+
+  it("also applies the trip-level merge (a pending trip rename survives a refresh)", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", nome: "Vecchio nome", expenses: [] });
+    await syncEngine.enqueueWrite(ctx, { entityType: "trips", operation: "update", entityId: "trip1", payload: { nome: "Nuovo nome" } });
+
+    const merged = await syncEngine.fetchAndMergeTripsSnapshot(ctx, [{ id: "trip1", nome: "Vecchio nome (dal server)", expenses: [] }]);
+    expect(merged[0].nome).toBe("Nuovo nome");
+  });
+});

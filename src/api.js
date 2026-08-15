@@ -1,9 +1,10 @@
 // ─── API Client with household auth ───
 
 import {
-  enqueueWrite, fetchAndMergeSnapshot, getCachedEntities, cacheEntityOnly,
-  startAutoSync, stopAutoSync, getSyncStatus, onSyncStatusChange as onSyncStatusChangeImpl,
-  discardOperation, retryOperation, getFailedOperations, clearOfflineData,
+  enqueueWrite, enqueueTripExpenseWrite, fetchAndMergeSnapshot, fetchAndMergeTripsSnapshot,
+  getCachedEntities, cacheEntityOnly, startAutoSync, stopAutoSync, getSyncStatus,
+  onSyncStatusChange as onSyncStatusChangeImpl, discardOperation, retryOperation,
+  getFailedOperations, clearOfflineData,
 } from "./lib/syncEngine.js";
 
 // Production: always use relative paths so Vercel proxy forwards /api/* to Render (same-origin, Safari-safe)
@@ -813,15 +814,30 @@ export async function deleteAccount(id) {
 }
 
 // ─── Trips API ───
-// MOD-003: trip create/update/delete routed through the offline outbox,
-// same as the other four entity types. Trip EXPENSES are sub-document
-// writes inside a trip's `expenses` array rather than their own top-level
-// entity, so they are NOT yet covered by the generic per-entity outbox —
-// an expense added while offline is cached locally for display but isn't
-// durably queued for later sync (same limitation the old implementation
-// had; extending the outbox to sub-document operations is follow-up work).
+// MOD-003: trip create/update/delete AND trip expenses are all routed
+// through the offline outbox. Trip expenses are sub-document writes
+// inside a trip's `expenses` array rather than their own top-level
+// entity/collection, so they use the dedicated enqueueTripExpenseWrite /
+// fetchAndMergeTripsSnapshot machinery in lib/syncEngine.js instead of the
+// generic per-entity path the other four types use — but get the exact
+// same durability guarantee: an expense added while offline is now
+// durably queued and will sync once connectivity returns, not just
+// cached locally for display until the next reload wipes it.
 export async function fetchTrips() {
-  return fetchAndCacheEntities("trips", "/api/trips");
+  const cached = await getCachedEntities(syncCtx, "trips");
+  if (!(await checkAPI()) || !currentHousehold) return cached;
+  try {
+    const res = await fetch(`${API_BASE}/api/trips`, { headers: authHeaders(), credentials: "include" });
+    if (await checkAuthError(res)) return cached;
+    if (!res.ok) return cached;
+    const serverData = await res.json();
+    apiAvailable = true;
+    return await fetchAndMergeTripsSnapshot(syncCtx, serverData);
+  } catch (err) {
+    console.error("fetchTrips:", err);
+    apiAvailable = false;
+    return cached;
+  }
 }
 
 export async function addTrip(trip) {
@@ -837,38 +853,11 @@ export async function deleteTrip(id) {
 }
 
 export async function addTripExpense(tripId, expense) {
-  if (currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/trips/${tripId}/expenses`, {
-        method: "POST", headers: authHeaders(), credentials: "include", body: JSON.stringify(expense), signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) {
-        apiAvailable = true;
-        const newExp = await res.json();
-        const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
-        if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, expenses: [...(trip.expenses || []), newExp] });
-        return newExp;
-      }
-    } catch (err) { console.error("addTripExpense:", err); }
-  }
-  const localExp = { id: `local:${Date.now().toString(36)}`, ...expense };
-  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
-  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, expenses: [...(trip.expenses || []), localExp] });
-  return localExp;
+  return enqueueTripExpenseWrite(syncCtx, { operation: "create", tripId, payload: expense });
 }
 
 export async function deleteTripExpense(tripId, expenseId) {
-  if (currentHousehold) {
-    try {
-      const res = await fetch(`${API_BASE}/api/trips/${tripId}/expenses/${expenseId}`, {
-        method: "DELETE", headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) apiAvailable = true;
-    } catch (err) { console.error("deleteTripExpense:", err); }
-  }
-  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
-  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, expenses: (trip.expenses || []).filter(e => e.id !== expenseId) });
-  return true;
+  return enqueueTripExpenseWrite(syncCtx, { operation: "delete", tripId, expenseId, payload: null });
 }
 
 // ─── Trip share links (owner side, authenticated) ───

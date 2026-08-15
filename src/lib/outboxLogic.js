@@ -210,3 +210,43 @@ export function mergeServerSnapshot(serverEntities, pendingOpsForThisType) {
   }
   return result;
 }
+
+// ─── Trip expenses (MOD-003 gap closed) ───
+// Trip expenses are sub-documents inside trip.expenses, not their own
+// top-level entity — no /api/tripExpenses collection, no dedicated
+// IndexedDB store — so mergeServerSnapshot above (built for a flat list of
+// top-level entities keyed by id) doesn't directly apply to them. This is
+// the analogous reconciliation step for the nested case: run AFTER the
+// normal trip-level merge, overlaying any pending "tripExpenses" outbox
+// ops onto the right trip's expenses array by matching payload.tripId.
+// Same rules as the top-level version: a pending delete hides an expense
+// even if the server still has it; a not-yet-acknowledged pending create
+// stays visible, flagged _pendingSync, so it doesn't disappear between
+// being added and the sync completing.
+export function mergeTripExpenses(trips, tripExpenseOps) {
+  if (!tripExpenseOps || tripExpenseOps.length === 0) return trips;
+  const opsByTrip = new Map();
+  for (const op of sortForSync(tripExpenseOps)) {
+    const tripId = op.payload?.tripId;
+    if (!tripId) continue; // malformed op — nothing sensible to overlay, skip rather than throw
+    if (!opsByTrip.has(tripId)) opsByTrip.set(tripId, []);
+    opsByTrip.get(tripId).push(op);
+  }
+  if (opsByTrip.size === 0) return trips;
+
+  return trips.map(trip => {
+    const ops = opsByTrip.get(trip.id);
+    if (!ops || ops.length === 0) return trip;
+    const deletedIds = new Set(ops.filter(op => op.operation === "delete").map(op => op.entityId));
+    let expenses = (trip.expenses || []).filter(e => !deletedIds.has(e.id));
+    const knownIds = new Set(expenses.map(e => e.id));
+    for (const op of ops) {
+      if (op.operation === "create" && !knownIds.has(op.entityId)) {
+        const { tripId: _tripId, ...expensePayload } = op.payload || {};
+        expenses = [...expenses, { ...expensePayload, id: op.entityId, _pendingSync: true }];
+        knownIds.add(op.entityId);
+      }
+    }
+    return { ...trip, expenses };
+  });
+}

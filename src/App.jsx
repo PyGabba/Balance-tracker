@@ -2247,13 +2247,21 @@ function ViaggiView({ persone, lang = "it" }) {
   }
 
   async function handleAddExpense(tripId, expense) {
-    const exp = await addTripExpense(tripId, expense);
-    setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: [...t.expenses, exp] } : t));
+    try {
+      const exp = await addTripExpense(tripId, expense);
+      setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: [...t.expenses, exp] } : t));
+    } catch (e) {
+      toast(`${t(lang, "toast.errorSavePrefix")} ${e.message}`, "error");
+    }
   }
 
   async function handleDeleteExpense(tripId, expId) {
-    await deleteTripExpense(tripId, expId);
-    setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: t.expenses.filter(e => e.id !== expId) } : t));
+    try {
+      await deleteTripExpense(tripId, expId);
+      setTrips(trips.map(t => t.id === tripId ? { ...t, expenses: t.expenses.filter(e => e.id !== expId) } : t));
+    } catch (e) {
+      toast(`${t(lang, "toast.errorDeletePrefix")} ${e.message}`, "error");
+    }
   }
 
   const [settlingId, setSettlingId] = useState(null);

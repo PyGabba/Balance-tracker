@@ -3,7 +3,7 @@ import {
   isTempId, makeTempId, makeOperation, compactEnqueue, sortForSync,
   resolveReferences, isOpReady, resolveOperationForSend, applyIdPromotion,
   recordIdAlias, nextBackoffMs, isRetryableStatus, summarizeOutbox,
-  mergeServerSnapshot,
+  mergeServerSnapshot, mergeTripExpenses,
 } from "./outboxLogic.js";
 
 let idCounter = 0;
@@ -254,5 +254,72 @@ describe("mergeServerSnapshot", () => {
     const pending = [op({ entityId: "real1", operation: "create", payload: { nome: "New" } })];
     const result = mergeServerSnapshot(server, pending);
     expect(result).toEqual([{ id: "real1", nome: "New" }]);
+  });
+});
+
+describe("mergeTripExpenses", () => {
+  function expenseOp(overrides) {
+    return op({ entityType: "tripExpenses", operation: "create", payload: { tripId: "trip1", importo: 10 }, ...overrides });
+  }
+
+  it("returns trips unchanged when there are no pending expense ops", () => {
+    const trips = [{ id: "trip1", expenses: [{ id: "e1", importo: 5 }] }];
+    expect(mergeTripExpenses(trips, [])).toBe(trips);
+  });
+
+  it("keeps a not-yet-acknowledged local expense visible, flagged pending", () => {
+    const trips = [{ id: "trip1", expenses: [] }];
+    const ops = [expenseOp({ entityId: "local:exp1", payload: { tripId: "trip1", importo: 20, pagatoDa: "g" } })];
+    const result = mergeTripExpenses(trips, ops);
+    expect(result[0].expenses).toEqual([{ id: "local:exp1", importo: 20, pagatoDa: "g", _pendingSync: true }]);
+  });
+
+  it("hides an expense with a pending delete even though the server still has it", () => {
+    const trips = [{ id: "trip1", expenses: [{ id: "e1", importo: 5 }] }];
+    // Trip expense deletes carry { tripId } in payload (not null like
+    // generic entity deletes) — the routing/reconciliation code needs
+    // tripId even for a delete, since there's no top-level /api/tripExpenses
+    // resource to infer it from.
+    const ops = [expenseOp({ entityId: "e1", operation: "delete", payload: { tripId: "trip1" } })];
+    const result = mergeTripExpenses(trips, ops);
+    expect(result[0].expenses).toEqual([]);
+  });
+
+  it("only affects the trip the expense belongs to", () => {
+    const trips = [
+      { id: "trip1", expenses: [] },
+      { id: "trip2", expenses: [{ id: "e2", importo: 1 }] },
+    ];
+    const ops = [expenseOp({ entityId: "local:exp1", payload: { tripId: "trip1", importo: 20 } })];
+    const result = mergeTripExpenses(trips, ops);
+    expect(result[0].expenses).toHaveLength(1);
+    expect(result[1].expenses).toEqual([{ id: "e2", importo: 1 }]); // untouched
+  });
+
+  it("does not duplicate an expense the server has already acknowledged", () => {
+    const trips = [{ id: "trip1", expenses: [{ id: "real-exp", importo: 20 }] }];
+    // Simulates the rare case where the outbox op still references the
+    // now-resolved real id (e.g. read just after promotion, before the op
+    // was removed) — must not add a second copy.
+    const ops = [expenseOp({ entityId: "real-exp", payload: { tripId: "trip1", importo: 20 } })];
+    const result = mergeTripExpenses(trips, ops);
+    expect(result[0].expenses).toEqual([{ id: "real-exp", importo: 20 }]);
+  });
+
+  it("skips a malformed op with no tripId rather than throwing", () => {
+    const trips = [{ id: "trip1", expenses: [] }];
+    const ops = [expenseOp({ entityId: "local:exp1", payload: { importo: 20 } })];
+    expect(() => mergeTripExpenses(trips, ops)).not.toThrow();
+    expect(mergeTripExpenses(trips, ops)[0].expenses).toEqual([]);
+  });
+
+  it("a delete op without a resolvable tripId in its payload is a bug, not a valid no-op — regression guard", () => {
+    // If a delete's payload were ever null/tripId-less (the generic entity
+    // convention), the delete would silently be dropped by the tripId
+    // lookup above instead of hiding the expense. This asserts the correct
+    // shape (tripId present even on delete) actually takes effect.
+    const trips = [{ id: "trip1", expenses: [{ id: "e1", importo: 5 }] }];
+    const withTripId = mergeTripExpenses(trips, [expenseOp({ entityId: "e1", operation: "delete", payload: { tripId: "trip1" } })]);
+    expect(withTripId[0].expenses).toEqual([]);
   });
 });
