@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, ValidationError } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, ValidationError } from "./validation.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -170,7 +170,13 @@ const CORS_OPTIONS = {
     cb(new Error(`CORS: origin not allowed: ${origin}`));
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  // MOD-004/MOD-003: the offline sync engine sends Idempotency-Key on
+  // create requests — same-origin requests (the normal production path via
+  // the Vercel proxy) never hit a CORS preflight at all, but any
+  // cross-origin path (local dev on a different port, a future separately-
+  // hosted client) needs it explicitly allow-listed or the preflight fails
+  // and the header gets silently dropped.
+  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
   credentials: true,
   optionsSuccessStatus: 200,
 };
@@ -279,13 +285,23 @@ function sanitizeText(s, maxLen = 500) {
 // everywhere any of these are accepted: transactions, widget transactions,
 // and trip expenses.)
 
-// ─── Idempotency for write APIs (MOD-004) ───
+// ─── Idempotency for write APIs (MOD-004, hardened) ───
 // Client sends an `Idempotency-Key` header on create requests (see api.js).
 // The first successful request for a given (household, key) pair is
 // remembered; a retry with the same key replays the original response
 // instead of creating a duplicate entity. Requests without a key proceed
 // normally (no idempotency guarantee) so this stays backward-compatible
 // with any caller that doesn't send one yet.
+//
+// The claim itself (not just the final result) is what's made atomic here:
+// a request first tries to atomically INSERT a "pending" placeholder,
+// relying on the unique (householdId, key) index to let at most one
+// concurrent request win that insert. Only the winner proceeds to actually
+// create the entity. This closes a real race in the original version,
+// where two truly concurrent requests with the same key could both pass a
+// "does a result already exist?" check (finding nothing yet), both create
+// the entity, and only THEN collide on storing the idempotency record —
+// by which point the duplicate entity already existed in the database.
 function idempotencyKeyFrom(req) {
   const key = req.headers["idempotency-key"];
   if (typeof key !== "string") return null;
@@ -293,19 +309,65 @@ function idempotencyKeyFrom(req) {
   if (!trimmed || trimmed.length > 100) return null;
   return trimmed;
 }
-async function findIdempotentReplay(householdId, key) {
-  if (!key) return null;
-  return idempotencyCol.findOne({ householdId, key });
+
+// If a claim has been "pending" this long, the original attempt almost
+// certainly crashed or timed out before finishing — long enough that no
+// legitimate request should still be in flight, short enough that a
+// genuinely stuck key doesn't block retries for the rest of the 7-day
+// idempotency window.
+const IDEMPOTENCY_PENDING_STALE_MS = 30 * 1000;
+
+// Returns { claimed: true } if this call may proceed to create the entity,
+// or { claimed: false, existing } if it must not — either because another
+// request already completed (existing.status/body is the response to
+// replay) or because one is still genuinely in flight (existing.status
+// === "pending", caller should ask the client to retry shortly).
+async function claimIdempotencyKey(householdId, key) {
+  if (!key) return { claimed: true, existing: null };
+  const now = new Date();
+  try {
+    await idempotencyCol.insertOne({ householdId, key, status: "pending", body: null, createdAt: now });
+    return { claimed: true, existing: null };
+  } catch (e) {
+    if (e.code !== 11000) throw e;
+  }
+  const existing = await idempotencyCol.findOne({ householdId, key });
+  const decision = decideIdempotencyClaim(existing, now.getTime(), IDEMPOTENCY_PENDING_STALE_MS);
+  if (decision.action === "claim") return { claimed: true, existing: null };
+  if (decision.action === "replay" || decision.action === "wait") return { claimed: false, existing };
+  // "steal": atomically reclaim the stale pending record (matching on its
+  // original createdAt so a third racing request can't also win the steal).
+  const stolen = await idempotencyCol.findOneAndUpdate(
+    { householdId, key, status: "pending", createdAt: decision.createdAt },
+    { $set: { createdAt: now } }
+  );
+  return stolen ? { claimed: true, existing: null } : { claimed: false, existing };
 }
-async function storeIdempotentResult(householdId, key, status, body) {
+
+async function finalizeIdempotencyKey(householdId, key, status, body) {
   if (!key) return;
   try {
-    await idempotencyCol.insertOne({ householdId, key, status, body, createdAt: new Date() });
-  } catch (e) {
-    // Duplicate key = a concurrent retry already stored it first — harmless,
-    // that's the same replay this request would have gotten anyway.
-    if (e.code !== 11000) console.error("idempotency store failed:", e.message);
+    await idempotencyCol.updateOne({ householdId, key }, { $set: { status, body, completedAt: new Date() } });
+  } catch (e) { console.error("idempotency finalize failed:", e.message); }
+}
+
+// Shared response handling for a failed claim — used at every call site so
+// they don't each re-implement the pending-vs-completed branch. Returns
+// true if it already wrote a response (caller should `return` immediately
+// without proceeding), false if the caller won the claim and should go on
+// to create the entity.
+function handleIdempotencyClaim(claim, res) {
+  if (claim.claimed) return false;
+  if (claim.existing.status === "pending") {
+    // 425: another request with this exact key is still being processed —
+    // this is transient, not a permanent rejection, and is already in the
+    // client's retryable-status set (see outboxLogic.js), so the sync
+    // engine will back off and retry rather than giving up on it.
+    sendError(res, 425, "DUPLICATE_IN_PROGRESS", "Richiesta identica già in elaborazione, riprova tra poco");
+  } else {
+    res.status(claim.existing.status).json(claim.existing.body);
   }
+  return true;
 }
 
 // ─── Capability tokens (MOD-011) ───
@@ -1094,8 +1156,8 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
 app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
-    const replay = await findIdempotentReplay(req.householdId, idemKey);
-    if (replay) return res.status(replay.status).json(replay.body);
+    const claim = await claimIdempotencyKey(req.householdId, idemKey);
+    if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body || {};
     const householdPersonIds = (req.household.persone || []).map(p => p.id);
@@ -1131,7 +1193,7 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
     const id = result.insertedId.toString();
     delete doc.householdId;
     const responseBody = { id, ...doc };
-    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -1429,8 +1491,8 @@ app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, 
 app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAccess, async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
-    const replay = await findIdempotentReplay(req.householdId, idemKey);
-    if (replay) return res.status(replay.status).json(replay.body);
+    const claim = await claimIdempotencyKey(req.householdId, idemKey);
+    if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body;
     if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return res.status(400).json({ error: "Campi obbligatori: ticker, quantita, prezzoAcquisto" });
@@ -1451,7 +1513,7 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
     const result = await db.collection("positions").insertOne(doc);
     const id = result.insertedId.toString(); delete doc.householdId;
     const responseBody = { id, ...doc };
-    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -1521,8 +1583,8 @@ app.get("/api/goals", requireHousehold, async (req, res) => {
 app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
-    const replay = await findIdempotentReplay(req.householdId, idemKey);
-    if (replay) return res.status(replay.status).json(replay.body);
+    const claim = await claimIdempotencyKey(req.householdId, idemKey);
+    if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body;
     if (!b.nome || !b.targetAmount) return sendError(res, 400, "MISSING_FIELDS", "Campi obbligatori: nome, targetAmount");
@@ -1546,7 +1608,7 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
     const id = result.insertedId.toString();
     delete doc.householdId;
     const responseBody = { id, ...doc };
-    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -1596,8 +1658,8 @@ app.get("/api/accounts", requireHousehold, async (req, res) => {
 app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
-    const replay = await findIdempotentReplay(req.householdId, idemKey);
-    if (replay) return res.status(replay.status).json(replay.body);
+    const claim = await claimIdempotencyKey(req.householdId, idemKey);
+    if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body;
     if (!b.nome) return res.status(400).json({ error: "Campo obbligatorio: nome" });
@@ -1613,7 +1675,7 @@ app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
     const id = result.insertedId.toString();
     delete doc.householdId;
     const responseBody = { id, ...doc };
-    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -1896,8 +1958,8 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     // Idempotency (MOD-004): same key + household → replay the original
     // result instead of inserting a second transaction on retry.
     const idemKey = idempotencyKeyFrom(req);
-    const replay = await findIdempotentReplay(hid, idemKey);
-    if (replay) return res.status(replay.status).json(replay.body);
+    const claim = await claimIdempotencyKey(hid, idemKey);
+    if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body || {};
     if (!["uscita", "entrata"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido (uscita/entrata)" });
@@ -1960,7 +2022,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     await transactionsCol.insertOne(doc);
     await auditCol.insertOne({ householdId: hid, action: "widget_transaction_added", tipo: b.tipo, importo, at: new Date() });
     const responseBody = { ok: true };
-    await storeIdempotentResult(hid, idemKey, 201, responseBody);
+    await finalizeIdempotencyKey(hid, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -2058,8 +2120,8 @@ app.get("/api/trips", requireHousehold, async (req, res) => {
 app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
-    const replay = await findIdempotentReplay(req.householdId, idemKey);
-    if (replay) return res.status(replay.status).json(replay.body);
+    const claim = await claimIdempotencyKey(req.householdId, idemKey);
+    if (handleIdempotencyClaim(claim, res)) return;
 
     const t = req.body;
     const doc = {
@@ -2078,7 +2140,7 @@ app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
     const result = await tripsCol.insertOne(doc);
     delete doc.householdId;
     const responseBody = { id: result.insertedId.toString(), ...doc };
-    await storeIdempotentResult(req.householdId, idemKey, 201, responseBody);
+    await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.json(responseBody);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });

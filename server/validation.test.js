@@ -9,6 +9,7 @@ import {
   buildTripExpense,
   encodeTransactionsCursor,
   decodeTransactionsCursor,
+  decideIdempotencyClaim,
   ValidationError,
 } from "./validation.js";
 
@@ -326,5 +327,43 @@ describe("transaction pagination cursor (MOD-006)", () => {
     const a = encodeTransactionsCursor("2026-03-01", validId);
     const b = encodeTransactionsCursor("2026-03-02", validId);
     expect(a).not.toBe(b);
+  });
+});
+
+describe("decideIdempotencyClaim (MOD-004, hardened)", () => {
+  const STALE_MS = 30000;
+
+  it("claims when nothing exists (won the atomic insert, or raced past the read too)", () => {
+    expect(decideIdempotencyClaim(null, 1000, STALE_MS)).toEqual({ action: "claim" });
+  });
+
+  it("replays a completed record instead of re-creating the entity", () => {
+    const existing = { status: 201, body: { id: "tx1" }, createdAt: new Date(500) };
+    expect(decideIdempotencyClaim(existing, 1000, STALE_MS)).toEqual({ action: "replay" });
+  });
+
+  it("waits on a pending record that's still fresh (genuinely in flight)", () => {
+    const existing = { status: "pending", createdAt: new Date(1000) };
+    const decision = decideIdempotencyClaim(existing, 1000 + STALE_MS - 1, STALE_MS);
+    expect(decision.action).toBe("wait");
+  });
+
+  it("steals a pending record older than the staleness window (presumed crashed)", () => {
+    const createdAt = new Date(1000);
+    const existing = { status: "pending", createdAt };
+    const decision = decideIdempotencyClaim(existing, 1000 + STALE_MS + 1, STALE_MS);
+    expect(decision).toEqual({ action: "steal", createdAt });
+  });
+
+  it("treats the exact staleness boundary as stale (steals, not waits) — age >= staleMs", () => {
+    const createdAt = new Date(1000);
+    const existing = { status: "pending", createdAt };
+    const decision = decideIdempotencyClaim(existing, 1000 + STALE_MS, STALE_MS);
+    expect(decision).toEqual({ action: "steal", createdAt });
+  });
+
+  it("replays a non-201 completed status too (e.g. a stored validation rejection)", () => {
+    const existing = { status: 400, body: { error: "bad" }, createdAt: new Date(500) };
+    expect(decideIdempotencyClaim(existing, 1000, STALE_MS)).toEqual({ action: "replay" });
   });
 });

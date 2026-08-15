@@ -36,8 +36,11 @@ export function isPlainId(v, maxLen = 50) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= maxLen;
 }
 
-// Amounts are normalized to cents on the way in so floating-point noise
-// (0.1 + 0.2 style artifacts) never propagates into stored balances.
+// Rounded to 2 decimal places on the way in so floating-point noise
+// (0.1 + 0.2 style artifacts) never propagates into stored balances. This
+// still stores a decimal number (e.g. 12.34), not integer minor units
+// (1234) — a true integer-cents money model is a separate, larger change
+// (see MOD-016 in the modification plan) not yet implemented.
 export function validateAmount(raw) {
   const n = typeof raw === "number" ? raw : parseFloat(raw);
   if (!Number.isFinite(n)) {
@@ -302,4 +305,23 @@ export function decodeTransactionsCursor(cursor) {
     if (typeof d !== "string" || typeof i !== "string" || !OBJECT_ID_RE.test(i)) return null;
     return { data: d, id: i };
   } catch { return null; }
+}
+
+// ─── Idempotency claim decision (MOD-004, hardened) ───
+// Pure decision core for claimIdempotencyKey in index.js: given whatever
+// existing idempotency record was found after losing the initial atomic
+// insert race (or null, if none), decide what the losing request should
+// do. Kept separate from the actual database reads/writes so this
+// "who wins" logic — the part most worth getting exactly right — can be
+// unit-tested without a database.
+//   - no existing record -> safe to claim (raced past it entirely)
+//   - a completed record -> replay its stored response
+//   - a pending record younger than staleMs -> genuinely in flight, wait
+//   - a pending record older than staleMs -> presumed crashed, steal it
+export function decideIdempotencyClaim(existing, nowMs, staleMs) {
+  if (!existing) return { action: "claim" };
+  if (existing.status !== "pending") return { action: "replay" };
+  const ageMs = nowMs - new Date(existing.createdAt).getTime();
+  if (ageMs < staleMs) return { action: "wait" };
+  return { action: "steal", createdAt: existing.createdAt };
 }
