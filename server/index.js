@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, ValidationError } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, ValidationError } from "./validation.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -209,8 +209,28 @@ async function connectDB() {
   await idempotencyCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7d: comfortably longer than any realistic retry/reconnect window
   await transactionsCol.createIndex({ householdId: 1, data: -1 });
   await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
+  // MOD-020: generaRicorrentiDovute() queries this on every periodic tick
+  // (RICORRENTI_CHECK_MS) across every household — without an index that's
+  // a full collection scan of every transaction that has ever had a
+  // ricorrenza field, on every tick, forever.
+  await transactionsCol.createIndex({ "ricorrenza.prossimaData": 1 }, { sparse: true });
+  // MOD-007: enforces that the SAME recurring occurrence (one parent
+  // transaction + one due date) can never be inserted twice, no matter how
+  // many server instances or retries race to generate it — see
+  // generaRicorrentiDovute below. This is the actual fix; the in-process
+  // ricorrentiRunning flag that follows is only an optimization to avoid
+  // redundant work within a single instance, not a correctness guarantee.
+  await transactionsCol.createIndex({ recurrenceOccurrenceKey: 1 }, { unique: true, sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
   await tripsCol.createIndex({ householdId: 1 });
+  // MOD-020/MOD-008: chiudiViaggiScaduti() below scans across every
+  // household's trips on every tick looking for unsettled, past-due ones.
+  await tripsCol.createIndex({ settled: 1, endDate: 1 });
+  // MOD-020: every transaction and account read/write filters by
+  // householdId; these two collections had no index on it at all.
+  await db.collection("accounts").createIndex({ householdId: 1 });
+  await db.collection("goals").createIndex({ householdId: 1 });
+  await db.collection("positions").createIndex({ householdId: 1 });
   // MOD-011: capability tokens (widget key, calendar key, trip share token)
   // are stored as a SHA-256 hash, never plaintext — see hashCapabilityToken
   // below. The legacy plaintext fields (shareToken/calendarKey/widgetKey)
@@ -401,26 +421,47 @@ function nextRicorrenzaData(dateStr, frequenza) {
 
 let ricorrentiRunning = false;
 export async function generaRicorrentiDovute() {
-  if (ricorrentiRunning || !transactionsCol) return;
+  if (ricorrentiRunning || !transactionsCol) return; // in-process optimization only — see index comment above for the real guarantee
   ricorrentiRunning = true;
   try {
     const oggi = new Date().toISOString().slice(0, 10);
     const dovute = await transactionsCol.find({ "ricorrenza.prossimaData": { $lte: oggi }, deletedAt: null }).toArray();
+    let generated = 0;
     for (const t of dovute) {
-      const child = { ...t, data: t.ricorrenza.prossimaData, createdAt: new Date() };
+      // One key per (parent transaction, due date) — the unique index on it
+      // is what actually prevents two instances (or a retry) from both
+      // inserting this occurrence (MOD-007).
+      const occurrenceKey = `${t._id.toString()}:${t.ricorrenza.prossimaData}`;
+      const child = { ...t, data: t.ricorrenza.prossimaData, createdAt: new Date(), recurrenceOccurrenceKey: occurrenceKey };
       delete child._id;
       delete child.ricorrenza;
       delete child.updatedAt;
       if (t.ricorrenza.variabile) child.daVerificare = true;
-      await transactionsCol.insertOne(child);
+      try {
+        await transactionsCol.insertOne(child);
+        generated++;
+      } catch (err) {
+        if (err?.code === 11000) {
+          // Another instance (or an earlier, still-in-flight attempt) already
+          // generated this exact occurrence. Nothing more to do for the
+          // insert — still fall through to advance prossimaData below.
+          console.log(`Ricorrenti: occorrenza ${occurrenceKey} già generata, salto`);
+        } else {
+          console.error(`Ricorrenti: errore generazione occorrenza ${occurrenceKey}:`, err);
+          continue; // leave prossimaData untouched so this occurrence is retried on the next tick
+        }
+      }
       const updatedRicorrenza = {
         frequenza: t.ricorrenza.frequenza,
         prossimaData: nextRicorrenzaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza),
         variabile: t.ricorrenza.variabile,
       };
+      // Idempotent regardless of races: every instance computes the same
+      // next date from the same current one, so a duplicate update just
+      // writes the same value again.
       await transactionsCol.updateOne({ _id: t._id }, { $set: { ricorrenza: updatedRicorrenza } });
     }
-    if (dovute.length > 0) console.log(`Ricorrenti: generate ${dovute.length} transazioni`);
+    if (generated > 0) console.log(`Ricorrenti: generate ${generated} transazioni`);
   } catch (e) {
     console.error("generaRicorrentiDovute error:", e);
   } finally {
@@ -486,30 +527,43 @@ function calcolaSettleViaggioServer(trip) {
 
 let tripAutoCloseRunning = false;
 export async function chiudiViaggiScaduti() {
-  if (tripAutoCloseRunning || !tripsCol) return;
+  if (tripAutoCloseRunning || !tripsCol) return; // in-process optimization only — see below for the real guarantee
   tripAutoCloseRunning = true;
   try {
     const oggi = new Date().toISOString().slice(0, 10);
-    const scaduti = await tripsCol.find({ settled: false, endDate: { $ne: null, $lt: oggi } }).toArray();
-    for (const trip of scaduti) {
-      const nameOf = (id) => (trip.partecipanti || []).find(p => p.id === id)?.nome || id;
-      const settlements = calcolaSettleViaggioServer(trip);
+    const scaduti = await tripsCol.find({ settled: false, endDate: { $ne: null, $lt: oggi } }, { projection: { _id: 1 } }).toArray();
+    let closed = 0;
+    for (const { _id } of scaduti) {
+      // MOD-008: atomically claim the trip — settled:false -> true in one
+      // database operation. If a second instance (or an overlapping tick)
+      // races on the same trip, at most one findOneAndUpdate call actually
+      // matches a settled:false document; the loser gets null back and
+      // does nothing further, so settlement transactions can never be
+      // generated twice for the same trip.
+      const claimed = await tripsCol.findOneAndUpdate(
+        { _id, settled: false },
+        { $set: { settled: true, autoSettled: true, updatedAt: new Date() } },
+        { returnDocument: "after" }
+      );
+      if (!claimed) continue; // already claimed by another instance/tick since the query above
+      const nameOf = (id) => (claimed.partecipanti || []).find(p => p.id === id)?.nome || id;
+      const settlements = calcolaSettleViaggioServer(claimed);
       for (const s of settlements) {
         await transactionsCol.insertOne({
-          householdId: trip.householdId,
+          householdId: claimed.householdId,
           tipo: "saldo",
           importo: s.importo,
           categoria: "saldo_viaggio",
-          descrizione: `Saldo viaggio: ${trip.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
+          descrizione: `Saldo viaggio: ${claimed.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
           data: oggi,
           pagatoDa: s.da,
           ricevutoDa: s.a,
           createdAt: new Date(),
         });
       }
-      await tripsCol.updateOne({ _id: trip._id }, { $set: { settled: true, autoSettled: true, updatedAt: new Date() } });
+      closed++;
     }
-    if (scaduti.length > 0) console.log(`Viaggi: chiusi automaticamente ${scaduti.length} viaggi scaduti`);
+    if (closed > 0) console.log(`Viaggi: chiusi automaticamente ${closed} viaggi scaduti`);
   } catch (e) {
     console.error("chiudiViaggiScaduti error:", e);
   } finally {
@@ -566,9 +620,14 @@ const writeLimiter = rateLimit({
   message: { error: "Troppe operazioni, riprova tra un minuto" },
 });
 
+// MOD-006: cursor pagination (see GET /api/transactions) means each request
+// is now a bounded, cheap query instead of one unbounded dump, so a more
+// generous limit is appropriate here than it was for the old single-shot
+// endpoint — a full-history drain for an active household can take several
+// requests in quick succession, and that's now the *normal* case, not abuse.
 const exportLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 30,
   standardHeaders: true, legacyHeaders: false,
   message: { error: "Troppe richieste, riprova tra un minuto" },
 });
@@ -963,9 +1022,21 @@ app.get("/api/exchange-rates", requireHousehold, async (req, res) => {
 });
 
 // ─── GET transactions ───
+// MOD-006: cursor pagination on (data desc, _id desc) — the same sort the
+// app has always used. The cursor encodes exactly where the previous page
+// stopped (date + id, not just an offset), so pages stay stable and gap-
+// free even with many transactions sharing the same date, and even if
+// transactions are inserted/deleted between page requests. Response shape
+// is { transactions, nextCursor, hasMore } rather than a bare array; the
+// only caller (src/api.js fetchTransactions) drains every page to build
+// its full local cache, so callers elsewhere never see a silently-
+// truncated history the way the old hardcoded 500-record cap allowed.
+const TRANSACTIONS_PAGE_SIZE_DEFAULT = 1000;
+const TRANSACTIONS_PAGE_SIZE_MAX = 2000;
+
 app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) => {
   try {
-    const { tipo, categoria, pagatoDa, meseAnno, limit } = req.query;
+    const { tipo, categoria, pagatoDa, contoId, meseAnno, from, to, cursor } = req.query;
     const filter = { householdId: req.householdId, deletedAt: null };
     if (tipo) filter.tipo = tipo;
     if (categoria) filter.categoria = categoria;
@@ -973,9 +1044,44 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
     if (meseAnno) {
       const [a, m] = meseAnno.split("-").map(Number);
       filter.data = { $gte: new Date(a, m - 1, 1).toISOString().slice(0, 10), $lte: new Date(a, m, 0).toISOString().slice(0, 10) };
+    } else {
+      const dataRange = {};
+      if (typeof from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(from)) dataRange.$gte = from;
+      if (typeof to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(to)) dataRange.$lte = to;
+      if (Object.keys(dataRange).length > 0) filter.data = dataRange;
     }
-    const docs = await transactionsCol.find(filter).sort({ data: -1, _id: -1 }).limit(parseInt(limit) || 500).toArray();
-    res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
+
+    // Both an account filter and a cursor need their own $or clause; combine
+    // via $and rather than two top-level $or keys (which MongoDB — and JS
+    // object literals — can't express, the second would just clobber the first).
+    const andClauses = [];
+    if (contoId) andClauses.push({ $or: [{ contoId }, { contoDa: contoId }, { contoA: contoId }] });
+    if (cursor) {
+      const decoded = decodeTransactionsCursor(cursor);
+      if (!decoded) return sendError(res, 400, "INVALID_CURSOR", "Cursore di paginazione non valido");
+      andClauses.push({ $or: [
+        { data: { $lt: decoded.data } },
+        { data: decoded.data, _id: { $lt: new ObjectId(decoded.id) } },
+      ] });
+    }
+    if (andClauses.length > 0) filter.$and = andClauses;
+
+    let limit = parseInt(req.query.limit) || TRANSACTIONS_PAGE_SIZE_DEFAULT;
+    limit = Math.min(Math.max(limit, 1), TRANSACTIONS_PAGE_SIZE_MAX);
+
+    // Fetch one extra row purely to learn whether there's a next page,
+    // without a separate count query.
+    const docs = await transactionsCol.find(filter).sort({ data: -1, _id: -1 }).limit(limit + 1).toArray();
+    const hasMore = docs.length > limit;
+    const page = hasMore ? docs.slice(0, limit) : docs;
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last ? encodeTransactionsCursor(last.data, last._id.toString()) : null;
+
+    res.json({
+      transactions: page.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }),
+      nextCursor,
+      hasMore,
+    });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
@@ -2004,6 +2110,31 @@ app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) =>
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
+// ─── Embedded array size guard (MOD-019) ───
+// Trip expenses are embedded in the trip document — simple and fast for
+// the normal case (a real trip's handful-to-low-hundreds of expenses).
+// MongoDB's 16MB document limit and $push's document-rewrite cost mean
+// that stops being appropriate at scale. Rather than migrate to a
+// dedicated trip_expenses collection now (a real schema change, only
+// worth it if any household actually approaches these numbers — the
+// planned path if so), this is a cheap early-warning/hard-stop so a huge
+// array can never silently creep up on the document limit unnoticed.
+const TRIP_EXPENSE_WARN_THRESHOLD = 300;
+const TRIP_EXPENSE_HARD_LIMIT = 2000;
+function checkTripExpenseArraySize(trip) {
+  const count = (trip.expenses || []).length;
+  if (count >= TRIP_EXPENSE_HARD_LIMIT) {
+    throw new ValidationError(
+      "TRIP_TOO_MANY_EXPENSES",
+      "Questo viaggio ha raggiunto il numero massimo di spese registrabili; chiudilo o creane uno nuovo per continuare.",
+      { count }
+    );
+  }
+  if (count >= TRIP_EXPENSE_WARN_THRESHOLD && count % 100 === 0) {
+    console.warn(`Trip ${trip._id}: ${count} spese incorporate nel documento — vale la pena valutare una collection dedicata (MOD-019) se questo numero continua a crescere`);
+  }
+}
+
 app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
@@ -2012,8 +2143,10 @@ app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, 
     if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
 
     let expense;
-    try { expense = buildTripExpense(req.body, trip); }
-    catch (ve) {
+    try {
+      checkTripExpenseArraySize(trip);
+      expense = buildTripExpense(req.body, trip);
+    } catch (ve) {
       if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
       throw ve;
     }
@@ -2141,8 +2274,10 @@ app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req,
     if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
 
     let expense;
-    try { expense = buildTripExpense(req.body, trip); }
-    catch (ve) {
+    try {
+      checkTripExpenseArraySize(trip);
+      expense = buildTripExpense(req.body, trip);
+    } catch (ve) {
       if (ve instanceof ValidationError) {
         // Friendlier message for the one case a guest is actually likely to
         // hit: trying to log an expense before joining the trip.

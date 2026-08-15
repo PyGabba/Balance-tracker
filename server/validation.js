@@ -281,3 +281,25 @@ export function buildTripExpense(body, trip) {
     splits,
   };
 }
+
+// ─── Transaction list pagination (MOD-006) ───
+// Cursor encodes exactly where a (data desc, _id desc) page stopped — date
+// plus id, not just an offset — so pages stay stable and gap-free even
+// with many transactions sharing a date, and even if rows are inserted or
+// deleted between page requests. Opaque to the client; it just echoes back
+// whatever it was given. A 24-hex-char check stands in for ObjectId.isValid
+// here rather than importing the mongodb driver into this dependency-free
+// module — same validation, no extra dependency.
+const OBJECT_ID_RE = /^[0-9a-f]{24}$/i;
+
+export function encodeTransactionsCursor(data, id) {
+  return Buffer.from(JSON.stringify({ d: data, i: id })).toString("base64url");
+}
+
+export function decodeTransactionsCursor(cursor) {
+  try {
+    const { d, i } = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (typeof d !== "string" || typeof i !== "string" || !OBJECT_ID_RE.test(i)) return null;
+    return { data: d, id: i };
+  } catch { return null; }
+}

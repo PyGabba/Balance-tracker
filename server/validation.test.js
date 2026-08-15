@@ -7,6 +7,8 @@ import {
   computeValidSplits,
   validateTransactionInput,
   buildTripExpense,
+  encodeTransactionsCursor,
+  decodeTransactionsCursor,
   ValidationError,
 } from "./validation.js";
 
@@ -288,5 +290,41 @@ describe("buildTripExpense", () => {
   it("has no cross-trip leakage: a participant valid on one trip is rejected on another", () => {
     const otherTrip = { partecipanti: [{ id: "m", nome: "Marco" }] };
     expect(() => buildTripExpense({ pagatoDa: "g", importo: 10 }, otherTrip)).toThrow(ValidationError);
+  });
+});
+
+describe("transaction pagination cursor (MOD-006)", () => {
+  const validId = "507f1f77bcf86cd799439011";
+
+  it("round-trips a date + id", () => {
+    const cursor = encodeTransactionsCursor("2026-03-01", validId);
+    expect(decodeTransactionsCursor(cursor)).toEqual({ data: "2026-03-01", id: validId });
+  });
+
+  it("is opaque base64url, not the raw values", () => {
+    const cursor = encodeTransactionsCursor("2026-03-01", validId);
+    expect(cursor).not.toContain("2026-03-01");
+    expect(cursor).not.toContain(validId);
+  });
+
+  it("rejects garbage input instead of throwing", () => {
+    expect(decodeTransactionsCursor("not-a-real-cursor")).toBeNull();
+    expect(decodeTransactionsCursor("")).toBeNull();
+  });
+
+  it("rejects a cursor with a malformed id", () => {
+    const fake = Buffer.from(JSON.stringify({ d: "2026-03-01", i: "not-an-object-id" })).toString("base64url");
+    expect(decodeTransactionsCursor(fake)).toBeNull();
+  });
+
+  it("rejects a cursor missing a field", () => {
+    const fake = Buffer.from(JSON.stringify({ d: "2026-03-01" })).toString("base64url");
+    expect(decodeTransactionsCursor(fake)).toBeNull();
+  });
+
+  it("produces a different cursor for different inputs (pages don't collide)", () => {
+    const a = encodeTransactionsCursor("2026-03-01", validId);
+    const b = encodeTransactionsCursor("2026-03-02", validId);
+    expect(a).not.toBe(b);
   });
 });

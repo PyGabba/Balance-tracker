@@ -470,19 +470,48 @@ export function getHouseholdName() {
 // Returns cached (IndexedDB) data immediately, then syncs from server in
 // background. Pass onSync callback to update UI when the merged server
 // snapshot arrives.
+// ─── Transactions ───
+// Routed through the offline outbox (MOD-003) — see lib/syncEngine.js.
+// Returns cached (IndexedDB) data immediately, then syncs from server in
+// background. Pass onSync callback to update UI when the merged server
+// snapshot arrives.
+//
+// MOD-006: the server now paginates (cursor-based). Statistics, search,
+// and the outbox's mergeServerSnapshot all rely on the local cache holding
+// the household's FULL history, so this drains every page rather than
+// exposing pagination up to callers — the fix for "500-transaction limit
+// while the frontend supports all-history views" is that the limit no
+// longer silently truncates what ends up in that cache, not that every
+// caller now has to think about pages.
+async function fetchAllTransactionPages() {
+  let all = [];
+  let cursor = null;
+  let guard = 0;
+  do {
+    const params = new URLSearchParams({ limit: "1000" });
+    if (cursor) params.set("cursor", cursor);
+    const res = await fetch(`${API_BASE}/api/transactions?${params.toString()}`, {
+      headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(15000),
+    });
+    if (await checkAuthError(res)) return null;
+    if (!res.ok) return null;
+    const page = await res.json();
+    all = all.concat(page.transactions || []);
+    cursor = page.hasMore ? page.nextCursor : null;
+    guard++;
+  } while (cursor && guard < 200); // 200 pages * 1000 = 200k transactions safety cap against a runaway loop
+  return all;
+}
+
 export async function fetchTransactions(onSync) {
   const cached = await getCachedEntities(syncCtx, "transactions");
   if (currentHousehold && apiAvailable !== false) {
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/transactions`, {
-          headers: authHeaders(), credentials: "include", signal: AbortSignal.timeout(15000),
-        });
-        if (await checkAuthError(res)) return;
-        if (!res.ok) return;
-        const serverData = await res.json();
+        const all = await fetchAllTransactionPages();
+        if (all == null) return; // auth error or a page request failed — background sync already logged/handled it
         apiAvailable = true;
-        const merged = await fetchAndMergeSnapshot(syncCtx, "transactions", serverData);
+        const merged = await fetchAndMergeSnapshot(syncCtx, "transactions", all);
         if (onSync) onSync(merged);
       } catch (err) {
         console.error("fetchTransactions (background sync):", err);
