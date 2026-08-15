@@ -201,3 +201,47 @@ export function calcolaSettleViaggio(trip) {
   }
   return settlements;
 }
+
+// Previsione spesa del mese prossimo: media mobile semplice sugli ultimi N
+// mesi COMPLETI (il mese in corso è escluso perché parziale — includerlo
+// abbasserebbe artificialmente la media). Include anche una ripartizione per
+// categoria, calcolata con la stessa media sulle stesse categorie.
+export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Date(), months = 3) {
+  const monthKeys = [];
+  for (let i = 1; i <= months; i++) {
+    const d = new Date(oggi.getFullYear(), oggi.getMonth() - i, 1);
+    monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  const totalsByMonth = {};
+  const categoryTotalsByMonth = {};
+  for (const key of monthKeys) { totalsByMonth[key] = 0; categoryTotalsByMonth[key] = {}; }
+
+  for (const t of transazioni) {
+    if (t.tipo !== "uscita" || !t.data) continue;
+    const key = t.data.slice(0, 7);
+    if (!(key in totalsByMonth)) continue;
+    totalsByMonth[key] += t.importo;
+    const cat = t.categoria || "altro";
+    categoryTotalsByMonth[key][cat] = (categoryTotalsByMonth[key][cat] || 0) + t.importo;
+  }
+
+  const monthsWithData = monthKeys.filter(k => totalsByMonth[k] > 0);
+  const monthsUsed = monthsWithData.length;
+  if (monthsUsed === 0) return { forecast: 0, monthsUsed: 0, perCategory: [] };
+
+  const sumTotal = monthsWithData.reduce((s, k) => s + totalsByMonth[k], 0);
+  const forecast = Math.round((sumTotal / monthsUsed) * 100) / 100;
+
+  const catIds = new Set();
+  for (const k of monthsWithData) for (const cid of Object.keys(categoryTotalsByMonth[k])) catIds.add(cid);
+
+  const perCategory = [...catIds].map(id => {
+    const sum = monthsWithData.reduce((s, k) => s + (categoryTotalsByMonth[k][id] || 0), 0);
+    const valore = Math.round((sum / monthsUsed) * 100) / 100;
+    const cat = categorie.find(c => c.id === id);
+    return { id, nome: cat?.nome || id, emoji: cat?.emoji || "📦", colore: cat?.colore || "#888", valore };
+  }).filter(c => c.valore > 0).sort((a, b) => b.valore - a.valore);
+
+  return { forecast, monthsUsed, perCategory };
+}

@@ -3,7 +3,7 @@ import { App as CapApp } from "@capacitor/app";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, login, logout, register, changePin, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, wakeupServer, deleteHousehold, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchTrips, addTrip, updateTrip, deleteTrip, addTripExpense, deleteTripExpense, fetchAccounts, addAccount, updateAccount, deleteAccount, downloadBackup, restoreBackup, fetchTripCategories, saveTripCategories, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, requestPinReset, confirmPinReset, setRecoveryEmail, fetchHousehold, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, createTripShareLink, revokeTripShareLink, fetchSharedTrip, joinSharedTrip, addSharedTripExpense, updateValutaBase, fetchExchangeRates } from "./api.js";
-import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./lib/finance.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses } from "./lib/finance.js";
 import { LANGUAGES, getLang, setLang, t, mese, detectGuestLang } from "./lib/i18n.js";
 import { toast, ToastHost } from "./components/Toast.jsx";
 
@@ -2795,6 +2795,11 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals, lang = 
   if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catDown.curr)})` });
   if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: "#6C5CE7", text: `${t(lang, "stats.dailyAverage")}: ${formattaValuta(mediaGiornaliera)}/${t(lang, "stats.perDay")}` });
 
+  // Previsione prossimo mese — media mobile sugli ultimi 3 mesi completi,
+  // sempre relativa a "oggi" (non al mese che l'utente sta visualizzando).
+  const forecast = forecastNextMonthExpenses(transazioni, categorie, oggi, 3);
+  const nextMonthDate = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 1);
+
   return (
     <div>
       <div style={{ padding: "14px 16px 20px" }}>
@@ -3069,6 +3074,41 @@ function StatsView({ transazioni, persone, meseOffset, categorie, goals, lang = 
       )}
 
       {perCategoria.length === 0 && <div style={{ color: "#555", textAlign: "center", padding: 40, fontSize: 14 }}>{t(lang, "stats.noDataThisMonth")}</div>}
+
+      {/* ─── Previsione prossimo mese ─── */}
+      <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: "1px solid #252538" }}>
+        <div style={{ fontSize: 12, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>
+          {t(lang, "stats.forecastTitle")} — {mese(nextMonthDate.getMonth(), lang)}
+        </div>
+        {forecast.monthsUsed === 0 ? (
+          <div style={{ fontSize: 13, color: "#666" }}>{t(lang, "stats.forecastNotEnoughData")}</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>
+              {formattaValuta(forecast.forecast)}
+            </div>
+            <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
+              {t(lang, "stats.forecastBasedOnPrefix")} {forecast.monthsUsed} {t(lang, "stats.forecastBasedOnSuffix")}
+            </div>
+            {forecast.perCategory.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>
+                  {t(lang, "stats.forecastByCategory")}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {forecast.perCategory.slice(0, 5).map(c => (
+                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>{c.emoji}</span>
+                      <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{c.nome}</span>
+                      <span style={{ fontSize: 12, color: "#aaa", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(c.valore)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* ─── Storico saldi 12 mesi ─── */}
       {(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi } from "./finance.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses } from "./finance.js";
 
 const persone = [
   { id: "g", nome: "Gabriele" },
@@ -226,5 +226,57 @@ describe("contaFiltriAttivi", () => {
     expect(contaFiltriAttivi({ tipo: "uscita", categoria: "cibo" })).toBe(2);
     expect(contaFiltriAttivi({ personaId: "g", contoId: "c1", minImporto: "10", maxImporto: "20" })).toBe(4);
     expect(contaFiltriAttivi({ minImporto: "abc" })).toBe(0);
+  });
+});
+
+describe("forecastNextMonthExpenses", () => {
+  const cats = [{ id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" }, { id: "casa", nome: "Casa", emoji: "🏠", colore: "#45B7D1" }];
+  const oggi = new Date(2026, 7, 20); // 20 agosto 2026 — mese in corso escluso
+
+  it("media semplice sugli ultimi 3 mesi completi", () => {
+    const tx = [
+      { tipo: "uscita", importo: 100, categoria: "cibo", data: "2026-05-10" },
+      { tipo: "uscita", importo: 200, categoria: "cibo", data: "2026-06-10" },
+      { tipo: "uscita", importo: 300, categoria: "cibo", data: "2026-07-10" },
+      { tipo: "uscita", importo: 999, categoria: "cibo", data: "2026-08-05" }, // mese in corso, escluso
+    ];
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
+    expect(r.forecast).toBe(200);
+    expect(r.monthsUsed).toBe(3);
+  });
+
+  it("entrate e trasferimenti non contano", () => {
+    const tx = [
+      { tipo: "uscita", importo: 100, categoria: "cibo", data: "2026-07-10" },
+      { tipo: "entrata", importo: 5000, categoria: "entrata", data: "2026-07-15" },
+      { tipo: "trasferimento", importo: 300, data: "2026-07-20" },
+    ];
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
+    expect(r.forecast).toBe(100);
+  });
+
+  it("nessuno storico → previsione zero", () => {
+    const r = forecastNextMonthExpenses([], cats, oggi);
+    expect(r).toEqual({ forecast: 0, monthsUsed: 0, perCategory: [] });
+  });
+
+  it("media solo sui mesi con dati, non sulla finestra intera", () => {
+    const tx = [
+      { tipo: "uscita", importo: 150, categoria: "cibo", data: "2026-07-10" },
+    ];
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
+    expect(r.forecast).toBe(150);
+    expect(r.monthsUsed).toBe(1);
+  });
+
+  it("ripartizione per categoria ordinata per valore decrescente", () => {
+    const tx = [
+      { tipo: "uscita", importo: 100, categoria: "cibo", data: "2026-07-01" },
+      { tipo: "uscita", importo: 400, categoria: "casa", data: "2026-07-02" },
+    ];
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
+    expect(r.perCategory.map(c => c.id)).toEqual(["casa", "cibo"]);
+    expect(r.perCategory[0].valore).toBe(400);
+    expect(r.perCategory[0].nome).toBe("Casa");
   });
 });
