@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { fetchSyncStatus, onSyncStatusChange, fetchFailedSyncOperations, discardSyncOperation, retrySyncOperation } from "../api.js";
 import { t } from "../lib/i18n.js";
 
@@ -21,6 +21,16 @@ export function SyncStatusBadge({ lang = "it" }) {
   const [open, setOpen] = useState(false);
   const [failedOps, setFailedOps] = useState([]);
   const [busyOpId, setBusyOpId] = useState(null);
+  const [panelTop, setPanelTop] = useState(null);
+  const buttonRef = useRef(null);
+
+  const toggleOpen = useCallback(() => {
+    setOpen(v => {
+      const next = !v;
+      if (next && buttonRef.current) setPanelTop(buttonRef.current.getBoundingClientRect().bottom + 8);
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     try { setStatus(await fetchSyncStatus()); } catch (e) { console.error("SyncStatusBadge refresh:", e); }
@@ -67,7 +77,7 @@ export function SyncStatusBadge({ lang = "it" }) {
 
   return (
     <div style={{ position: "relative" }}>
-      <button onClick={() => setOpen(v => !v)} title={label} style={{
+      <button ref={buttonRef} onClick={toggleOpen} title={label} style={{
         display: "flex", alignItems: "center", gap: 4, padding: "4px 8px",
         background: tone + "18", border: `1px solid ${tone}55`, borderRadius: 8,
         color: tone, fontSize: 11, fontWeight: 700, cursor: "pointer",
@@ -79,7 +89,8 @@ export function SyncStatusBadge({ lang = "it" }) {
 
       {open && (
         <div style={{
-          position: "absolute", top: "calc(100% + 8px)", right: 0, width: 280, zIndex: 50,
+          position: "fixed", top: panelTop ?? "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+          width: "min(280px, calc(100vw - 24px))", zIndex: 50,
           background: "#1a1a28", border: "1px solid #252538", borderRadius: 14,
           boxShadow: "0 12px 32px #000a", padding: 12,
         }}>

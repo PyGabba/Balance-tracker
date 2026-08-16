@@ -31,6 +31,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "fake-indexeddb": "^6.2.5",
+    "mongodb-memory-server": "^11.2.0",
+    "supertest": "^7.1.0",
     "vite": "^6.0.0",
     "vitest": "^4.1.10"
   }

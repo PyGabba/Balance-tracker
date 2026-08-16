@@ -4,6 +4,8 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from "mongodb";
 import { createHmac, createHash, randomUUID, randomBytes } from "crypto";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import dotenv from "dotenv";
 // Yahoo Finance disabled — manual prices only
 import jwt from "jsonwebtoken";
@@ -230,9 +232,14 @@ const COOKIE_OPTS = {
 };
 
 let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol, idempotencyCol;
-async function connectDB() {
-  const client = new MongoClient(MONGO_URI); await client.connect();
-  db = client.db(DB_NAME);
+// `mongoUri`/`dbName` default to the module-level env-derived values (the
+// production path) but can be overridden — this is what lets tests point
+// the exact same app at a disposable mongodb-memory-server instance instead
+// of a real database, without touching process.env or module-level state
+// (MOD-014).
+async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
+  const client = new MongoClient(mongoUri); await client.connect();
+  db = client.db(dbName);
   transactionsCol = db.collection("transactions");
   householdsCol = db.collection("households");
   locksCol = db.collection("login_locks");
@@ -316,7 +323,7 @@ async function connectDB() {
     { requiresPinChange: { $exists: false } },
     { $set: { requiresPinChange: true } }
   );
-  console.log("Connected: " + DB_NAME); return client;
+  logger.info("db_connected", { dbName }); return client;
 }
 
 // ─── Input sanitization ───
@@ -611,13 +618,17 @@ let trashPurgeRunning = false;
 export async function svuotaCestinoScaduto() {
   if (trashPurgeRunning || !transactionsCol) return;
   trashPurgeRunning = true;
+  let jobFailed = false, jobError = null;
   try {
     const soglia = new Date(Date.now() - TRASH_RETENTION_MS);
     const r = await transactionsCol.deleteMany({ deletedAt: { $ne: null, $lte: soglia } });
-    if (r.deletedCount > 0) console.log(`Cestino: eliminate definitivamente ${r.deletedCount} transazioni`);
+    if (r.deletedCount > 0) logger.info("trash_purge_job_completed", { deleted: r.deletedCount });
   } catch (e) {
-    console.error("svuotaCestinoScaduto error:", e);
+    jobFailed = true;
+    jobError = e?.message || String(e);
+    logger.error("trash_purge_job_failed", { error: jobError });
   } finally {
+    recordJobRun("trashPurge", { failed: jobFailed, error: jobError });
     trashPurgeRunning = false;
   }
 }
@@ -1036,7 +1047,11 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     }));
 
     const pinHash = await hashPin(pin);
-    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), email: emailNorm, createdAt: new Date() };
+    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), createdAt: new Date() };
+    // Sparse unique index on email requires the field to be ABSENT (not null)
+    // for docs without an email — a stored `null` still gets indexed, so a
+    // second no-email registration would collide on the first one.
+    if (emailNorm) doc.email = emailNorm;
     await householdsCol.insertOne(doc);
     const { token, jti } = signToken(householdId);
     await storeToken(jti, householdId);
@@ -2551,7 +2566,7 @@ function sanitizePartecipanti(arr) {
 async function start() {
   try {
     await connectDB();
-    app.listen(PORT, () => console.log(`Finanza Tracker API on :${PORT}`));
+    app.listen(PORT, () => logger.info("server_listening", { port: PORT }));
     verifyEmailSetup().catch(() => {}); // diagnostico, non deve mai bloccare l'avvio
     import("./keep-alive.js").catch(() => {});
     generaRicorrentiDovute();
@@ -2560,6 +2575,26 @@ async function start() {
     setInterval(svuotaCestinoScaduto, RICORRENTI_CHECK_MS);
     chiudiViaggiScaduti();
     setInterval(chiudiViaggiScaduti, RICORRENTI_CHECK_MS);
-  } catch (e) { console.error(e); process.exit(1); }
+  } catch (e) { logger.error("startup_failed", { error: e.message }); process.exit(1); }
 }
-start();
+
+// MOD-014: only bind a port / connect to the real database / start the
+// background-job intervals when this file is run directly (`node index.js`
+// or `node --watch index.js`, i.e. production and local dev) — not when
+// it's imported by a test file. Tests import `app` and call `connectDB(uri)`
+// themselves against a disposable mongodb-memory-server instance instead.
+//
+// Comparing realpath'd paths (not raw `import.meta.url` vs `process.argv[1]`
+// strings) matters here: on systems where the invocation path runs through
+// a symlink (e.g. macOS's /tmp -> /private/tmp), Node resolves
+// import.meta.url through the symlink but leaves process.argv[1] as typed,
+// so a naive string comparison silently mismatches and start() never runs.
+let isMainModule = false;
+try {
+  isMainModule = !!process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+} catch { /* argv[1] not a real file (e.g. some REPL/loader contexts) — not the main module */ }
+if (isMainModule) {
+  start();
+}
+
+export { app, connectDB };

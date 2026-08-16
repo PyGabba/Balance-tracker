@@ -1,321 +1,341 @@
-# Balance Tracker API Reference
+# Balance Tracker — API Reference
 
-This is the API contract for the Balance Tracker backend (`server/index.js`).
-It documents every endpoint, the authentication model, error shapes,
-pagination, idempotency, and rate limiting — the things that "just knowing
-the code" doesn't make obvious to a new contributor or an external
-integration. See also [`openapi.yaml`](./openapi.yaml) for a
-machine-readable schema of the core resources.
+This documents the HTTP API implemented in `server/index.js`. It reflects
+the code as of Phase 5 (MOD-024) — it does not describe an aspirational
+contract, it describes what the server actually does today, including the
+places where that's inconsistent (see [Known inconsistencies](#known-inconsistencies)).
 
-This document reflects the API as of the Phase 1–5 modification work
-(MOD-001 through MOD-024 in the modification plan). It is a snapshot, not
-generated from the code — if you change an endpoint's contract, update this
-file in the same change.
+See also [`openapi.yaml`](./openapi.yaml) for a machine-readable OpenAPI 3.0
+schema of the core resources (auth, transactions, accounts, goals,
+positions, trips + expenses/sharing, widget, admin metrics) — useful for
+Swagger UI/Postman import or codegen. It's a narrower, schema-first
+companion to this document, not a replacement for it; endpoints like
+backup, categories, and the admin blacklist are documented here only.
 
-## Contents
+## Base URL & transport
 
-- [Conventions](#conventions)
-- [Authentication](#authentication)
-- [Error shape](#error-shape)
-- [Pagination](#pagination)
-- [Idempotency](#idempotency)
-- [Rate limiting](#rate-limiting)
-- [Endpoint reference](#endpoint-reference)
-
----
-
-## Conventions
-
-- Base URL: relative paths (`/api/...`) proxied same-origin in production
-  (via Vercel); `VITE_API_URL` or `http://localhost:3001` in development.
-- All request/response bodies are JSON (`Content-Type: application/json`)
-  unless noted (the calendar feed returns `text/calendar`).
-- All amounts are decimal numbers (e.g. `12.34`), not integer minor units —
-  see MOD-016 in the modification plan for the not-yet-implemented
-  integer-cents model.
-- Dates are `YYYY-MM-DD` strings, not ISO datetimes, except where a field
-  is explicitly a full timestamp (e.g. `createdAt`).
-- Every response carries an `X-Request-Id` header. Include it when
-  reporting an issue — it correlates to the structured server logs
-  (`server/logger.js`, MOD-023).
+- All routes are prefixed `/api` except the CORS preflight catch-all.
+- JSON in, JSON out, except `GET /api/calendar.ics` (`text/calendar`).
+- CORS is restricted to a fixed allow-list (`ALLOWED_ORIGINS` + a Vercel
+  preview-deploy regex) with `credentials: true`. Same-origin requests
+  (the normal production path, via a Vercel proxy) never hit a CORS
+  preflight at all.
 
 ## Authentication
 
-The household is the authentication and data-sharing boundary — there are
-no per-user identities within a household (see MOD-025 for the
-not-yet-implemented per-user model). A household authenticates with a PIN.
+Two independent auth mechanisms are used, depending on the route:
 
-- **Session token**: issued by `POST /api/auth/login` or
-  `POST /api/auth/register`, set as an **httpOnly, Secure (in production),
-  SameSite=Strict** cookie named `token`. It is a JWT containing the
-  household id and a `jti` (JWT ID); the `jti` is also stored server-side
-  (`active_tokens` collection) so a session can be revoked (logout, PIN
-  change/reset) independent of the JWT's own expiry.
-- Every endpoint except `POST /api/auth/login`, `POST /api/auth/register`,
-  `POST /api/auth/forgot-pin/*`, the widget/calendar/trip-share endpoints
-  (which use their own capability tokens instead), and `GET /api/health`
-  requires this cookie via the `requireHousehold` middleware.
-- **Capability tokens** (widget key, calendar key, trip share token) are
-  separate, unrelated bearer credentials — see their respective sections
-  below. They do **not** grant access to the full API, only to the
-  specific narrow surface each was designed for.
-- **Admin endpoints** (`/api/admin/*`) use a completely separate mechanism:
-  an `X-Admin-Secret` header matching the `ADMIN_SECRET` environment
-  variable. Not related to household auth at all.
+1. **Household session (JWT cookie)** — most `/api/*` routes. Login/register
+   set an `httpOnly`, `sameSite=strict` cookie named `token` (JWT, HS256,
+   90-day expiry, revocable server-side via an `active_tokens` collection
+   keyed by the token's `jti`). Enforced by the `requireHousehold`
+   middleware. Sending the cookie is the only way to authenticate — there is
+   no `Authorization: Bearer` support despite `Authorization` being
+   allow-listed as a CORS header (see [Known inconsistencies](#known-inconsistencies)).
+   A revoked or expired session gets `401 SESSION_EXPIRED`; a missing cookie
+   gets `401 NOT_AUTHENTICATED`; a malformed/invalid JWT gets
+   `401 INVALID_TOKEN`.
+2. **Capability tokens (bearer secrets, no session)** — widget key, calendar
+   key, trip share token. Each is a 192-bit random token
+   (`randomBytes(24).toString("base64url")`), stored server-side only as a
+   SHA-256 hash, and passed by the client as a query string parameter
+   (`?key=...` for widget/calendar) or a URL path segment (`/trips/shared/:token`).
+   Holding the raw value grants exactly the access described below — there is
+   no household session involved. Trip share tokens additionally expire
+   30 days after creation (`TRIP_SHARE_TOKEN_TTL_DAYS`); an expired token is
+   treated identically to a non-existent one (`404`), not a distinct "expired"
+   error, so a client can't distinguish "wrong token" from "right token, too old."
 
-### Offline PIN verifier (client-side only)
+Also: `requireHousehold` enforces a **forced PIN-change gate** — if a
+household's `requiresPinChange` flag is set, every route except
+`PUT /api/auth/pin` and `POST /api/auth/logout` returns
+`403 PIN_CHANGE_REQUIRED` regardless of the token's validity.
 
-The client caches a PBKDF2-derived verifier of the PIN in `localStorage`
-purely to allow login-from-cache when the server is unreachable. This
-**never** proves identity to the server — the real credential check is
-always the server-side bcrypt comparison in `POST /api/auth/login`. See
-`src/api.js` for the threat-model comment (MOD-010).
+## Standard error shape
 
-## Error shape
+Introduced in MOD-022 (phase 3) via the `sendError(res, status, code, message, fields?)`
+helper:
 
-Two shapes currently coexist in the API (MOD-022 is a partial migration,
-not yet applied to every endpoint):
-
-**Legacy shape** (most endpoints):
 ```json
-{ "error": "Human-readable message" }
+{ "error": { "code": "UNKNOWN_ACCOUNT", "message": "Conto non valido: contoId", "fields": { "contoId": "..." } } }
 ```
 
-**Structured shape** (the authentication gate, login, and every endpoint
-touched during the security/scalability hardening work — transactions,
-goals, trip expenses, capability tokens, and others):
-```json
-{
-  "error": {
-    "code": "UNKNOWN_PARTICIPANT",
-    "message": "Human-readable, safe-to-display message",
-    "fields": { "pagatoDa": "some-id" }
-  }
-}
-```
-
-`fields` is present only when there's something specific to point at
-(which field failed validation, etc.) and is always safe to display —
-never a stack trace or raw database error.
-
-Clients should read the error message defensively: `src/api.js`'s
-`errorMessageFrom(body, fallback)` handles both shapes uniformly:
-```js
-const message = (typeof body?.error === "string" ? body.error : body?.error?.message) || fallback;
-```
-
-### Common error codes (structured shape)
-
-| Code | Meaning | Typical status |
-|---|---|---|
-| `NOT_AUTHENTICATED` | No session cookie | 401 |
-| `INVALID_TOKEN` | Session cookie present but invalid/malformed | 401 |
-| `SESSION_EXPIRED` | Valid JWT but the session was revoked (logout/PIN change elsewhere) | 401 |
-| `PIN_CHANGE_REQUIRED` | Login succeeded but a forced PIN change is pending | 403 |
-| `INVALID_PIN` | Login PIN didn't match | 401 |
-| `ACCESS_BLOCKED` | IP/device/PIN-hash on the permanent blacklist | 403 |
-| `RATE_LIMITED` | Login lockout after repeated failures | 429 |
-| `DUPLICATE_IN_PROGRESS` | Another request with the same Idempotency-Key is still being processed — retry shortly | 425 |
-| `INVALID_AMOUNT` / `INVALID_DATE` / `INVALID_TYPE` | Transaction field validation | 400 |
-| `UNKNOWN_PARTICIPANT` / `UNKNOWN_SPLIT_PARTICIPANT` / `UNKNOWN_TRIP_PARTICIPANT` | Referenced person doesn't belong to this household/trip | 400 |
-| `UNKNOWN_ACCOUNT` | Referenced account doesn't belong to this household | 400 |
-| `SPLIT_TOTAL_NOT_100` | Split quotas don't sum to 100 (± small tolerance) | 400 |
-| `TRANSFER_SAME_ACCOUNT` / `TRANSFER_ACCOUNTS_REQUIRED` | Transfer validation | 400 |
-| `EXCHANGE_RATE_UNAVAILABLE` | No usable exchange rate (fresh or stale cache) for a currency conversion | 422 / 503 |
-| `TRIP_TOO_MANY_EXPENSES` | Trip hit the 2000-expense hard limit (MOD-019) | 400 |
-| `INVALID_CURSOR` | Malformed pagination cursor | 400 |
-| `INTERNAL_ERROR` | Unexpected server error | 500 |
-
-Never exposed to clients: stack traces, raw MongoDB error text, or request
-payloads. Server-side logs (structured, MOD-023) carry the detail needed
-to debug a specific failure via its `X-Request-Id`.
-
-## Pagination
-
-Only `GET /api/transactions` is paginated today (MOD-006); every other
-list endpoint returns its full result set (reasonable for the current
-scale of accounts/goals/trips/positions per household — see MOD-020's
-review notes on the modification plan for the scaling story there).
-
-- Cursor-based, not offset-based. Sort order is always `data` (date)
-  descending, then `_id` descending as a tiebreaker.
-- Query params: `limit` (default 1000, max 2000), `cursor` (opaque,
-  base64url-encoded, echo back exactly what you were given), plus filters:
-  `tipo`, `categoria`, `pagatoDa`, `contoId`, `meseAnno` (`YYYY-MM`), or
-  `from`/`to` (`YYYY-MM-DD`, mutually exclusive with `meseAnno`).
-- Response: `{ "transactions": [...], "nextCursor": "..." | null, "hasMore": boolean }`.
-- To fetch everything: keep requesting with `cursor = nextCursor` while
-  `hasMore` is true. `src/api.js`'s `fetchTransactions` does exactly this
-  to build its local offline cache.
-
-## Idempotency
-
-Applies to the six creation endpoints that generate a real record with
-financial or scheduling consequences: `POST /api/transactions`,
-`POST /api/accounts`, `POST /api/goals`, `POST /api/trips`,
-`POST /api/positions`, `POST /api/widget/transaction`.
-
-- Send an `Idempotency-Key` header (any string up to 100 chars — the
-  client's offline outbox uses the operation's own UUID). Requests without
-  one proceed normally with no idempotency guarantee.
-- First request for a given `(household, key)` pair: processed normally,
-  the result is stored.
-- A retry with the **same key**: replays the stored result — the entity is
-  **not** created again. Works even for retries that arrive concurrently
-  (the claim itself, not just the final result, is atomic — see MOD-004's
-  hardening in the code comments above `claimIdempotencyKey`).
-- If another request with the same key is still being processed when a
-  concurrent one arrives, the second gets `425 DUPLICATE_IN_PROGRESS` —
-  retry after a short backoff (this status is in the client's
-  automatically-retryable set).
-- Idempotency records expire after 7 days (comfortably longer than any
-  realistic retry/reconnect window).
+`fields` is included only where relevant (mainly validation errors). This
+shape is used consistently by the authentication gate and by every route
+touched in phases 3+ (transactions, goals' account-ownership check, trip
+expenses, idempotency-conflict responses, etc). **Not every route uses it —
+see [Known inconsistencies](#known-inconsistencies).**
 
 ## Rate limiting
 
-Every write and most reads are rate-limited per IP (`express-rate-limit`).
-Approximate values as configured today — treat these as subject to change,
-not a contract:
+Every route is behind one of these `express-rate-limit` instances (per IP,
+`trust proxy: 1`):
 
-| Limiter | Window | Max |
-|---|---|---|
-| Login | — | Progressive lockout (IP + device + PIN-hash), see `checkLock`/`recordFail` |
-| Writes (transactions, accounts, goals, trips, positions) | 1 min | 120 |
-| Transaction list (paginated) | 1 min | 30 |
-| Widget read | 1 min | 30 |
-| Widget write | 1 min | 15 |
-| Trip share (read) | 1 min | 30 |
-| Trip share (write) | 1 min | 15 |
-| Admin | 15 min | 5 |
-| Quotes | 1 min | 5 |
+| Limiter | Window | Max | Applied to |
+|---|---|---|---|
+| `loginLimiter` | 15 min | 30 | `POST /api/auth/login` |
+| `registerLimiter` | 60 min | 5 | `POST /api/auth/register` |
+| `forgotPinLimiter` | 10 min | 5 | forgot-PIN request/confirm |
+| `adminLimiter` | 15 min | 5 | `/api/admin/*` |
+| `quotesLimiter` | 60 s | 5 | `GET /api/quotes` (disabled endpoint) |
+| `writeLimiter` | 60 s | 120 | most create/update/delete routes |
+| `exportLimiter` | 60 s | 30 | `GET /api/transactions` (paginated list/export) |
+| `widgetLimiter` | 60 s | 30 | `GET /api/widget` |
+| `widgetWriteLimiter` | 60 s | 15 | `POST /api/widget/transaction` |
+| `calendarLimiter` | 60 s | 30 | `GET /api/calendar.ics` |
+| `tripShareLimiter` | 60 s | 30 | `GET /api/trips/shared/:token` |
+| `tripShareWriteLimiter` | 60 s | 15 | trip-share join/expense routes |
 
-A rate-limited request gets `429` with `{ "error": "..." }` (legacy shape)
-or, for login lockouts, the structured `RATE_LIMITED` code.
+A small number of routes (e.g. `GET /api/household`, `GET /api/goals`) have
+no rate limiter of their own beyond `requireHousehold`'s implicit cost.
+
+## Idempotency (MOD-004)
+
+Client sends an `Idempotency-Key` header (any non-empty string, ≤100 chars)
+on a create request. Applies to: `POST /api/transactions`,
+`POST /api/positions`, `POST /api/goals`, `POST /api/accounts`,
+`POST /api/trips`, `POST /api/widget/transaction`.
+
+- First request for a given `(householdId, key)` pair proceeds normally; its
+  response (status + body) is stored.
+- A retry with the **same key** replays the stored response verbatim instead
+  of creating a second entity — same status code, same body, including a
+  `201` if that's what the original attempt produced.
+- A retry that arrives **while the original is still in flight** gets
+  `425 DUPLICATE_IN_PROGRESS` (transient — the sync engine's retry policy
+  treats 425 as retryable).
+- Records are kept 7 days (TTL index), comfortably longer than any realistic
+  offline-retry window.
+- Requests without a key proceed with no idempotency guarantee at all — this
+  stays backward-compatible with any caller that doesn't send one.
+- The key is scoped to `(householdId, key)`, **not** to the specific route —
+  reusing the same key across two different endpoints for the same household
+  is not something the server can distinguish and will misbehave (this
+  isn't something any current client does, but it's a sharp edge worth
+  knowing about).
+
+## Pagination (MOD-006)
+
+Only `GET /api/transactions` paginates. Cursor-based, not offset-based:
+
+- Sort order is always `(data desc, _id desc)`.
+- Response shape: `{ transactions: [...], nextCursor: string | null, hasMore: boolean }`.
+- `nextCursor` is an opaque `base64url` blob (`encodeTransactionsCursor` /
+  `decodeTransactionsCursor` in `server/validation.js`) encoding
+  `{ d: <date string>, i: <last row's ObjectId as hex string> }` — i.e.
+  "everything strictly before this (date, id) pair," not a page number or
+  skip count. This keeps pages stable and gap-free even if rows are
+  inserted/deleted between requests, and even with many rows sharing a date.
+- Client passes it back unmodified via `?cursor=...` to get the next page.
+  A malformed cursor is rejected with `400 INVALID_CURSOR` rather than
+  silently falling back to page 1.
+- `limit` query param: default 1000, max 2000, clamped (not rejected) if
+  out of range.
+- The only current caller (`src/api.js fetchTransactions`) drains every page
+  to build a full local cache — this is a full-export mechanism as much as a
+  "page 2 of the UI" mechanism, which is also why its rate limit
+  (`exportLimiter`, 30/min) is more generous than the general write limiter.
 
 ---
 
-## Endpoint reference
-
-Auth column: 🔓 none · 🍪 household cookie · 🔑 capability token (query
-param or URL path, noted per-endpoint) · 👑 admin secret header.
-
-### Auth & household
+## Auth — `/api/auth/*`
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/api/auth/register` | 🔓 | Create a household. Body: `{ nome, persone: [{nome}], pin, email? }`. Returns the session (cookie set) plus household data. |
-| POST | `/api/auth/login` | 🔓 | Body: `{ pin, deviceId? }`. Progressive lockout on repeated failures (IP + device + PIN-hash). Structured errors. |
-| POST | `/api/auth/logout` | 🍪 | Revokes the current session token server-side. |
-| PUT | `/api/auth/pin` | 🍪 | Change PIN. Body: `{ currentPin, newPin }`. Revokes all other sessions for the household. |
-| POST | `/api/auth/forgot-pin/request` | 🔓 | Body: `{ email }`. Always returns a generic "if this email is linked..." response — never confirms/denies account existence. |
-| POST | `/api/auth/forgot-pin/confirm` | 🔓 | Body: `{ email, code, newPin }`. |
-| PUT | `/api/auth/recovery-email` | 🍪 | Set/change the household's recovery email. |
-| DELETE | `/api/auth/household` | 🍪 | Permanently deletes the household and all its data. Body: `{ pin }` (re-confirmation required). |
-| GET | `/api/household` | 🍪 | Current household's profile (name, members, currency, recovery-email flag). |
-| PUT | `/api/household/valuta` | 🍪 | Set the household's base currency. |
-| GET | `/api/exchange-rates` | 🍪 | Current exchange rate table for the household's base currency. `503 EXCHANGE_RATE_UNAVAILABLE` if no usable rate (fresh or stale). |
-| GET | `/api/health` | 🔓 | Liveness check. |
+| POST | `/api/auth/register` | none (rate-limited) | Body: `{ nome, persone: string[]\|{nome,emoji?}[], pin: /^\d{6,8}$/, email? }`. Creates household, sets session cookie, returns `{ householdId, nome, persone }`. `409` on PIN or email collision. |
+| POST | `/api/auth/login` | none (rate-limited + IP/device/PIN-hash lockout) | Body: `{ pin, deviceId? }`. `401 INVALID_PIN` on failure (with lockout bookkeeping); `429 RATE_LIMITED` with `retryAfterMinutes` once locked; `403 ACCESS_BLOCKED` if IP/device is on the admin blacklist. Sets session cookie on success. |
+| POST | `/api/auth/logout` | session | Revokes the current `jti` from `active_tokens` and clears the cookie. |
+| PUT | `/api/auth/pin` | session | Body: `{ newPin }`. Revokes **every** existing session for the household and issues a fresh one. Clears `requiresPinChange`. |
+| POST | `/api/auth/forgot-pin/request` | none (rate-limited) | Body: `{ email }`. Always returns the same generic `{ ok: true, message }` regardless of whether the email exists (no account enumeration). Emails a 6-digit code, 15-min expiry, via SendGrid. |
+| POST | `/api/auth/forgot-pin/confirm` | none (rate-limited) | Body: `{ email, code, newPin }`. Max 5 code attempts before the reset record is discarded. Revokes all sessions on success. |
+| PUT | `/api/auth/recovery-email` | session | Body: `{ email }`. Attaches/updates the household's recovery email. |
+| DELETE | `/api/auth/household` | session | Body: `{ pin }` (must match). **Irreversibly deletes every collection's data for this household** (transactions, accounts, goals, trips, positions, pinResets) and the household itself. |
 
-### Transactions
+## Household & settings
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/api/transactions` | 🍪 | Paginated — see [Pagination](#pagination). |
-| POST | `/api/transactions` | 🍪 | Idempotency-Key supported. Full validation via `validateTransactionInput` (MOD-001/002): type, amount, date, participants, accounts, split totals. |
-| PUT | `/api/transactions/:id` | 🍪 | Partial update — only fields present in the body are validated/changed. |
-| DELETE | `/api/transactions/:id` | 🍪 | Soft delete (moves to trash; `deletedAt` set). |
-| GET | `/api/transactions/trash` | 🍪 | List soft-deleted transactions. |
-| POST | `/api/transactions/:id/restore` | 🍪 | Undo a soft delete. |
-| DELETE | `/api/transactions/:id/permanent` | 🍪 | Hard delete one trashed transaction. |
-| DELETE | `/api/transactions/trash/empty` | 🍪 | Hard delete everything in the trash. |
-| GET | `/api/stats/debiti` | 🍪 | Who-owes-whom summary across all splits. |
-| GET | `/api/stats/summary` | 🍪 | Aggregation-based summary (MongoDB `$group`, not computed client-side). |
+| GET | `/api/household` | session | `{ id, nome, persone, hasRecoveryEmail, valutaBase }`. |
+| PUT | `/api/household/valuta` | session | Body: `{ valutaBase }` — any 3-letter ISO-4217-shaped code, not a hardcoded whitelist. |
+| GET | `/api/exchange-rates` | session | Returns the household's base-currency rate table (cached 24h server-side). `503` if unavailable. |
+| GET | `/api/categorie` | session | Household's custom expense categories, or `null` (client falls back to its own defaults). |
+| PUT | `/api/categorie` | session | Body: `{ categorie: (string \| object)[] }`, ≤100 items. |
+| GET | `/api/trip-categories` / PUT | session | Same shape as `/api/categorie`, separate field, used for trip expenses. |
+| GET | `/api/health` | none | `{ status: "ok", db: boolean }` — liveness check, no auth. |
 
-### Accounts, goals, positions
+## Transactions — `/api/transactions*`
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET / POST | `/api/accounts` | 🍪 | POST supports Idempotency-Key. |
-| PUT / DELETE | `/api/accounts/:id` | 🍪 | |
-| GET / POST | `/api/goals` | 🍪 | POST validates `contoId` belongs to the household (MOD-009) and supports Idempotency-Key. |
-| PUT / DELETE | `/api/goals/:id` | 🍪 | |
-| GET / POST | `/api/positions` | 🍪 | Portfolio buy/sell records. POST supports Idempotency-Key. No PUT — positions are immutable once created. |
-| DELETE | `/api/positions/:id` | 🍪 | |
-| GET / PUT | `/api/positions/prices` | 🍪 | Manual price overrides (ticker → price) used when there's no live quote. |
-| GET | `/api/quotes` | 🍪 | Live quote lookup (rate-limited, 5/min — external provider). |
+| GET | `/api/transactions` | session | Cursor-paginated (see above). Filters: `tipo, categoria, pagatoDa, contoId, meseAnno (YYYY-MM), from/to (YYYY-MM-DD), cursor, limit`. |
+| POST | `/api/transactions` | session | Idempotency-Key supported. Body validated centrally by `validateTransactionInput` (`server/validation.js`) — see below. `422 EXCHANGE_RATE_UNAVAILABLE` if `valuta` is given and no rate/cache is available (never silently 1:1). |
+| PUT | `/api/transactions/:id` | session | Partial update — only fields present in the body are validated/changed; cross-field rules (transfer accounts, splits) still see the merged document. |
+| DELETE | `/api/transactions/:id` | session | Soft delete (`deletedAt` set) — moves to trash, not gone yet. |
+| GET | `/api/transactions/trash` | session | Soft-deleted transactions, most recently deleted first. |
+| POST | `/api/transactions/:id/restore` | session | Un-deletes. |
+| DELETE | `/api/transactions/:id/permanent` | session | Hard delete of a single trashed transaction. |
+| DELETE | `/api/transactions/trash/empty` | session | Hard delete of everything currently in trash. Trash also auto-purges after 30 days via the `svuotaCestinoScaduto` background job. |
+| GET | `/api/stats/debiti` | session | N-person debt-settlement matrix (who owes whom, minimal number of transfers). |
+| GET | `/api/stats/summary` | session | Aggregated totals grouped by `(tipo, categoria, pagatoDa)`, optionally filtered by `meseAnno`. |
 
-### Trips
+**Transaction validation rules** (`validateTransactionInput`, shared by POST,
+PUT, and — via `buildTripExpense`/`computeValidSplits` — the widget and trip
+endpoints):
 
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET / POST | `/api/trips` | 🍪 | POST supports Idempotency-Key. |
-| PUT / DELETE | `/api/trips/:id` | 🍪 | |
-| POST | `/api/trips/:id/expenses` | 🍪 | Validates payer/splits against **this trip's own** `partecipanti` (MOD-009) — not the household's participant list, since trip guests may not be household members. Atomic 2000-expense hard limit (MOD-019). |
-| DELETE | `/api/trips/:id/expenses/:expenseId` | 🍪 | |
-| POST / DELETE | `/api/trips/:id/share` | 🍪 | Create/revoke a guest share link. Token is hashed at rest (MOD-011); expires 30 days after creation. |
-| GET | `/api/trips/shared/:token` | 🔑 (URL path) | Guest-facing, no household auth. Returns a stripped-down trip view. |
-| POST | `/api/trips/shared/:token/join` | 🔑 (URL path) | A guest adds themselves as a trip participant. |
-| POST | `/api/trips/shared/:token/expenses` | 🔑 (URL path) | Same validation as the household-side expense endpoint (MOD-009 — both use the shared `buildTripExpense`). |
+- `importo`: finite number, strictly `> 0` (rejects `0`, negative, `NaN`,
+  `Infinity`), rounded to 2 decimals.
+- `data`: `YYYY-MM-DD`, calendar-valid (rejects e.g. `2026-02-30`).
+- `tipo`: one of `uscita | entrata | saldo | trasferimento`.
+- `pagatoDa` / `ricevutoDa` / `intestataA`: must be a known participant —
+  a household member id, or an `extraPersone` id declared on the *same*
+  request (or already present on the existing doc, for a partial PUT).
+- `splits`: each entry's `personaId` must be a known participant; quotas
+  `0–100`; no duplicate participants; **total must be `100 ± 0.05`** (tight
+  enough to reject `40+40`, loose enough for `33.33+33.33+33.34`).
+- `contoId` / `contoDa` / `contoA`: must be an account id that actually
+  belongs to the requesting household (`UNKNOWN_ACCOUNT`) — this is the
+  MOD-009 cross-household guessing defense.
+- `tipo: "trasferimento"` requires both `contoDa` and `contoA`, and they
+  must differ (`TRANSFER_ACCOUNTS_REQUIRED` / `TRANSFER_SAME_ACCOUNT`).
 
-### Categories
-
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET / PUT | `/api/categorie` | 🍪 | Household's custom expense categories. PUT allow-lists object keys (`nome`/`icona`/`colore`/etc.) — max 100 entries. |
-| GET / PUT | `/api/trip-categories` | 🍪 | Same pattern, for trip expense categories. |
-
-### Backup
-
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET | `/api/backup` | 🍪 | Full household data export as JSON (`formato: "balance-tracker-backup"`, versioned). |
-| POST | `/api/backup/restore` | 🍪 | Imports a backup file. Accounts are inserted first and an old→new id map is built so transactions/goals referencing them get remapped correctly. Additive, not destructive — does not clear existing data first. |
-
-### Widget (iOS/Scriptable-style home-screen widget)
-
-Read-only aggregate access via a separate capability token — never the
-household session, never write access beyond the one narrow transaction-add
-endpoint.
+## Accounts (conti) — `/api/accounts*`
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST / DELETE | `/api/widget-key` | 🍪 | Create/revoke the widget's capability token. The plaintext key is returned exactly once, at creation; only its hash is ever stored (MOD-011). |
-| GET | `/api/widget` | 🔑 (`?key=`) | Returns aggregates only (balances, this-month totals, portfolio value) — never the raw transaction list. Computed via a MongoDB aggregation, not by loading full history into memory (MOD-020). |
-| POST | `/api/widget/transaction` | 🔑 (`?key=`) | Deliberately minimal write surface: amount/date/category/payer/account only, no splits editing beyond what's passed, no deletes. Idempotency-Key supported. |
+| GET | `/api/accounts` | session | |
+| POST | `/api/accounts` | session | Idempotency-Key supported. Body: `{ nome, icona?, saldoIniziale? }`. |
+| PUT | `/api/accounts/:id` | session | Partial update. |
+| DELETE | `/api/accounts/:id` | session | Detaches (nulls out) the account reference on every transaction/goal that pointed at it instead of leaving dangling ids. |
 
-### Calendar feed
+A `trasferimento` transaction moves money between two accounts (`contoDa`→`contoA`);
+`entrata`/`uscita` move it in/out of `contoId`. Balances are **not** computed
+server-side by a dedicated endpoint — clients compute them from
+`GET /api/accounts` + `GET /api/transactions` (see `src/lib/finance.js
+calcolaSaldiConti`), except the widget endpoint, which does compute balances
+server-side via a Mongo aggregation for its own response.
+
+## Goals — `/api/goals*`
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST / DELETE | `/api/calendar-key` | 🍪 | Create/revoke the calendar subscription token. |
-| GET | `/api/calendar.ics` | 🔑 (`?key=`) | Returns `text/calendar` — upcoming recurring transactions as calendar events, for subscribing in a calendar app. |
+| GET | `/api/goals` | session | |
+| POST | `/api/goals` | session | Idempotency-Key supported. Body: `{ nome, targetAmount, targetDate?, currentAmount?, contributionType?, contributionValue?, autoAdd?, contoId? }`. `contoId`, if given, must belong to this household (`400 UNKNOWN_ACCOUNT`). |
+| PUT | `/api/goals/:id` | session | Partial update, same `contoId` ownership check. |
+| DELETE | `/api/goals/:id` | session | |
 
-### Admin
+## Portfolio / positions — `/api/positions*`
 
-Requires `X-Admin-Secret` header matching the `ADMIN_SECRET` environment
-variable — entirely separate from household auth.
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/positions` | session | |
+| POST | `/api/positions` | session | Idempotency-Key supported. Body: `{ ticker, quantita, prezzoAcquisto, dataAcquisto?, valuta?, note?, tipo? ("buy"\|"sell") }`. |
+| DELETE | `/api/positions/:id` | session | |
+| GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — the live-quote endpoint below is disabled, so this is the only price source. |
+| GET | `/api/quotes` | session | **Disabled.** Always `410 Gone` — "Usa i prezzi manuali." Kept only so old clients get a clear error instead of a 404. |
+
+## Backup & restore — `/api/backup*`
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/backup` | session | Full JSON export of everything for the household: transactions, accounts, goals, trips, positions, manual prices, plus household metadata. `formato: "balance-tracker-backup"`, `versione: 1`. |
+| POST | `/api/backup/restore` | session | Re-imports a backup produced by the endpoint above. **Additive, not destructive** — nothing existing is deleted first; restored rows get a `restoredAt` timestamp. Account ids are remapped (old→new) so restored transactions/goals still point at the right restored account. Custom categories are only restored if the household currently has none set. |
+
+## Widget — `/api/widget*`, capability-token auth
+
+No household session involved — authenticated purely by a `?key=` query
+param checked against the household's hashed `widgetKeyHash`.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/widget-key` | session | Issues a new widget key (invalidates any previous one implicitly — a household has at most one). Raw key is returned **once**, in this response only; never persisted server-side or logged. |
+| DELETE | `/api/widget-key` | session | Revokes it. |
+| GET | `/api/widget` | key (query) | Read-only aggregate snapshot: account balances, portfolio value, this-month income/expense totals, categories, people. Computed server-side via a Mongo aggregation (not a full transaction-history load) so it's cheap to poll frequently. |
+| POST | `/api/widget/transaction` | key (query) | Deliberately minimal write surface: `tipo` (`uscita`/`entrata`), `importo` (capped at 1,000,000), `descrizione`, `data`, optional `categoria`/`pagatoDa`/`intestataA`/`splits`/`contoId` — each cross-checked against the household and **silently dropped** (not rejected) if invalid, since this endpoint is meant to be forgiving for third-party shortcuts/automations. Idempotency-Key supported. |
+
+## Calendar feed — `/api/calendar*`, capability-token auth
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/calendar-key` | session | Issues a calendar subscription key. |
+| DELETE | `/api/calendar-key` | session | Revokes it. |
+| GET | `/api/calendar.ics` | key (query) | Returns a `text/calendar` feed (RFC 5545) of the household's recurring-transaction templates as `RRULE` events, for "subscribe by URL" in Google/Apple/Outlook calendars. Read-only, no write counterpart. |
+
+## Trips — `/api/trips*`
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/trips` | session | |
+| POST | `/api/trips` | session | Idempotency-Key supported. Body: `{ nome, descrizione?, startDate?, endDate?, partecipanti? }`. |
+| PUT | `/api/trips/:id` | session | Partial update. |
+| DELETE | `/api/trips/:id` | session | |
+| POST | `/api/trips/:id/expenses` | session | Body validated by `buildTripExpense` against **this trip's own `partecipanti`**, not the household's member list (a trip can include guests who joined via a share link and were never household members). `400` if the trip is already `settled`. Enforces a hard cap of 2000 embedded expenses per trip (atomic, via `$expr` on the same write — not a separate check-then-push), plus a soft warning logged past 300. |
+| DELETE | `/api/trips/:id/expenses/:expenseId` | session | |
+| POST | `/api/trips/:id/share` | session | Issues a share token (30-day TTL), stored hashed. |
+| DELETE | `/api/trips/:id/share` | session | Revokes it immediately (independent of the TTL). |
+
+### Trip guest access — capability-token auth, no household session
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/trips/shared/:token` | share token (path) | Returns a stripped view of the trip (no `householdId`). `404` if the token is invalid, revoked, **or expired** — indistinguishable from each other by design. |
+| POST | `/api/trips/shared/:token/join` | share token (path) | Body: `{ nome }`. Adds the guest to `trip.partecipanti` (idempotent by normalized name — rejoining with the same name returns the existing participant instead of duplicating). |
+| POST | `/api/trips/shared/:token/expenses` | share token (path) | Same validation/limits as the household version above, plus a friendlier error message specifically for "you tried to log an expense before joining."|
+
+## Admin — `/api/admin/*`
+
+Header-secret auth (`x-admin-secret` must equal `ADMIN_SECRET` env var — if
+unset, every admin route returns `503`), separate from both the session and
+capability-token mechanisms above.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET / POST | `/api/admin/blacklist` | List / add a permanently-blocked IP, device, or PIN hash. |
-| DELETE | `/api/admin/blacklist/:key` | Remove a blacklist entry. |
-| GET | `/api/admin/metrics` | Request counts/error rates/latency percentiles per route, background-job run/failure counts, sync-conflict tally (MOD-023). In-memory, resets on server restart. |
+| GET | `/api/admin/blacklist` | List blocked IP/device keys. |
+| POST | `/api/admin/blacklist` | Body: `{ key, reason? }` — `key` is e.g. `ip:1.2.3.4` or `device:<uuid>`. Permanent block, independent of the temporary lockout mechanism. |
+| DELETE | `/api/admin/blacklist/:key(*)` | Un-blocks. |
+| GET | `/api/admin/metrics` | Operational snapshot (MOD-023): per-route request counts/error rates/latency percentiles (p50/p95/p99), background-job run/failure counts with the last error message, and a running sync-conflict tally (see `server/logger.js`). In-memory only — resets on server restart. |
+
+## Background jobs (not HTTP endpoints)
+
+Three jobs run on a server timer (every 6h, plus once at boot) — documented
+here because they affect what shows up via the API even though they aren't
+routes themselves:
+
+- **`generaRicorrentiDovute`** — generates due occurrences of recurring
+  transactions. Concurrency-safe across multiple server instances via a
+  unique index on `(parent transaction id, due date)`.
+- **`svuotaCestinoScaduto`** — hard-deletes trashed transactions older than
+  30 days.
+- **`chiudiViaggiScaduti`** — auto-settles and closes trips past their
+  `endDate`. Crash-resumable: a trip stuck mid-settlement for >10 minutes is
+  reclaimed and resumed rather than left stuck or re-settled from scratch.
+
+All three log structured start/end/failure JSON lines (job name, a
+per-run id, counts, duration) — see MOD-023.
 
 ---
 
-## Background jobs
+## Known inconsistencies
 
-Not HTTP endpoints, but part of the system's behavior and worth documenting
-alongside the API:
+Documented here rather than silently fixed — standardizing these is MOD-022
+(phase 3) / MOD-012-13 (phase 6) scope, not phase 5's.
 
-- **Recurring transaction generation** (`generaRicorrentiDovute`) — runs
-  every 6 hours. Each occurrence gets a unique `(parentId, dueDate)` key
-  enforced by a database unique index, so concurrent instances or retries
-  can never generate the same occurrence twice (MOD-007).
-- **Trip auto-settlement** (`chiudiViaggiScaduti`) — runs every 6 hours.
-  Trips past their end date are atomically claimed via a
-  `settlementStatus` state machine (`open → settling → settled`); each
-  settlement transaction has a deterministic key, so a crash mid-settlement
-  can resume safely without duplicating or losing a settlement (MOD-008).
-- Both jobs emit structured logs and report into `GET /api/admin/metrics`
-  (MOD-023).
+- **Error shape is not uniform.** The standardized `{ error: { code, message, fields? } }`
+  shape (via `sendError`) is used by the auth gate and by routes touched in
+  phase 3+ (transactions, goals' `contoId` check, trip expenses, idempotency
+  conflicts). A large number of older routes — most of accounts, positions,
+  goals' simpler fields, trips, backup/restore, widget, calendar-key — still
+  return the older plain `{ error: "some Italian string" }` shape on
+  failure. A client can't reliably branch on `error.code` for those routes;
+  it has to pattern-match a message string, and that string is in Italian.
+- **Success response shapes are inconsistent too.** Some POST endpoints
+  return the created entity in-body (`{ id, ...doc }` — transactions,
+  accounts, goals, positions); `POST /api/trips` does the same but via
+  `res.json(...)` instead of `res.status(201).json(...)` (some think success);
+  some just return `{ ok: true }` (categories, prices, widget/calendar-key
+  creation, trip-categories) with no way to read back what was actually
+  stored without a follow-up GET.
+- **`Authorization` header is CORS-allow-listed but unused.** `CORS_OPTIONS.allowedHeaders`
+  includes `Authorization`, but the only auth path implemented is the
+  `token` cookie — there is no code path that reads an `Authorization`
+  header. Likely leftover from an earlier design or defensive future-proofing;
+  as written today it's dead configuration.
