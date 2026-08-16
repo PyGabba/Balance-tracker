@@ -10,6 +10,8 @@ import {
   encodeTransactionsCursor,
   decodeTransactionsCursor,
   decideIdempotencyClaim,
+  isTripSettlementCandidate,
+  settlementTransactionKey,
   ValidationError,
 } from "./validation.js";
 
@@ -365,5 +367,57 @@ describe("decideIdempotencyClaim (MOD-004, hardened)", () => {
   it("replays a non-201 completed status too (e.g. a stored validation rejection)", () => {
     const existing = { status: 400, body: { error: "bad" }, createdAt: new Date(500) };
     expect(decideIdempotencyClaim(existing, 1000, STALE_MS)).toEqual({ action: "replay" });
+  });
+});
+
+// NOTE: these are a pure specification of chiudiViaggiScaduti's intended
+// eligibility/key logic (server/index.js) — they do NOT exercise the
+// actual MongoDB queries, the atomic findOneAndUpdate claim, or genuine
+// concurrent access. Verifying the real database enforces this correctly
+// under concurrency would need integration tests against a live MongoDB
+// instance, which this test suite does not have. Treat these as a
+// regression guard on the intended rule, not proof of the guarantee.
+describe("isTripSettlementCandidate (MOD-008, hardened — spec only, see note above)", () => {
+  const today = "2026-08-16";
+  const nowMs = new Date("2026-08-16T12:00:00Z").getTime();
+  const staleMs = 10 * 60 * 1000;
+
+  it("is a candidate when newly due: open/unset status, unsettled, past end date", () => {
+    expect(isTripSettlementCandidate({ settlementStatus: null, settled: false, endDate: "2026-08-01" }, { today, nowMs, staleMs })).toBe(true);
+    expect(isTripSettlementCandidate({ settlementStatus: "open", settled: false, endDate: "2026-08-01" }, { today, nowMs, staleMs })).toBe(true);
+  });
+
+  it("is NOT a candidate when not yet past its end date", () => {
+    expect(isTripSettlementCandidate({ settlementStatus: null, settled: false, endDate: "2026-08-20" }, { today, nowMs, staleMs })).toBe(false);
+  });
+
+  it("is NOT a candidate when already settled", () => {
+    expect(isTripSettlementCandidate({ settlementStatus: "settled", settled: true, endDate: "2026-08-01" }, { today, nowMs, staleMs })).toBe(false);
+  });
+
+  it("is NOT a candidate when genuinely still settling (fresh)", () => {
+    const settlingStartedAt = new Date(nowMs - 1000); // 1s ago — well within the stale window
+    expect(isTripSettlementCandidate({ settlementStatus: "settling", settlingStartedAt }, { today, nowMs, staleMs })).toBe(false);
+  });
+
+  it("IS a candidate (resumable) when stuck settling past the stale window", () => {
+    const settlingStartedAt = new Date(nowMs - staleMs - 1000); // just past the window
+    expect(isTripSettlementCandidate({ settlementStatus: "settling", settlingStartedAt }, { today, nowMs, staleMs })).toBe(true);
+  });
+
+  it("is NOT a candidate with no endDate at all", () => {
+    expect(isTripSettlementCandidate({ settlementStatus: null, settled: false, endDate: null }, { today, nowMs, staleMs })).toBe(false);
+  });
+});
+
+describe("settlementTransactionKey", () => {
+  it("is deterministic for the same trip and index", () => {
+    expect(settlementTransactionKey("trip1", 0)).toBe(settlementTransactionKey("trip1", 0));
+  });
+  it("differs by index within the same trip", () => {
+    expect(settlementTransactionKey("trip1", 0)).not.toBe(settlementTransactionKey("trip1", 1));
+  });
+  it("differs by trip for the same index", () => {
+    expect(settlementTransactionKey("trip1", 0)).not.toBe(settlementTransactionKey("trip2", 0));
   });
 });

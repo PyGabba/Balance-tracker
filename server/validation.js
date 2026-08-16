@@ -325,3 +325,43 @@ export function decideIdempotencyClaim(existing, nowMs, staleMs) {
   if (ageMs < staleMs) return { action: "wait" };
   return { action: "steal", createdAt: existing.createdAt };
 }
+
+// ─── Trip auto-settlement resumability (MOD-008, hardened) ───
+// Pure specification of chiudiViaggiScaduti's eligibility/key logic in
+// index.js — kept here so the intent is unit-testable even though the
+// actual enforcement happens as MongoDB query filters (the real guarantee
+// against a crash losing or duplicating a settlement) rather than this
+// function being called directly at runtime. This is NOT a substitute for
+// integration-testing the real concurrent-claim behavior against a live
+// MongoDB instance — that requires an actual database and isn't covered
+// here; treat these tests as an executable spec of the intended rule, not
+// proof the database enforces it.
+//
+// A trip is eligible to be claimed (or re-claimed, if a previous attempt
+// appears to have crashed) when either:
+//   - it's newly due: no settlement in progress, not yet settled, past its
+//     end date
+//   - it's stuck: a previous attempt marked it "settling" but never
+//     finished, and enough time has passed that attempt is presumed dead
+export function isTripSettlementCandidate(trip, { today, nowMs, staleMs }) {
+  const status = trip.settlementStatus;
+  if ((status == null || status === "open") && trip.settled === false && trip.endDate && trip.endDate < today) {
+    return true;
+  }
+  if (status === "settling" && trip.settlingStartedAt) {
+    const ageMs = nowMs - new Date(trip.settlingStartedAt).getTime();
+    return ageMs >= staleMs;
+  }
+  return false;
+}
+
+// Deterministic per-settlement-leg key (tripId:index). The settlements
+// array is a pure function of the trip's own data, and the trip is locked
+// in "settling" for the entire duration of generating it, so recomputing
+// it on a resume-after-crash always reproduces the exact same array in the
+// exact same order — leg i always gets the same key, which is what makes
+// re-inserting an already-inserted leg a harmless no-op (via a unique
+// index on this field) rather than a duplicate.
+export function settlementTransactionKey(tripId, index) {
+  return `${tripId}:${index}`;
+}

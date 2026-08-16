@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, ValidationError } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -213,7 +213,10 @@ async function connectDB() {
   // create request replays the original response instead of inserting again.
   await idempotencyCol.createIndex({ householdId: 1, key: 1 }, { unique: true });
   await idempotencyCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7d: comfortably longer than any realistic retry/reconnect window
-  await transactionsCol.createIndex({ householdId: 1, data: -1 });
+  // Matches the pagination sort/cursor exactly (data desc, _id desc — see
+  // GET /api/transactions, MOD-006) so a page fetch never falls back to an
+  // in-memory sort for transactions sharing the same date.
+  await transactionsCol.createIndex({ householdId: 1, data: -1, _id: -1 });
   await transactionsCol.createIndex({ deletedAt: 1 }, { sparse: true });
   // MOD-020: generaRicorrentiDovute() queries this on every periodic tick
   // (RICORRENTI_CHECK_MS) across every household — without an index that's
@@ -227,11 +230,19 @@ async function connectDB() {
   // ricorrentiRunning flag that follows is only an optimization to avoid
   // redundant work within a single instance, not a correctness guarantee.
   await transactionsCol.createIndex({ recurrenceOccurrenceKey: 1 }, { unique: true, sparse: true });
+  // MOD-008 (hardened): each trip-settlement transaction gets a
+  // deterministic key (tripId:index) inserted with this unique index —
+  // what makes it safe to resume a settlement that crashed partway
+  // through without risking a duplicate. See chiudiViaggiScaduti below.
+  await transactionsCol.createIndex({ settlementKey: 1 }, { unique: true, sparse: true });
   await tripsCol.createIndex({ householdId: 1, startDate: -1 });
   await tripsCol.createIndex({ householdId: 1 });
   // MOD-020/MOD-008: chiudiViaggiScaduti() below scans across every
-  // household's trips on every tick looking for unsettled, past-due ones.
+  // household's trips on every tick looking for unsettled, past-due ones
+  // (settlementStatus null/"open") plus any stuck mid-settlement from a
+  // previous crash (settlementStatus "settling", stale settlingStartedAt).
   await tripsCol.createIndex({ settled: 1, endDate: 1 });
+  await tripsCol.createIndex({ settlementStatus: 1, settlingStartedAt: 1 });
   // MOD-020: every transaction and account read/write filters by
   // householdId; these two collections had no index on it at all.
   await db.collection("accounts").createIndex({ householdId: 1 });
@@ -518,10 +529,23 @@ export async function generaRicorrentiDovute() {
         prossimaData: nextRicorrenzaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza),
         variabile: t.ricorrenza.variabile,
       };
-      // Idempotent regardless of races: every instance computes the same
-      // next date from the same current one, so a duplicate update just
-      // writes the same value again.
-      await transactionsCol.updateOne({ _id: t._id }, { $set: { ricorrenza: updatedRicorrenza } });
+      // Optimistic concurrency: only advance prossimaData if it still has
+      // the exact value we read it as. If the user edited the recurrence
+      // (e.g. changed the due date or frequency) in the moment between our
+      // read and this write, this simply won't match — their edit wins,
+      // and we don't overwrite it with an advance computed from what's now
+      // stale data. The next tick re-reads the current value and decides
+      // fresh whether it's still due.
+      const advanced = await transactionsCol.updateOne(
+        { _id: t._id, "ricorrenza.prossimaData": t.ricorrenza.prossimaData },
+        { $set: { ricorrenza: updatedRicorrenza } }
+      );
+      if (advanced.matchedCount === 0) {
+        // Either a genuinely concurrent user edit, or (in the racing-
+        // instances case) the other instance's own successful advance
+        // already landed first — either way, correctly not double-applied.
+        console.log(`Ricorrenti: ${t._id.toString()} già avanzata o modificata concorrentemente, salto`);
+      }
     }
     if (generated > 0) console.log(`Ricorrenti: generate ${generated} transazioni`);
   } catch (e) {
@@ -588,42 +612,89 @@ function calcolaSettleViaggioServer(trip) {
 }
 
 let tripAutoCloseRunning = false;
+// If a trip has been stuck in "settling" this long, the process that
+// claimed it almost certainly crashed mid-way (between marking it settled
+// and finishing every settlement transaction) rather than genuinely still
+// being in progress — 6h ticks mean this only matters after a real crash.
+// Safe to resume: settlement legs are inserted idempotently below via a
+// unique key, so resuming can never duplicate a leg that already went in
+// before the crash, it only fills in whatever's still missing.
+const TRIP_SETTLING_STALE_MS = 10 * 60 * 1000;
+
 export async function chiudiViaggiScaduti() {
   if (tripAutoCloseRunning || !tripsCol) return; // in-process optimization only — see below for the real guarantee
   tripAutoCloseRunning = true;
   try {
     const oggi = new Date().toISOString().slice(0, 10);
-    const scaduti = await tripsCol.find({ settled: false, endDate: { $ne: null, $lt: oggi } }, { projection: { _id: 1 } }).toArray();
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - TRIP_SETTLING_STALE_MS);
+    // Newly-due trips, PLUS trips stuck mid-settlement from a previous
+    // crashed attempt — both get the same atomic-claim-and-resume treatment
+    // below, so a crash never leaves a trip permanently stuck (settled:true
+    // with missing settlement transactions) or forever skipped.
+    const candidateFilter = {
+      $or: [
+        { settlementStatus: { $in: [null, "open"] }, settled: false, endDate: { $ne: null, $lt: oggi } },
+        { settlementStatus: "settling", settlingStartedAt: { $lt: staleBefore } },
+      ],
+    };
+    const candidates = await tripsCol.find(candidateFilter, { projection: { _id: 1 } }).toArray();
     let closed = 0;
-    for (const { _id } of scaduti) {
-      // MOD-008: atomically claim the trip — settled:false -> true in one
-      // database operation. If a second instance (or an overlapping tick)
-      // races on the same trip, at most one findOneAndUpdate call actually
-      // matches a settled:false document; the loser gets null back and
-      // does nothing further, so settlement transactions can never be
-      // generated twice for the same trip.
+    for (const { _id } of candidates) {
+      // MOD-008: atomically claim the trip by transitioning it into
+      // "settling" — matching the SAME condition as the query above so two
+      // instances can't both claim (or both resume) the same trip. Only
+      // the caller whose update actually matched proceeds.
+      // eslint-disable-next-line no-await-in-loop
       const claimed = await tripsCol.findOneAndUpdate(
-        { _id, settled: false },
-        { $set: { settled: true, autoSettled: true, updatedAt: new Date() } },
+        { _id, ...candidateFilter },
+        { $set: { settlementStatus: "settling", settlingStartedAt: now, updatedAt: now } },
         { returnDocument: "after" }
       );
-      if (!claimed) continue; // already claimed by another instance/tick since the query above
+      if (!claimed) continue; // already claimed/resumed by another instance/tick since the query above
+
       const nameOf = (id) => (claimed.partecipanti || []).find(p => p.id === id)?.nome || id;
       const settlements = calcolaSettleViaggioServer(claimed);
-      for (const s of settlements) {
-        await transactionsCol.insertOne({
-          householdId: claimed.householdId,
-          tipo: "saldo",
-          importo: s.importo,
-          categoria: "saldo_viaggio",
-          descrizione: `Saldo viaggio: ${claimed.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
-          data: oggi,
-          pagatoDa: s.da,
-          ricevutoDa: s.a,
-          createdAt: new Date(),
-        });
+      let allInserted = true;
+      for (let i = 0; i < settlements.length; i++) {
+        const s = settlements[i];
+        // Deterministic per-leg key: a crash-and-resume retry recomputes
+        // the exact same settlements array from the exact same trip data
+        // (the trip is locked in "settling" the whole time, so nothing
+        // about it can change underneath this), so leg i always gets the
+        // same key — the unique index is what makes re-inserting it a
+        // harmless no-op instead of a duplicate.
+        const settlementKey = settlementTransactionKey(_id.toString(), i);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await transactionsCol.insertOne({
+            householdId: claimed.householdId,
+            tipo: "saldo",
+            importo: s.importo,
+            categoria: "saldo_viaggio",
+            descrizione: `Saldo viaggio: ${claimed.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
+            data: oggi,
+            pagatoDa: s.da,
+            ricevutoDa: s.a,
+            settlementKey,
+            createdAt: new Date(),
+          });
+        } catch (err) {
+          if (err?.code === 11000) {
+            // Already inserted by an earlier attempt before a crash — this
+            // is the resume path working correctly, not an error.
+          } else {
+            console.error(`Viaggi: errore inserimento saldo ${settlementKey}:`, err);
+            allInserted = false;
+            break; // stop here, stay in "settling" — the next tick resumes from wherever this left off
+          }
+        }
       }
-      closed++;
+      if (allInserted) {
+        // eslint-disable-next-line no-await-in-loop
+        await tripsCol.updateOne({ _id }, { $set: { settled: true, settlementStatus: "settled", autoSettled: true, updatedAt: new Date() } });
+        closed++;
+      }
     }
     if (closed > 0) console.log(`Viaggi: chiusi automaticamente ${closed} viaggi scaduti`);
   } catch (e) {
@@ -1874,27 +1945,68 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
     if (!household) return res.status(401).json({ error: "Chiave non valida" });
     const hid = household.householdId;
 
-    const [transactions, accounts, positions, priceDocs] = await Promise.all([
-      transactionsCol.find({ householdId: hid, deletedAt: null }).toArray(),
+    // MOD-020: this endpoint is meant to be polled frequently (a phone
+    // home-screen widget refreshing every so often) and only ever returns
+    // small aggregate numbers — it used to compute those by loading the
+    // household's ENTIRE transaction history into Node memory on every
+    // single call. Account balances and this-month totals are now computed
+    // server-side via a single aggregation pipeline instead; the response
+    // shape is unchanged, only how it's computed.
+    const now = new Date();
+    const meseKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const monthStart = `${meseKey}-01`;
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
+
+    const [accounts, positions, priceDocs, [agg]] = await Promise.all([
       db.collection("accounts").find({ householdId: hid }).toArray(),
       db.collection("positions").find({ householdId: hid }).toArray(),
       quotesCol.find({ householdId: hid, manualPrice: { $exists: true } }).toArray(),
+      transactionsCol.aggregate([
+        { $match: { householdId: hid, deletedAt: null } },
+        {
+          $facet: {
+            // Net delta per account across ALL history — same rule as
+            // before: transfers move money between contoDa/contoA,
+            // entrata/uscita move it in/out of contoId. Accounts that no
+            // longer exist are filtered out afterward (below), same as
+            // the original JS version silently ignored them.
+            balances: [
+              { $project: { entries: { $switch: {
+                branches: [
+                  { case: { $eq: ["$tipo", "trasferimento"] }, then: [
+                    { conto: "$contoDa", delta: { $multiply: ["$importo", -1] } },
+                    { conto: "$contoA", delta: "$importo" },
+                  ] },
+                  { case: { $eq: ["$tipo", "entrata"] }, then: [{ conto: "$contoId", delta: "$importo" }] },
+                  { case: { $eq: ["$tipo", "uscita"] }, then: [{ conto: "$contoId", delta: { $multiply: ["$importo", -1] } }] },
+                ],
+                default: [],
+              } } } },
+              { $unwind: "$entries" },
+              { $match: { "entries.conto": { $ne: null } } },
+              { $group: { _id: "$entries.conto", delta: { $sum: "$entries.delta" } } },
+            ],
+            monthTotals: [
+              { $match: { data: { $gte: monthStart, $lt: monthEnd }, tipo: { $in: ["uscita", "entrata"] } } },
+              { $group: { _id: "$tipo", tot: { $sum: "$importo" } } },
+            ],
+          },
+        },
+      ]).toArray(),
     ]);
 
-    // Saldi conti (stessa logica del client)
-    const saldi = {};
-    for (const c of accounts) saldi[c._id.toString()] = c.saldoIniziale || 0;
-    for (const t of transactions) {
-      if (t.tipo === "trasferimento") {
-        if (t.contoDa && saldi[t.contoDa] !== undefined) saldi[t.contoDa] -= t.importo;
-        if (t.contoA && saldi[t.contoA] !== undefined) saldi[t.contoA] += t.importo;
-        continue;
-      }
-      if (!t.contoId || saldi[t.contoId] === undefined) continue;
-      if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
-      else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
-    }
-    const conti = accounts.map(c => ({ nome: c.nome, icona: c.icona || "🏦", saldo: Math.round((saldi[c._id.toString()] || 0) * 100) / 100 }));
+    const deltaByAccount = {};
+    for (const b of agg.balances) deltaByAccount[b._id] = b.delta;
+    const monthByTipo = {};
+    for (const m of agg.monthTotals) monthByTipo[m._id] = m.tot;
+    const speseMese = Math.round((monthByTipo.uscita || 0) * 100) / 100;
+    const entrateMese = Math.round((monthByTipo.entrata || 0) * 100) / 100;
+
+    const conti = accounts.map(c => {
+      const id = c._id.toString();
+      const saldo = (c.saldoIniziale || 0) + (deltaByAccount[id] || 0);
+      return { nome: c.nome, icona: c.icona || "🏦", saldo: Math.round(saldo * 100) / 100 };
+    });
     const totConti = conti.reduce((s, c) => s + c.saldo, 0);
 
     // Portfolio a costo medio, prezzo manuale o costo di carico
@@ -1919,13 +2031,6 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
       totInvestimenti += (prices[k] > 0) ? h.q * prices[k] : h.c;
     }
 
-    // Mese corrente
-    const now = new Date();
-    const meseKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const txMese = transactions.filter(t => (t.data || "").startsWith(meseKey));
-    const speseMese = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
-    const entrateMese = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
-
     res.json({
       aggiornato: new Date().toISOString(),
       patrimonio: Math.round((totConti + totInvestimenti) * 100) / 100,
@@ -1934,8 +2039,8 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
       persone: household.persone || [],
       categorie: household.categorieUscita || WIDGET_DEFAULT_CATEGORIE,
       investimenti: Math.round(totInvestimenti * 100) / 100,
-      speseMese: Math.round(speseMese * 100) / 100,
-      entrateMese: Math.round(entrateMese * 100) / 100,
+      speseMese,
+      entrateMese,
     });
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -2172,7 +2277,7 @@ app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) =>
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
 
-// ─── Embedded array size guard (MOD-019) ───
+// ─── Embedded array size guard (MOD-019, hardened) ───
 // Trip expenses are embedded in the trip document — simple and fast for
 // the normal case (a real trip's handful-to-low-hundreds of expenses).
 // MongoDB's 16MB document limit and $push's document-rewrite cost mean
@@ -2183,18 +2288,22 @@ app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) =>
 // array can never silently creep up on the document limit unnoticed.
 const TRIP_EXPENSE_WARN_THRESHOLD = 300;
 const TRIP_EXPENSE_HARD_LIMIT = 2000;
-function checkTripExpenseArraySize(trip) {
+function warnIfTripExpenseArrayGrowing(trip) {
   const count = (trip.expenses || []).length;
-  if (count >= TRIP_EXPENSE_HARD_LIMIT) {
-    throw new ValidationError(
-      "TRIP_TOO_MANY_EXPENSES",
-      "Questo viaggio ha raggiunto il numero massimo di spese registrabili; chiudilo o creane uno nuovo per continuare.",
-      { count }
-    );
-  }
   if (count >= TRIP_EXPENSE_WARN_THRESHOLD && count % 100 === 0) {
     console.warn(`Trip ${trip._id}: ${count} spese incorporate nel documento — vale la pena valutare una collection dedicata (MOD-019) se questo numero continua a crescere`);
   }
+}
+// The hard limit is enforced as part of the SAME atomic operation as the
+// push itself, via $expr checking the array's current size at write time —
+// not as a separate read-then-decide step beforehand, which two concurrent
+// requests both arriving near the limit could each pass before either had
+// actually pushed, letting the array creep past the limit anyway.
+async function pushTripExpenseIfUnderLimit(tripFilter, expense) {
+  return tripsCol.updateOne(
+    { ...tripFilter, $expr: { $lt: [{ $size: { $ifNull: ["$expenses", []] } }, TRIP_EXPENSE_HARD_LIMIT] } },
+    { $push: { expenses: expense }, $set: { updatedAt: new Date() } }
+  );
 }
 
 app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, res) => {
@@ -2206,17 +2315,20 @@ app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, 
 
     let expense;
     try {
-      checkTripExpenseArraySize(trip);
       expense = buildTripExpense(req.body, trip);
     } catch (ve) {
       if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
       throw ve;
     }
+    warnIfTripExpenseArrayGrowing(trip);
 
-    await tripsCol.updateOne(
-      { _id: new ObjectId(req.params.id), householdId: req.householdId },
-      { $push: { expenses: expense }, $set: { updatedAt: new Date() } }
-    );
+    const result = await pushTripExpenseIfUnderLimit({ _id: new ObjectId(req.params.id), householdId: req.householdId }, expense);
+    if (result.matchedCount === 0) {
+      // The trip vanished between the read above and now (very unlikely),
+      // or — the real case this guards against — it's at the hard limit,
+      // checked atomically as part of this same update rather than before it.
+      return sendError(res, 400, "TRIP_TOO_MANY_EXPENSES", "Questo viaggio ha raggiunto il numero massimo di spese registrabili; chiudilo o creane uno nuovo per continuare.", { count: (trip.expenses || []).length });
+    }
     res.json(expense);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
@@ -2337,7 +2449,6 @@ app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req,
 
     let expense;
     try {
-      checkTripExpenseArraySize(trip);
       expense = buildTripExpense(req.body, trip);
     } catch (ve) {
       if (ve instanceof ValidationError) {
@@ -2350,8 +2461,12 @@ app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req,
       }
       throw ve;
     }
+    warnIfTripExpenseArrayGrowing(trip);
 
-    await tripsCol.updateOne({ _id: trip._id }, { $push: { expenses: expense }, $set: { updatedAt: new Date() } });
+    const result = await pushTripExpenseIfUnderLimit({ _id: trip._id }, expense);
+    if (result.matchedCount === 0) {
+      return sendError(res, 400, "TRIP_TOO_MANY_EXPENSES", "Questo viaggio ha raggiunto il numero massimo di spese registrabili.", { count: (trip.expenses || []).length });
+    }
     res.status(201).json(expense);
   } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
 });
