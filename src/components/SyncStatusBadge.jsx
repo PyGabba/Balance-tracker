@@ -79,7 +79,7 @@ export function SyncStatusBadge({ lang = "it" }) {
 
       {open && (
         <div style={{
-          position: "absolute", top: "calc(100% + 8px)", right: 0, width: 280, zIndex: 50,
+          position: "absolute", top: "calc(100% + 8px)", left: 0, width: "min(280px, calc(100vw - 24px))", zIndex: 50,
           background: "#1a1a28", border: "1px solid #252538", borderRadius: 14,
           boxShadow: "0 12px 32px #000a", padding: 12,
         }}>
