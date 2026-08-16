@@ -15,7 +15,7 @@ import { GoalRow } from "./features/goals/GoalRow.jsx";
 import { GoalsForm } from "./features/goals/GoalsForm.jsx";
 import { ContiCard } from "./features/accounts/ContiCard.jsx";
 import { FilterChip } from "./components/ui/FilterChip.jsx";
-import { filterLabelStyle } from "./components/ui/styles.js";
+import { filterLabelStyle, inputStyle } from "./components/ui/styles.js";
 import { LoginScreen } from "./features/auth/LoginScreen.jsx";
 import { ViaggiView } from "./features/trips/ViaggiView.jsx";
 import { TripGuestView } from "./features/trips/TripGuestView.jsx";
@@ -474,18 +474,6 @@ function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset
   );
 }
 
-
-// ─── Scanner ───
-
-const labelStyle = { display: "block", fontSize: 11, color: "#888", marginBottom: 6, letterSpacing: 0.5, textTransform: "uppercase" };
-const inputStyle = { width: "100%", maxWidth: "100%", padding: "14px 16px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 14, color: "#eee", fontSize: 15, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", WebkitAppearance: "none" };
-
-// ─── Stats ───
-// ─── Portfolio View ───
-// ─── Export View ───
-const ALL_COLUMN_IDS = ["data", "tipo", "importo", "categoria", "descrizione", "pagatoDa", "ricevutoDa", "partecipanti", "conto"];
-
-// ─── Login Screen ───
 
 // ─── Main App ───
 export default function FinanzaApp() {
