@@ -2,7 +2,7 @@ import { useState } from "react";
 import { downloadBackup, restoreBackup } from "../../api.js";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
-import { getAllPersone } from "../../lib/appHelpers.js";
+import { getAllPersone, COLORI_EXTRA } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle } from "../../components/ui/styles.js";
 import { parseSplitwiseRows } from "./parseSplitwiseRows.js";

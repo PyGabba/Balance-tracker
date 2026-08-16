@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold } from "../api.js";
-import { getLang, setLang, detectGuestLang } from "../lib/i18n.js";
+import { getLang, setLang, t, detectGuestLang } from "../lib/i18n.js";
 import { toast, ToastHost } from "../components/Toast.jsx";
 import { SyncStatusBadge } from "../components/SyncStatusBadge.jsx";
 import { setImportiNascosti as setImportiNascostiFormat } from "../lib/format.js";

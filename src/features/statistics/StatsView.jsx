@@ -1,6 +1,7 @@
 import { calcolaDebitiMatrix, forecastNextMonthExpenses } from "../../lib/finance.js";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
+import { getAllPersone } from "../../lib/appHelpers.js";
 import { DonutChart, MiniChart } from "../../components/ui/Charts.jsx";
 import { GoalGauge } from "../goals/GoalGauge.jsx";
 
