@@ -3,7 +3,7 @@ import {
   isTempId, makeTempId, makeOperation, compactEnqueue, sortForSync,
   resolveReferences, isOpReady, resolveOperationForSend, applyIdPromotion,
   recordIdAlias, nextBackoffMs, isRetryableStatus, summarizeOutbox,
-  mergeServerSnapshot, mergeTripExpenses,
+  mergeServerSnapshot, mergeTripExpenses, countMergeConflicts,
 } from "./outboxLogic.js";
 
 let idCounter = 0;
@@ -321,5 +321,42 @@ describe("mergeTripExpenses", () => {
     const trips = [{ id: "trip1", expenses: [{ id: "e1", importo: 5 }] }];
     const withTripId = mergeTripExpenses(trips, [expenseOp({ entityId: "e1", operation: "delete", payload: { tripId: "trip1" } })]);
     expect(withTripId[0].expenses).toEqual([]);
+  });
+});
+
+describe("countMergeConflicts (MOD-023)", () => {
+  it("counts zero when there's nothing pending", () => {
+    expect(countMergeConflicts([])).toBe(0);
+  });
+
+  it("counts a pending update as a conflict", () => {
+    const ops = [op({ operation: "update", entityId: "acc1", payload: { nome: "X" } })];
+    expect(countMergeConflicts(ops)).toBe(1);
+  });
+
+  it("counts a pending delete as a conflict", () => {
+    const ops = [op({ operation: "delete", entityId: "acc1", payload: null })];
+    expect(countMergeConflicts(ops)).toBe(1);
+  });
+
+  it("does NOT count a pending create — nothing server-side to conflict with", () => {
+    const ops = [op({ operation: "create", entityId: "local:a" })];
+    expect(countMergeConflicts(ops)).toBe(0);
+  });
+
+  it("counts each distinct entity once even with multiple queued updates", () => {
+    const ops = [
+      op({ operation: "update", entityId: "acc1", payload: { nome: "X" } }),
+      op({ operation: "update", entityId: "acc1", payload: { icona: "🏠" } }),
+    ];
+    expect(countMergeConflicts(ops)).toBe(1);
+  });
+
+  it("counts multiple distinct entities separately", () => {
+    const ops = [
+      op({ operation: "update", entityId: "acc1", payload: { nome: "X" } }),
+      op({ operation: "delete", entityId: "acc2", payload: null }),
+    ];
+    expect(countMergeConflicts(ops)).toBe(2);
   });
 });

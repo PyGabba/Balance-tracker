@@ -184,6 +184,22 @@ export function summarizeOutbox(outboxOps) {
  * `pendingOpsForThisType` must already be filtered to the entity type
  * being merged (the caller merges one collection at a time).
  */
+// Counts entities where a pending update/delete was overlaid on top of the
+// server's version during a merge — i.e. genuine "local change was still
+// pending when a fresh server snapshot arrived" moments (MOD-023: track
+// synchronization conflicts). Pending creates aren't counted here since
+// there's no server-side value being overridden — nothing to conflict with.
+export function countMergeConflicts(pendingOpsForThisType) {
+  const seen = new Set();
+  let count = 0;
+  for (const op of pendingOpsForThisType) {
+    if (op.operation === "update" || op.operation === "delete") {
+      if (!seen.has(op.entityId)) { seen.add(op.entityId); count++; }
+    }
+  }
+  return count;
+}
+
 export function mergeServerSnapshot(serverEntities, pendingOpsForThisType) {
   const pendingOps = sortForSync(pendingOpsForThisType);
   const opsByEntity = new Map();

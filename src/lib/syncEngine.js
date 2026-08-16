@@ -17,6 +17,7 @@ import {
   makeOperation, makeTempId, compactEnqueue, sortForSync, isOpReady,
   resolveOperationForSend, applyIdPromotion, recordIdAlias, nextBackoffMs,
   isRetryableStatus, summarizeOutbox, mergeServerSnapshot, mergeTripExpenses,
+  countMergeConflicts,
 } from "./outboxLogic.js";
 import {
   getAllEntities, putEntity, deleteEntity, replaceAllEntities,
@@ -36,14 +37,21 @@ const ENTITY_ENDPOINTS = {
 };
 
 let syncing = false;
+// MOD-023: a running count of "a pending local update/delete was still
+// queued when a fresh server snapshot arrived" moments — see
+// countMergeConflicts in outboxLogic.js. In-memory/per-session, same as
+// the server's metrics (server/logger.js) resetting on restart — this is
+// observability, not a correctness mechanism, so that's an acceptable
+// simplicity tradeoff.
+let syncConflictsObserved = 0;
 const statusListeners = new Set();
 function notifyStatus() { for (const cb of statusListeners) { try { cb(); } catch {} } }
 export function onSyncStatusChange(cb) { statusListeners.add(cb); return () => statusListeners.delete(cb); }
 
 export async function getSyncStatus(householdId) {
-  if (!householdId) return { pending: 0, failed: 0, total: 0, syncing: false };
+  if (!householdId) return { pending: 0, failed: 0, total: 0, syncing: false, syncConflictsObserved };
   const ops = await getOutboxOps(householdId);
-  return { ...summarizeOutbox(ops), syncing };
+  return { ...summarizeOutbox(ops), syncing, syncConflictsObserved };
 }
 
 function isOnline() {
@@ -327,6 +335,7 @@ export async function fetchAndMergeSnapshot(ctxProvider, entityType, serverEntit
   const ctx = ctxProvider();
   if (!ctx || !ctx.householdId) return serverEntities;
   const ops = (await getOutboxOps(ctx.householdId)).filter(o => o.entityType === entityType);
+  syncConflictsObserved += countMergeConflicts(ops);
   const merged = mergeServerSnapshot(serverEntities, ops);
   await replaceAllEntities(entityType, ctx.householdId, merged);
   return merged;
@@ -343,6 +352,7 @@ export async function fetchAndMergeTripsSnapshot(ctxProvider, serverTrips) {
   const ops = await getOutboxOps(ctx.householdId);
   const tripOps = ops.filter(o => o.entityType === "trips");
   const expenseOps = ops.filter(o => o.entityType === "tripExpenses");
+  syncConflictsObserved += countMergeConflicts(tripOps) + countMergeConflicts(expenseOps);
   let merged = mergeServerSnapshot(serverTrips, tripOps);
   merged = mergeTripExpenses(merged, expenseOps);
   await replaceAllEntities("trips", ctx.householdId, merged);

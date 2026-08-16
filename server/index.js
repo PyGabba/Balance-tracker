@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
+import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot } from "./logger.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -184,6 +185,40 @@ app.use(cors(CORS_OPTIONS));
 app.options("*", cors(CORS_OPTIONS));
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
+
+// ─── Request ID + structured request logging (MOD-023) ───
+// Every request gets a correlation id (echoed back as X-Request-Id so a
+// person reporting an issue can hand it over, and included in every log
+// line for that request) and a structured log entry with method/path/
+// status/duration on completion — deliberately NOT the request body or
+// query string, since that's exactly where PINs (login), capability
+// tokens (widget/calendar — query string), and financial payloads
+// (transaction writes) live. sanitizePathForLog additionally redacts the
+// one case a token rides in the URL PATH itself rather than the query:
+// trip share links.
+function sanitizePathForLog(path) {
+  return path.replace(/^(\/api\/trips\/shared)\/[^/]+/, "$1/[REDACTED]");
+}
+app.use((req, res, next) => {
+  req.requestId = req.headers["x-request-id"] || randomUUID();
+  res.setHeader("X-Request-Id", req.requestId);
+  const start = Date.now();
+  res.on("finish", () => {
+    const durationMs = Date.now() - start;
+    const path = sanitizePathForLog(req.path);
+    recordRequestMetric(req.method, path, res.statusCode, durationMs);
+    const level = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
+    logger[level]("http_request", {
+      requestId: req.requestId,
+      method: req.method,
+      path,
+      status: res.statusCode,
+      durationMs,
+      householdId: req.householdId || undefined,
+    });
+  });
+  next();
+});
 
 const IS_PROD = process.env.NODE_ENV === "production";
 const COOKIE_OPTS = {
@@ -496,10 +531,12 @@ let ricorrentiRunning = false;
 export async function generaRicorrentiDovute() {
   if (ricorrentiRunning || !transactionsCol) return; // in-process optimization only — see index comment above for the real guarantee
   ricorrentiRunning = true;
+  const jobStart = Date.now();
+  let jobFailed = false, jobError = null;
   try {
     const oggi = new Date().toISOString().slice(0, 10);
     const dovute = await transactionsCol.find({ "ricorrenza.prossimaData": { $lte: oggi }, deletedAt: null }).toArray();
-    let generated = 0;
+    let generated = 0, skipped = 0, staleEdits = 0, errors = 0;
     for (const t of dovute) {
       // One key per (parent transaction, due date) — the unique index on it
       // is what actually prevents two instances (or a retry) from both
@@ -518,9 +555,11 @@ export async function generaRicorrentiDovute() {
           // Another instance (or an earlier, still-in-flight attempt) already
           // generated this exact occurrence. Nothing more to do for the
           // insert — still fall through to advance prossimaData below.
-          console.log(`Ricorrenti: occorrenza ${occurrenceKey} già generata, salto`);
+          skipped++;
+          logger.info("recurring_occurrence_already_generated", { occurrenceKey });
         } else {
-          console.error(`Ricorrenti: errore generazione occorrenza ${occurrenceKey}:`, err);
+          errors++;
+          logger.error("recurring_occurrence_insert_failed", { occurrenceKey, error: err?.message });
           continue; // leave prossimaData untouched so this occurrence is retried on the next tick
         }
       }
@@ -544,13 +583,20 @@ export async function generaRicorrentiDovute() {
         // Either a genuinely concurrent user edit, or (in the racing-
         // instances case) the other instance's own successful advance
         // already landed first — either way, correctly not double-applied.
-        console.log(`Ricorrenti: ${t._id.toString()} già avanzata o modificata concorrentemente, salto`);
+        staleEdits++;
+        logger.info("recurring_advance_skipped_concurrent_change", { transactionId: t._id.toString() });
       }
     }
-    if (generated > 0) console.log(`Ricorrenti: generate ${generated} transazioni`);
+    if (dovute.length > 0 || generated > 0) {
+      logger.info("recurring_job_completed", { due: dovute.length, generated, skippedDuplicate: skipped, skippedConcurrentEdit: staleEdits, errors, durationMs: Date.now() - jobStart });
+    }
+    if (errors > 0) jobFailed = true;
   } catch (e) {
-    console.error("generaRicorrentiDovute error:", e);
+    jobFailed = true;
+    jobError = e?.message || String(e);
+    logger.error("recurring_job_failed", { error: jobError });
   } finally {
+    recordJobRun("recurringTransactions", { failed: jobFailed, error: jobError });
     ricorrentiRunning = false;
   }
 }
@@ -624,6 +670,8 @@ const TRIP_SETTLING_STALE_MS = 10 * 60 * 1000;
 export async function chiudiViaggiScaduti() {
   if (tripAutoCloseRunning || !tripsCol) return; // in-process optimization only — see below for the real guarantee
   tripAutoCloseRunning = true;
+  const jobStart = Date.now();
+  let jobFailed = false, jobError = null;
   try {
     const oggi = new Date().toISOString().slice(0, 10);
     const now = new Date();
@@ -638,8 +686,9 @@ export async function chiudiViaggiScaduti() {
         { settlementStatus: "settling", settlingStartedAt: { $lt: staleBefore } },
       ],
     };
-    const candidates = await tripsCol.find(candidateFilter, { projection: { _id: 1 } }).toArray();
-    let closed = 0;
+    const candidates = await tripsCol.find(candidateFilter, { projection: { _id: 1, settlementStatus: 1 } }).toArray();
+    const resumeCount = candidates.filter(c => c.settlementStatus === "settling").length;
+    let closed = 0, errors = 0;
     for (const { _id } of candidates) {
       // MOD-008: atomically claim the trip by transitioning it into
       // "settling" — matching the SAME condition as the query above so two
@@ -683,8 +732,10 @@ export async function chiudiViaggiScaduti() {
           if (err?.code === 11000) {
             // Already inserted by an earlier attempt before a crash — this
             // is the resume path working correctly, not an error.
+            logger.info("trip_settlement_leg_already_inserted", { tripId: _id.toString(), settlementKey });
           } else {
-            console.error(`Viaggi: errore inserimento saldo ${settlementKey}:`, err);
+            errors++;
+            logger.error("trip_settlement_leg_insert_failed", { tripId: _id.toString(), settlementKey, error: err?.message });
             allInserted = false;
             break; // stop here, stay in "settling" — the next tick resumes from wherever this left off
           }
@@ -696,10 +747,16 @@ export async function chiudiViaggiScaduti() {
         closed++;
       }
     }
-    if (closed > 0) console.log(`Viaggi: chiusi automaticamente ${closed} viaggi scaduti`);
+    if (candidates.length > 0 || closed > 0) {
+      logger.info("trip_settlement_job_completed", { candidates: candidates.length, closed, resumedFromCrash: resumeCount, errors, durationMs: Date.now() - jobStart });
+    }
+    if (errors > 0) jobFailed = true;
   } catch (e) {
-    console.error("chiudiViaggiScaduti error:", e);
+    jobFailed = true;
+    jobError = e?.message || String(e);
+    logger.error("trip_settlement_job_failed", { error: jobError });
   } finally {
+    recordJobRun("tripSettlement", { failed: jobFailed, error: jobError });
     tripAutoCloseRunning = false;
   }
 }
@@ -801,6 +858,16 @@ app.delete("/api/admin/blacklist/:key(*)", adminLimiter, requireAdmin, async (re
     if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
     res.json({ ok: true, key });
   } catch (e) { res.status(500).json({ error: "Errore" }); }
+});
+
+// MOD-023: request counts/latency percentiles/error rates per route, plus
+// background-job run/failure counts and a running sync-conflict tally —
+// "background-job failures are detectable without reading raw server logs
+// manually". Admin-gated like the blacklist routes above; in-memory only
+// (resets on restart), which is a deliberate simplicity tradeoff over
+// wiring in an external metrics service this project doesn't otherwise need.
+app.get("/api/admin/metrics", adminLimiter, requireAdmin, (req, res) => {
+  res.json(getMetricsSnapshot());
 });
 
 async function findHousehold(hid) {
@@ -928,7 +995,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     audit("login_success", { householdId: household.householdId, ip, deviceId });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ...household });
-  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore login"); }
+  } catch (e) { logger.error("login_failed", { requestId: req.requestId, error: e.message }); sendError(res, 500, "INTERNAL_ERROR", "Errore login"); }
 });
 
 app.post("/api/auth/logout", requireHousehold, async (req, res) => {
@@ -979,7 +1046,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
   } catch (e) {
     if (e.code === 11000 && e.message?.includes("pinLookup")) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
     if (e.code === 11000 && e.message?.includes("email")) return res.status(409).json({ error: "Email già collegata a un altro gruppo" });
-    console.error("Register error:", e.message); // never log e directly — req.body may appear in stack
+    logger.error("register_failed", { requestId: req.requestId, error: e.message }); // never log e directly — req.body may appear in stack
     res.status(500).json({ error: "Errore durante la registrazione" });
   }
 });
@@ -1003,7 +1070,7 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
     audit("pin_change", { householdId: req.householdId, ip: clientIp(req) });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ok: true });
-  } catch (e) { console.error("PIN change error:", e.message); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
+  } catch (e) { logger.error("pin_change_failed", { requestId: req.requestId, householdId: req.householdId, error: e.message }); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
 });
 
 // ─── Recupero PIN dimenticato ───
@@ -1031,12 +1098,12 @@ app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
     // essere lenta, e non deve mai tenere in sospeso la risposta al client
     // — altrimenti resta bloccato su "Invio..." indefinitamente.
     sendPinResetCode(email, code, household.nome).catch(mailErr => {
-      console.error(`Invio email reset fallito [${mailErr.code || "?"}]: ${mailErr.message}${mailErr.response ? " — " + mailErr.response : ""}`);
+      logger.error("pin_reset_email_send_failed", { requestId: req.requestId, code: mailErr.code || null, error: mailErr.message, response: mailErr.response || undefined });
       // Non sveliamo all'esterno se l'invio è fallito per non far trapelare l'esistenza dell'account
     });
     audit("pin_reset_requested", { householdId: household.householdId, ip: clientIp(req) });
     res.json(GENERIC_OK);
-  } catch (e) { console.error("Forgot-pin request error:", e.message); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { logger.error("forgot_pin_request_failed", { requestId: req.requestId, error: e.message }); res.status(500).json({ error: "Errore" }); }
 });
 
 app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
@@ -1079,7 +1146,8 @@ app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
     res.json({ id: household.householdId, nome: household.nome, persone: household.persone });
   } catch (e) {
     if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
-    console.error("Forgot-pin confirm error:", e.message); res.status(500).json({ error: "Errore" });
+    logger.error("forgot_pin_confirm_failed", { requestId: req.requestId, error: e.message });
+    res.status(500).json({ error: "Errore" });
   }
 });
 

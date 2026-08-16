@@ -451,3 +451,44 @@ describe("syncEngine — fetchAndMergeTripsSnapshot (trip-level + expense-level 
     expect(merged[0].nome).toBe("Nuovo nome");
   });
 });
+
+describe("syncEngine — sync conflict tracking (MOD-023)", () => {
+  let syncEngine, offlineDb, ctx;
+  beforeEach(async () => {
+    ({ syncEngine, offlineDb } = await freshModules());
+    ctx = makeCtx();
+    vi.restoreAllMocks();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("increments the observed-conflict count when a pending update is overlaid on a server refresh", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("accounts", "h1", { id: "acc1", nome: "Vecchio" });
+    await syncEngine.enqueueWrite(ctx, { entityType: "accounts", operation: "update", entityId: "acc1", payload: { nome: "Nuovo" } });
+
+    const before = await syncEngine.getSyncStatus("h1");
+    await syncEngine.fetchAndMergeSnapshot(ctx, "accounts", [{ id: "acc1", nome: "Dal server" }]);
+    const after = await syncEngine.getSyncStatus("h1");
+
+    expect(after.syncConflictsObserved).toBe(before.syncConflictsObserved + 1);
+  });
+
+  it("does NOT increment when there's nothing pending (no genuine conflict)", async () => {
+    const before = await syncEngine.getSyncStatus("h1");
+    await syncEngine.fetchAndMergeSnapshot(ctx, "accounts", [{ id: "acc1", nome: "Dal server" }]);
+    const after = await syncEngine.getSyncStatus("h1");
+    expect(after.syncConflictsObserved).toBe(before.syncConflictsObserved);
+  });
+
+  it("counts trip-expense conflicts too, via fetchAndMergeTripsSnapshot", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDb.putEntity("trips", "h1", { id: "trip1", expenses: [{ id: "exp1", importo: 5 }] });
+    await syncEngine.enqueueTripExpenseWrite(ctx, { operation: "delete", tripId: "trip1", expenseId: "exp1", payload: null });
+
+    const before = await syncEngine.getSyncStatus("h1");
+    await syncEngine.fetchAndMergeTripsSnapshot(ctx, [{ id: "trip1", expenses: [{ id: "exp1", importo: 5 }] }]);
+    const after = await syncEngine.getSyncStatus("h1");
+
+    expect(after.syncConflictsObserved).toBe(before.syncConflictsObserved + 1);
+  });
+});
