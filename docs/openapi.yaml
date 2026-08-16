@@ -1,0 +1,781 @@
+openapi: 3.0.3
+info:
+  title: Balance Tracker API
+  version: "1.0"
+  description: >
+    Household finance tracker API. This spec covers the core resources —
+    auth, transactions, accounts, goals, trips (+ expenses/sharing), and
+    positions — plus the widget and admin-metrics endpoints. It is a
+    snapshot maintained by hand alongside the code (MOD-024), not
+    generated. Endpoints not yet modeled here in full detail (backup,
+    categories, calendar feed, admin blacklist) are documented in prose in
+    ./API.md, which also covers pagination, idempotency, rate limiting,
+    and the full error-code reference this spec references but doesn't
+    repeat.
+servers:
+  - url: /api
+    description: Same-origin (production, via the Vercel proxy) or http://localhost:3001/api in development
+
+security:
+  - cookieAuth: []
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: token
+      description: httpOnly JWT session cookie, set by /auth/login or /auth/register.
+    capabilityTokenQuery:
+      type: apiKey
+      in: query
+      name: key
+      description: Widget/calendar capability token — unrelated to household auth, grants only the narrow surface it was issued for.
+    adminSecret:
+      type: apiKey
+      in: header
+      name: X-Admin-Secret
+      description: Must match the server's ADMIN_SECRET environment variable. Unrelated to household auth.
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          oneOf:
+            - type: string
+              description: Legacy shape — most endpoints not yet migrated to the structured shape (MOD-022).
+            - type: object
+              properties:
+                code:
+                  type: string
+                  example: UNKNOWN_PARTICIPANT
+                message:
+                  type: string
+                fields:
+                  type: object
+                  additionalProperties: true
+              required: [code, message]
+
+    Split:
+      type: object
+      properties:
+        personaId: { type: string }
+        quota:
+          type: number
+          minimum: 0
+          maximum: 100
+      required: [personaId, quota]
+
+    ExtraPersona:
+      type: object
+      properties:
+        id: { type: string, maxLength: 50 }
+        nome: { type: string, maxLength: 100 }
+      required: [id, nome]
+
+    Ricorrenza:
+      type: object
+      nullable: true
+      properties:
+        frequenza:
+          type: string
+          enum: [settimanale, mensile, trimestrale, annuale]
+        prossimaData:
+          type: string
+          format: date
+        variabile:
+          type: boolean
+      required: [frequenza, prossimaData]
+
+    TransactionInput:
+      type: object
+      required: [tipo, importo, data]
+      properties:
+        tipo:
+          type: string
+          enum: [uscita, entrata, saldo, trasferimento]
+        importo:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          description: Rounded to 2 decimal places server-side. Not integer minor units (see MOD-016 in the modification plan).
+        data:
+          type: string
+          format: date
+        categoria: { type: string, maxLength: 50 }
+        descrizione: { type: string, maxLength: 500 }
+        pagatoDa:
+          type: string
+          nullable: true
+          description: Household member or extraPersone id. Required for tipo=uscita if splits are given.
+        ricevutoDa: { type: string, nullable: true }
+        intestataA: { type: string, nullable: true, description: "Required for tipo=entrata to attribute income to a person." }
+        splits:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/Split" }
+          description: If present, quotas must sum to 100 (± 0.05 tolerance) and every personaId must be a known participant (MOD-002).
+        extraPersone:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/ExtraPersona" }
+          description: Ad-hoc participants declared on this same request (e.g. a one-off guest), not required to be household members.
+        contoId: { type: string, nullable: true, description: "Account id — must belong to this household (MOD-001/009)." }
+        contoDa: { type: string, nullable: true, description: "Required for tipo=trasferimento." }
+        contoA: { type: string, nullable: true, description: "Required for tipo=trasferimento; must differ from contoDa." }
+        valuta: { type: string, nullable: true, description: "ISO 4217-ish currency code, if different from the household's base currency." }
+        ricorrenza: { $ref: "#/components/schemas/Ricorrenza" }
+        daVerificare: { type: boolean }
+
+    Transaction:
+      allOf:
+        - $ref: "#/components/schemas/TransactionInput"
+        - type: object
+          properties:
+            id: { type: string }
+            createdAt: { type: string, format: date-time }
+            importoOriginale: { type: number, description: "Present if valuta conversion was applied." }
+            tassoCambio: { type: number }
+            tassoCambioObsoleto: { type: boolean, description: "True if the exchange rate used was a stale cache, not freshly fetched." }
+            recurrenceOccurrenceKey: { type: string, description: "Present on transactions generated by the recurring job." }
+            clientId: { type: string, description: "Optional client-supplied correlation id for offline-created transactions." }
+          required: [id]
+
+    TransactionsPage:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items: { $ref: "#/components/schemas/Transaction" }
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+      required: [transactions, nextCursor, hasMore]
+
+    Account:
+      type: object
+      properties:
+        id: { type: string }
+        nome: { type: string, maxLength: 60 }
+        icona: { type: string, maxLength: 8, default: "🏦" }
+        saldoIniziale: { type: number }
+        createdAt: { type: string, format: date-time }
+      required: [id, nome]
+
+    Goal:
+      type: object
+      properties:
+        id: { type: string }
+        nome: { type: string, maxLength: 100 }
+        targetAmount: { type: number }
+        targetDate: { type: string, format: date, nullable: true }
+        currentAmount: { type: number }
+        contributionType: { type: string, enum: [manual, fixed, percentage] }
+        contributionValue: { type: number }
+        autoAdd: { type: boolean }
+        contoId:
+          type: string
+          nullable: true
+          description: Must belong to this household (MOD-009).
+      required: [id, nome, targetAmount]
+
+    Position:
+      type: object
+      properties:
+        id: { type: string }
+        ticker: { type: string, maxLength: 20 }
+        nome: { type: string }
+        quantita: { type: number }
+        prezzoAcquisto: { type: number }
+        dataAcquisto: { type: string, format: date }
+        valuta: { type: string, default: EUR }
+        note: { type: string }
+        tipo: { type: string, enum: [buy, sell], default: buy }
+      required: [id, ticker, quantita, prezzoAcquisto]
+
+    TripPartecipante:
+      type: object
+      properties:
+        id: { type: string }
+        nome: { type: string }
+        emoji: { type: string }
+        colore: { type: string }
+      required: [id, nome]
+
+    TripExpense:
+      type: object
+      properties:
+        id: { type: string, description: "UUID, not a MongoDB ObjectId." }
+        pagatoDa:
+          type: string
+          description: Must be a participant of THIS trip (trip.partecipanti), not necessarily a household member (MOD-009).
+        importo: { type: number, minimum: 0, exclusiveMinimum: true }
+        descrizione: { type: string, maxLength: 200 }
+        categoria: { type: string, maxLength: 50 }
+        data: { type: string, format: date }
+        splits:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/Split" }
+      required: [id, pagatoDa, importo]
+
+    Trip:
+      type: object
+      properties:
+        id: { type: string }
+        nome: { type: string, maxLength: 100 }
+        descrizione: { type: string, maxLength: 500 }
+        startDate: { type: string, format: date, nullable: true }
+        endDate: { type: string, format: date, nullable: true }
+        partecipanti:
+          type: array
+          items: { $ref: "#/components/schemas/TripPartecipante" }
+        expenses:
+          type: array
+          items: { $ref: "#/components/schemas/TripExpense" }
+          description: "Embedded, capped at 2000 (hard limit) with a warning logged past 300 (MOD-019)."
+        settled: { type: boolean }
+        settlementStatus:
+          type: string
+          nullable: true
+          enum: [open, settling, settled]
+          description: Internal state machine for crash-safe auto-settlement (MOD-008). Not meaningful for manually-settled trips.
+        autoSettled: { type: boolean }
+      required: [id, nome]
+
+    MetricsSnapshot:
+      type: object
+      properties:
+        startedAt: { type: string, format: date-time }
+        uptimeSeconds: { type: number }
+        requests:
+          type: object
+          properties:
+            total: { type: integer }
+            byStatusClass:
+              type: object
+              properties:
+                "2xx": { type: integer }
+                "3xx": { type: integer }
+                "4xx": { type: integer }
+                "5xx": { type: integer }
+        routes:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              count: { type: integer }
+              errorCount: { type: integer }
+              errorRate: { type: number }
+              latencyMsP50: { type: number, nullable: true }
+              latencyMsP95: { type: number, nullable: true }
+              latencyMsP99: { type: number, nullable: true }
+        jobs:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              runs: { type: integer }
+              failures: { type: integer }
+              lastRunAt: { type: string, format: date-time, nullable: true }
+              lastFailureAt: { type: string, format: date-time, nullable: true }
+              lastError: { type: string, nullable: true }
+        syncConflictsObserved: { type: integer }
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, maxLength: 100 }
+      description: See API.md#idempotency. Recommended for all create requests.
+    TransactionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    AccountId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    GoalId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    TripId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Validation failed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Not authenticated, or session invalid/expired.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Entity not found (or not owned by this household).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Rate limited. See API.md#rate-limiting.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+paths:
+  /auth/register:
+    post:
+      summary: Create a new household
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome, persone, pin]
+              properties:
+                nome: { type: string }
+                persone:
+                  type: array
+                  items:
+                    type: object
+                    properties: { nome: { type: string } }
+                pin: { type: string }
+                email: { type: string, nullable: true }
+      responses:
+        "201": { description: Household created; session cookie set. }
+        "409": { description: PIN or email already in use. }
+
+  /auth/login:
+    post:
+      summary: Log in to an existing household
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string }
+                deviceId: { type: string, nullable: true }
+      responses:
+        "200": { description: Session cookie set; household data returned. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/logout:
+    post:
+      summary: Revoke the current session
+      responses:
+        "200": { description: Logged out. }
+
+  /transactions:
+    get:
+      summary: List transactions (paginated)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 1000, maximum: 2000 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: tipo
+          in: query
+          schema: { type: string, enum: [uscita, entrata, saldo, trasferimento] }
+        - name: categoria
+          in: query
+          schema: { type: string }
+        - name: pagatoDa
+          in: query
+          schema: { type: string }
+        - name: contoId
+          in: query
+          schema: { type: string }
+        - name: meseAnno
+          in: query
+          schema: { type: string, example: "2026-08" }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransactionsPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+    post:
+      summary: Create a transaction
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transaction" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { description: Currency conversion requested but no exchange rate is available. }
+        "425": { description: A request with the same Idempotency-Key is still being processed. }
+
+  /transactions/{id}:
+    put:
+      summary: Partially update a transaction
+      parameters:
+        - $ref: "#/components/parameters/TransactionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              description: Same fields as TransactionInput, all optional — only fields present are validated/changed.
+              allOf: [{ $ref: "#/components/schemas/TransactionInput" }]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Transaction" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Soft-delete a transaction (moves to trash)
+      parameters:
+        - $ref: "#/components/parameters/TransactionId"
+      responses:
+        "200": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /accounts:
+    get:
+      summary: List accounts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Account" } }
+    post:
+      summary: Create an account
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Account" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+
+  /accounts/{id}:
+    put:
+      summary: Update an account
+      parameters: [{ $ref: "#/components/parameters/AccountId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Account" }
+      responses:
+        "200": { description: Updated. }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete an account
+      parameters: [{ $ref: "#/components/parameters/AccountId" }]
+      responses:
+        "200": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /goals:
+    get:
+      summary: List savings goals
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Goal" } }
+    post:
+      summary: Create a savings goal
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Goal" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Goal" }
+        "400": { description: "contoId does not belong to this household, or missing required fields." }
+
+  /goals/{id}:
+    put:
+      summary: Update a savings goal
+      parameters: [{ $ref: "#/components/parameters/GoalId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Goal" }
+      responses:
+        "200": { description: Updated. }
+        "400": { description: "contoId does not belong to this household." }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete a savings goal
+      parameters: [{ $ref: "#/components/parameters/GoalId" }]
+      responses:
+        "200": { description: Deleted. }
+
+  /positions:
+    get:
+      summary: List portfolio positions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Position" } }
+    post:
+      summary: Record a buy/sell position
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Position" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Position" }
+
+  /positions/{id}:
+    delete:
+      summary: Delete a position
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Deleted. }
+
+  /trips:
+    get:
+      summary: List trips
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Trip" } }
+    post:
+      summary: Create a trip
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Trip" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Trip" }
+
+  /trips/{id}:
+    put:
+      summary: Update a trip
+      parameters: [{ $ref: "#/components/parameters/TripId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Trip" }
+      responses:
+        "200": { description: Updated. }
+    delete:
+      summary: Delete a trip
+      parameters: [{ $ref: "#/components/parameters/TripId" }]
+      responses:
+        "200": { description: Deleted. }
+
+  /trips/{id}/expenses:
+    post:
+      summary: Add an expense to a trip
+      description: >
+        pagatoDa and every splits[].personaId must be a participant of THIS
+        trip (trip.partecipanti) — not the household's participant list
+        (MOD-009). Subject to the 300-warn/2000-hard-limit embedded-array
+        guard (MOD-019), enforced atomically at write time.
+      parameters: [{ $ref: "#/components/parameters/TripId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TripExpense" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TripExpense" }
+        "400":
+          description: Validation failed, trip already settled, or the trip is at its expense-count hard limit.
+
+  /trips/{id}/expenses/{expenseId}:
+    delete:
+      summary: Remove an expense from a trip
+      parameters:
+        - $ref: "#/components/parameters/TripId"
+        - name: expenseId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Deleted. }
+
+  /trips/{id}/share:
+    post:
+      summary: Create (or replace) a guest share link for a trip
+      parameters: [{ $ref: "#/components/parameters/TripId" }]
+      responses:
+        "200":
+          description: The plaintext token, returned exactly once — only its hash is stored server-side.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  expiresInDays: { type: integer, example: 30 }
+    delete:
+      summary: Revoke a trip's share link
+      parameters: [{ $ref: "#/components/parameters/TripId" }]
+      responses:
+        "200": { description: Revoked. }
+
+  /trips/shared/{token}:
+    get:
+      summary: Guest view of a shared trip (no household auth)
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: A stripped-down trip view (name, dates, participants, expenses, settled status).
+        "404": { description: "Link invalid, expired, or revoked." }
+
+  /widget-key:
+    post:
+      summary: Create (or rotate) the household's widget capability token
+      responses:
+        "200":
+          description: The plaintext key, returned exactly once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { key: { type: string } }
+    delete:
+      summary: Revoke the widget capability token
+      responses:
+        "200": { description: Revoked. }
+
+  /widget:
+    get:
+      summary: Read-only aggregate summary for a home-screen widget
+      security:
+        - capabilityTokenQuery: []
+      responses:
+        "200":
+          description: >
+            Aggregate numbers only — account balances, this-month income/
+            expense totals, portfolio value. Never the raw transaction
+            list. Computed server-side via a MongoDB aggregation, not by
+            loading the household's full transaction history (MOD-020).
+        "401": { description: Missing or invalid capability token. }
+
+  /widget/transaction:
+    post:
+      summary: Create a transaction via the widget's minimal write surface
+      security:
+        - capabilityTokenQuery: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tipo, importo]
+              properties:
+                tipo: { type: string, enum: [uscita, entrata] }
+                importo: { type: number }
+                data: { type: string, format: date }
+                categoria: { type: string }
+                pagatoDa: { type: string, nullable: true }
+                intestataA: { type: string, nullable: true }
+                contoId: { type: string, nullable: true }
+                splits:
+                  type: array
+                  nullable: true
+                  items: { $ref: "#/components/schemas/Split" }
+      responses:
+        "201": { description: Created. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /admin/metrics:
+    get:
+      summary: Operational metrics snapshot (MOD-023)
+      security:
+        - adminSecret: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetricsSnapshot" }
+        "401": { description: Missing/invalid X-Admin-Secret. }
+        "503": { description: ADMIN_SECRET not configured on the server. }
