@@ -36,6 +36,18 @@ export function isPlainId(v, maxLen = 50) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= maxLen;
 }
 
+// ─── Reusable participant-membership check (MOD-009) ───
+// One small predicate used everywhere a client-supplied id must belong to
+// a specific set of known participants — household members (+ any ad-hoc
+// extraPersone declared on the same request) for transactions, below, or
+// a trip's own partecipanti for trip expenses (a deliberately DIFFERENT
+// set — trip guests who joined via a share link are never household
+// members, see buildTripExpense further down). The set of valid ids
+// differs by context; the membership check itself doesn't need to.
+export function isKnownParticipant(id, participantIds) {
+  return isPlainId(id) && participantIds.has(id);
+}
+
 // Rounded to 2 decimal places on the way in so floating-point noise
 // (0.1 + 0.2 style artifacts) never propagates into stored balances. This
 // still stores a decimal number (e.g. 12.34), not integer minor units
@@ -211,7 +223,7 @@ export function validateTransactionInput(body, { householdPersonIds = [], accoun
   function validatePersonRef(key) {
     const v = get(key);
     if (v == null || v === "") return null;
-    if (!isPlainId(v) || !participantIds.has(v)) {
+    if (!isKnownParticipant(v, participantIds)) {
       throw new ValidationError("UNKNOWN_PARTICIPANT", `Partecipante non valido: ${key}`, { [key]: v });
     }
     return v;
@@ -267,7 +279,7 @@ export function validateTransactionInput(body, { householdPersonIds = [], accoun
 export function buildTripExpense(body, trip) {
   const b = body || {};
   const partecipantiIds = new Set((trip.partecipanti || []).map(p => p.id));
-  if (!partecipantiIds.has(b.pagatoDa)) {
+  if (!isKnownParticipant(b.pagatoDa, partecipantiIds)) {
     throw new ValidationError("UNKNOWN_TRIP_PARTICIPANT", "Partecipante non valido per questo viaggio", { pagatoDa: b.pagatoDa });
   }
   const importo = validateAmount(b.importo);

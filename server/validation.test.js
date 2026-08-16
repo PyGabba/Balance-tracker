@@ -12,6 +12,7 @@ import {
   decideIdempotencyClaim,
   isTripSettlementCandidate,
   settlementTransactionKey,
+  isKnownParticipant,
   ValidationError,
 } from "./validation.js";
 
@@ -419,5 +420,27 @@ describe("settlementTransactionKey", () => {
   });
   it("differs by trip for the same index", () => {
     expect(settlementTransactionKey("trip1", 0)).not.toBe(settlementTransactionKey("trip2", 0));
+  });
+});
+
+describe("isKnownParticipant (MOD-009 — reused by both validateTransactionInput and buildTripExpense against their own respective participant sets)", () => {
+  const ids = new Set(["g", "l"]);
+
+  it("accepts a known id", () => {
+    expect(isKnownParticipant("g", ids)).toBe(true);
+  });
+  it("rejects an unknown id", () => {
+    expect(isKnownParticipant("mallory", ids)).toBe(false);
+  });
+  it("rejects malformed input even if it would otherwise coincidentally match", () => {
+    expect(isKnownParticipant(null, ids)).toBe(false);
+    expect(isKnownParticipant(undefined, ids)).toBe(false);
+    expect(isKnownParticipant(123, ids)).toBe(false);
+    expect(isKnownParticipant("", ids)).toBe(false);
+  });
+  it("rejects an id over the length bound even if somehow present in the set", () => {
+    const longId = "x".repeat(51);
+    const idsWithLong = new Set([longId]);
+    expect(isKnownParticipant(longId, idsWithLong)).toBe(false);
   });
 });
