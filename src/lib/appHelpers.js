@@ -25,6 +25,11 @@ export function defaultCategorie(lang) {
 
 export function generaId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+// Shared palette for ad-hoc "extra" participants (guests not in the
+// household's own persone list) — used wherever one gets created:
+// SplitSelector's "+ Person", and the Splitwise CSV importer.
+export const COLORI_EXTRA = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
+
 // Same tolerance as the server (server/validation.js, MOD-002) — keeps the
 // pre-submit check and the server's final authority in agreement, so a
 // split that passes here won't unexpectedly bounce off the API.

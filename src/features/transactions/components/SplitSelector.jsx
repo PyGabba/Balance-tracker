@@ -2,9 +2,9 @@ import { useState } from "react";
 import { t } from "../../../lib/i18n.js";
 import { formattaValuta } from "../../../lib/format.js";
 import { labelStyle, inputStyle } from "../../../components/ui/styles.js";
+import { COLORI_EXTRA } from "../../../lib/appHelpers.js";
 
 // ─── Multi-person split selector ───
-const COLORI_EXTRA = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
 
 export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone, lang = "it" }) {
   const [showAddExtra, setShowAddExtra] = useState(false);
