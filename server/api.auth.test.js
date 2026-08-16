@@ -101,17 +101,26 @@ describe("cross-household authorization (MOD-009)", () => {
   });
 });
 
-// ─── Pre-existing bug found while writing these tests (NOT fixed here — out
-// of MOD-014 scope, flagged in the phase-5 report instead) ───
-// server/index.js:316 creates `households.email` as a UNIQUE SPARSE index,
-// but server/index.js:~1011 always sets `doc.email = emailNorm` (defaulting
-// to `null`, never `undefined`) when a household registers without an
-// email. MongoDB's sparse index only skips documents where the field is
-// completely ABSENT — a field present with value `null` still gets indexed.
-// The practical effect: the FIRST household ever registered without an
-// email succeeds; every subsequent household that also omits an email fails
-// registration with a misleading 409 "Email già collegata a un altro
-// gruppo", even though no email was given at all. Reproduced directly
-// against a real mongod (mongodb-memory-server) confirming this is real
-// MongoDB semantics, not a test-double quirk. Every register() call in this
-// test suite supplies a distinct email specifically to route around this.
+// ─── Regression test for a bug found while writing MOD-014 tests, fixed ───
+// server/index.js:316 creates `households.email` as a UNIQUE SPARSE index.
+// A sparse index only skips documents where the field is completely ABSENT
+// — a field present with value `null` still gets indexed. Registration used
+// to always set `doc.email = emailNorm` (defaulting to `null`), so the FIRST
+// household registered without an email would succeed but every subsequent
+// no-email household would fail with a misleading 409 "Email già collegata
+// a un altro gruppo". Fixed by omitting the `email` key entirely instead of
+// setting it to `null` when no email is given.
+describe("register without email", () => {
+  it("allows multiple households to register without an email", async () => {
+    const first = await request(app)
+      .post("/api/auth/register")
+      .send({ nome: "No Email One", persone: ["Ana"], pin: "611001" });
+    expect(first.status).toBe(201);
+
+    const second = await request(app)
+      .post("/api/auth/register")
+      .send({ nome: "No Email Two", persone: ["Bo"], pin: "611002" });
+    expect(second.status).toBe(201);
+    expect(second.body.householdId).not.toBe(first.body.householdId);
+  });
+});

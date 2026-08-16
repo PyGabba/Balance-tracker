@@ -331,11 +331,3 @@ Documented here rather than silently fixed — standardizing these is MOD-022
   `token` cookie — there is no code path that reads an `Authorization`
   header. Likely leftover from an earlier design or defensive future-proofing;
   as written today it's dead configuration.
-- **`households.email` sparse-unique-index bug** (found while writing
-  `server/api.auth.test.js` for MOD-014, not fixed — see that file's inline
-  comment and the phase-5 completion report): registering a household
-  without an email sets `email: null` explicitly rather than omitting the
-  field, and MongoDB's sparse index still indexes an explicit `null`. The
-  practical effect: only the *first* household ever registered without an
-  email succeeds; every subsequent no-email registration fails with a
-  misleading `409 "Email già collegata a un altro gruppo"`.

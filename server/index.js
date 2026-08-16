@@ -1032,7 +1032,11 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     }));
 
     const pinHash = await hashPin(pin);
-    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), email: emailNorm, createdAt: new Date() };
+    const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), createdAt: new Date() };
+    // Sparse unique index on email requires the field to be ABSENT (not null)
+    // for docs without an email — a stored `null` still gets indexed, so a
+    // second no-email registration would collide on the first one.
+    if (emailNorm) doc.email = emailNorm;
     await householdsCol.insertOne(doc);
     const { token, jti } = signToken(householdId);
     await storeToken(jti, householdId);
