@@ -4,6 +4,8 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { MongoClient, ObjectId } from "mongodb";
 import { createHmac, createHash, randomUUID, randomBytes } from "crypto";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import dotenv from "dotenv";
 // Yahoo Finance disabled — manual prices only
 import jwt from "jsonwebtoken";
@@ -11,6 +13,25 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
 dotenv.config();
+
+// ─── Structured (JSON) logging (MOD-023) ───
+// Deliberately tiny — a project this size doesn't need pino/winston. Every
+// line is a single JSON object on stdout/stderr so it's greppable and
+// machine-parseable in whatever log aggregator ends up reading it. NEVER
+// pass PINs, JWTs, cookie values, capability tokens/share-link tokens, or
+// full financial payloads into `meta` — log entity ids and counts instead.
+function logLine(level, msg, meta = {}) {
+  const entry = { level, msg, ts: new Date().toISOString(), ...meta };
+  const line = JSON.stringify(entry);
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+}
+export const logger = {
+  info: (msg, meta) => logLine("info", msg, meta),
+  warn: (msg, meta) => logLine("warn", msg, meta),
+  error: (msg, meta) => logLine("error", msg, meta),
+};
 
 // ─── Email (SendGrid via HTTPS API) ───
 // Render (e molti altri host cloud) blocca le porte SMTP in uscita
@@ -44,7 +65,7 @@ async function sendLockoutAlert(ip, deviceId) {
   try {
     await sendEmail(FROM_EMAIL, "⚠️ Balance Tracker: accesso bloccato",
       `10 tentativi di PIN errati rilevati.\nIP: ${ip}\nDevice ID: ${deviceId || "sconosciuto"}\nAccount bloccato per 10 minuti.\n\n${new Date().toISOString()}`);
-  } catch (e) { console.error("Invio alert lockout fallito:", e.message); }
+  } catch (e) { logger.error("lockout_alert_failed", { ip, deviceId, error: e.message }); }
 }
 
 async function sendPinResetCode(toEmail, code, householdNome) {
@@ -58,7 +79,7 @@ async function sendPinResetCode(toEmail, code, householdNome) {
 // scoprirlo solo quando un utente prova il reset.
 async function verifyEmailSetup() {
   if (!SENDGRID_API_KEY) {
-    console.warn("⚠️  SENDGRID_API_KEY non impostata: invio email (reset PIN, alert lockout) DISABILITATO.");
+    logger.warn("email_not_configured", { reason: "missing_sendgrid_api_key" });
     return;
   }
   try {
@@ -70,10 +91,10 @@ async function verifyEmailSetup() {
       const body = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status} — ${body.slice(0, 200)}`);
     }
-    console.log(`✓ Servizio email (SendGrid) configurato correttamente. Mittente: ${FROM_EMAIL}`);
+    logger.info("email_configured", { fromEmail: FROM_EMAIL });
   } catch (e) {
-    console.error(`⚠️  Servizio email configurato ma NON funzionante: ${e.message}`);
-    console.error("   Cause comuni: API key errata o revocata, oppure FROM_EMAIL non è un mittente verificato su SendGrid (serve la Single Sender Verification).");
+    // Never log SENDGRID_API_KEY itself — only the failure reason.
+    logger.error("email_misconfigured", { error: e.message });
   }
 }
 
@@ -108,7 +129,7 @@ async function recordFail(key) {
 async function clearLock(key) { await locksCol.deleteOne({ key }); }
 
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
-  console.error("FATAL: JWT_SECRET non impostato in produzione. Il server non può avviarsi con il secret di default.");
+  logger.error("fatal_missing_jwt_secret", { message: "JWT_SECRET non impostato in produzione" });
   process.exit(1);
 }
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-production";
@@ -185,6 +206,30 @@ app.options("*", cors(CORS_OPTIONS));
 app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 
+// ─── Request id + latency/status logging (MOD-023) ───
+// Every request gets a UUID, echoed back via X-Request-Id so a client-
+// reported issue can be correlated with the exact server-side log line(s).
+// Logged fields are limited to method/path/status/duration/id — never
+// headers, cookies, or the request/response body (those can carry PINs,
+// JWTs, or capability tokens).
+app.use((req, res, next) => {
+  const requestId = randomUUID();
+  req.requestId = requestId;
+  res.setHeader("X-Request-Id", requestId);
+  const startedAt = process.hrtime.bigint();
+  res.on("finish", () => {
+    const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e5) / 10;
+    logger.info("http_request", {
+      requestId,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs,
+    });
+  });
+  next();
+});
+
 const IS_PROD = process.env.NODE_ENV === "production";
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -195,9 +240,13 @@ const COOKIE_OPTS = {
 };
 
 let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol, idempotencyCol;
-async function connectDB() {
-  const client = new MongoClient(MONGO_URI); await client.connect();
-  db = client.db(DB_NAME);
+// `mongoUri`/`dbName` default to the module-level env-derived values (the
+// production path) but can be overridden — this is what lets tests point
+// the exact same app at a disposable mongodb-memory-server instance instead
+// of a real database, without touching process.env or module-level state.
+export async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
+  const client = new MongoClient(mongoUri); await client.connect();
+  db = client.db(dbName);
   transactionsCol = db.collection("transactions");
   householdsCol = db.collection("households");
   locksCol = db.collection("login_locks");
@@ -281,7 +330,8 @@ async function connectDB() {
     { requiresPinChange: { $exists: false } },
     { $set: { requiresPinChange: true } }
   );
-  console.log("Connected: " + DB_NAME); return client;
+  logger.info("db_connected", { dbName });
+  return client;
 }
 
 // ─── Input sanitization ───
@@ -359,7 +409,7 @@ async function finalizeIdempotencyKey(householdId, key, status, body) {
   if (!key) return;
   try {
     await idempotencyCol.updateOne({ householdId, key }, { $set: { status, body, completedAt: new Date() } });
-  } catch (e) { console.error("idempotency finalize failed:", e.message); }
+  } catch (e) { logger.error("idempotency_finalize_failed", { householdId, error: e.message }); }
 }
 
 // Shared response handling for a failed claim — used at every call site so
@@ -449,7 +499,7 @@ async function fetchRatesTable(base) {
         return { rates: data.rates, stale: false };
       }
     }
-  } catch (e) { console.error("exchange rate fetch failed", e); }
+  } catch (e) { logger.error("exchange_rate_fetch_failed", { base, error: e.message }); }
   // Provider unreachable or returned something unexpected: fall back to a
   // stale cache rather than inventing a rate. No cache at all → unavailable.
   if (cached?.rates) return { rates: cached.rates, stale: true };
@@ -496,10 +546,15 @@ let ricorrentiRunning = false;
 export async function generaRicorrentiDovute() {
   if (ricorrentiRunning || !transactionsCol) return; // in-process optimization only — see index comment above for the real guarantee
   ricorrentiRunning = true;
+  const jobId = randomUUID();
+  const startedAt = Date.now();
+  logger.info("job_start", { job: "generaRicorrentiDovute", jobId });
   try {
     const oggi = new Date().toISOString().slice(0, 10);
     const dovute = await transactionsCol.find({ "ricorrenza.prossimaData": { $lte: oggi }, deletedAt: null }).toArray();
     let generated = 0;
+    let skipped = 0;
+    let errored = 0;
     for (const t of dovute) {
       // One key per (parent transaction, due date) — the unique index on it
       // is what actually prevents two instances (or a retry) from both
@@ -518,9 +573,11 @@ export async function generaRicorrentiDovute() {
           // Another instance (or an earlier, still-in-flight attempt) already
           // generated this exact occurrence. Nothing more to do for the
           // insert — still fall through to advance prossimaData below.
-          console.log(`Ricorrenti: occorrenza ${occurrenceKey} già generata, salto`);
+          skipped++;
+          logger.info("job_occurrence_skipped", { job: "generaRicorrentiDovute", jobId, occurrenceKey, reason: "already_generated" });
         } else {
-          console.error(`Ricorrenti: errore generazione occorrenza ${occurrenceKey}:`, err);
+          errored++;
+          logger.error("job_occurrence_failed", { job: "generaRicorrentiDovute", jobId, occurrenceKey, error: err.message });
           continue; // leave prossimaData untouched so this occurrence is retried on the next tick
         }
       }
@@ -544,12 +601,12 @@ export async function generaRicorrentiDovute() {
         // Either a genuinely concurrent user edit, or (in the racing-
         // instances case) the other instance's own successful advance
         // already landed first — either way, correctly not double-applied.
-        console.log(`Ricorrenti: ${t._id.toString()} già avanzata o modificata concorrentemente, salto`);
+        logger.info("job_recurrence_not_advanced", { job: "generaRicorrentiDovute", jobId, transactionId: t._id.toString() });
       }
     }
-    if (generated > 0) console.log(`Ricorrenti: generate ${generated} transazioni`);
+    logger.info("job_end", { job: "generaRicorrentiDovute", jobId, generated, skipped, errored, durationMs: Date.now() - startedAt });
   } catch (e) {
-    console.error("generaRicorrentiDovute error:", e);
+    logger.error("job_failed", { job: "generaRicorrentiDovute", jobId, error: e.message, durationMs: Date.now() - startedAt });
   } finally {
     ricorrentiRunning = false;
   }
@@ -565,12 +622,15 @@ let trashPurgeRunning = false;
 export async function svuotaCestinoScaduto() {
   if (trashPurgeRunning || !transactionsCol) return;
   trashPurgeRunning = true;
+  const jobId = randomUUID();
+  const startedAt = Date.now();
+  logger.info("job_start", { job: "svuotaCestinoScaduto", jobId });
   try {
     const soglia = new Date(Date.now() - TRASH_RETENTION_MS);
     const r = await transactionsCol.deleteMany({ deletedAt: { $ne: null, $lte: soglia } });
-    if (r.deletedCount > 0) console.log(`Cestino: eliminate definitivamente ${r.deletedCount} transazioni`);
+    logger.info("job_end", { job: "svuotaCestinoScaduto", jobId, deleted: r.deletedCount, durationMs: Date.now() - startedAt });
   } catch (e) {
-    console.error("svuotaCestinoScaduto error:", e);
+    logger.error("job_failed", { job: "svuotaCestinoScaduto", jobId, error: e.message, durationMs: Date.now() - startedAt });
   } finally {
     trashPurgeRunning = false;
   }
@@ -624,6 +684,9 @@ const TRIP_SETTLING_STALE_MS = 10 * 60 * 1000;
 export async function chiudiViaggiScaduti() {
   if (tripAutoCloseRunning || !tripsCol) return; // in-process optimization only — see below for the real guarantee
   tripAutoCloseRunning = true;
+  const jobId = randomUUID();
+  const startedAt = Date.now();
+  logger.info("job_start", { job: "chiudiViaggiScaduti", jobId });
   try {
     const oggi = new Date().toISOString().slice(0, 10);
     const now = new Date();
@@ -684,7 +747,7 @@ export async function chiudiViaggiScaduti() {
             // Already inserted by an earlier attempt before a crash — this
             // is the resume path working correctly, not an error.
           } else {
-            console.error(`Viaggi: errore inserimento saldo ${settlementKey}:`, err);
+            logger.error("job_settlement_leg_failed", { job: "chiudiViaggiScaduti", jobId, settlementKey, error: err.message });
             allInserted = false;
             break; // stop here, stay in "settling" — the next tick resumes from wherever this left off
           }
@@ -696,9 +759,9 @@ export async function chiudiViaggiScaduti() {
         closed++;
       }
     }
-    if (closed > 0) console.log(`Viaggi: chiusi automaticamente ${closed} viaggi scaduti`);
+    logger.info("job_end", { job: "chiudiViaggiScaduti", jobId, closed, candidates: candidates.length, durationMs: Date.now() - startedAt });
   } catch (e) {
-    console.error("chiudiViaggiScaduti error:", e);
+    logger.error("job_failed", { job: "chiudiViaggiScaduti", jobId, error: e.message, durationMs: Date.now() - startedAt });
   } finally {
     tripAutoCloseRunning = false;
   }
@@ -2483,7 +2546,7 @@ function sanitizePartecipanti(arr) {
 async function start() {
   try {
     await connectDB();
-    app.listen(PORT, () => console.log(`Finanza Tracker API on :${PORT}`));
+    app.listen(PORT, () => logger.info("server_listening", { port: PORT }));
     verifyEmailSetup().catch(() => {}); // diagnostico, non deve mai bloccare l'avvio
     import("./keep-alive.js").catch(() => {});
     generaRicorrentiDovute();
@@ -2492,6 +2555,26 @@ async function start() {
     setInterval(svuotaCestinoScaduto, RICORRENTI_CHECK_MS);
     chiudiViaggiScaduti();
     setInterval(chiudiViaggiScaduti, RICORRENTI_CHECK_MS);
-  } catch (e) { console.error(e); process.exit(1); }
+  } catch (e) { logger.error("startup_failed", { error: e.message }); process.exit(1); }
 }
-start();
+
+// MOD-014: only bind a port / connect to the real database / start the
+// background-job intervals when this file is run directly (`node index.js`
+// or `node --watch index.js`, i.e. production and local dev) — not when it's
+// imported by a test file. Tests import `app` and call `connectDB(uri)`
+// themselves against a disposable mongodb-memory-server instance instead.
+//
+// Comparing realpath'd paths (not raw `import.meta.url` vs `process.argv[1]`
+// strings) matters here: on systems where the invocation path runs through a
+// symlink (e.g. macOS's /tmp -> /private/tmp), Node resolves import.meta.url
+// through the symlink but leaves process.argv[1] as typed, so a naive string
+// comparison silently mismatches and start() never runs at all.
+let isMainModule = false;
+try {
+  isMainModule = !!process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+} catch { /* argv[1] not a real file (e.g. some REPL/loader contexts) — not the main module */ }
+if (isMainModule) {
+  start();
+}
+
+export { app };
