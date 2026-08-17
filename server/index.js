@@ -13,6 +13,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot } from "./logger.js";
+import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits } from "../src/lib/money.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -521,7 +522,7 @@ async function applyValutaTransazione(doc, importoInput, valutaInput, householdV
   doc.importoOriginale = importoInput;
   doc.tassoCambio = rate;
   if (stale) doc.tassoCambioObsoleto = true; // explicit stale-rate flag (MOD-005) — surfaced to the client rather than hidden
-  doc.importo = Math.round(importoInput * rate * 100) / 100;
+  doc.importo = roundAmount(importoInput * rate, base);
 }
 
 // ─── Recurring transactions — server-side generator ───
@@ -634,36 +635,40 @@ export async function svuotaCestinoScaduto() {
 }
 
 // ─── Trip auto-close — settles + closes trips once their endDate has passed ───
+// Balances accumulate in integer minor units (MOD-016), not raw floats —
+// a trip with many expenses is exactly the kind of long running sum where
+// float drift would otherwise compound before the final rounding.
 function calcolaSettleViaggioServer(trip) {
-  const balances = {};
+  const balancesMinor = {};
   for (const e of trip.expenses || []) {
     if (e.splits && e.splits.length > 0) {
       const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
+      const importoMinor = toMinorUnits(e.importo);
       for (const s of e.splits) {
         if (s.personaId !== e.pagatoDa) {
-          const owed = e.importo * (s.quota / totalQ);
-          balances[s.personaId] = (balances[s.personaId] || 0) - owed;
-          balances[e.pagatoDa] = (balances[e.pagatoDa] || 0) + owed;
+          const owedMinor = Math.round(importoMinor * (s.quota / totalQ));
+          balancesMinor[s.personaId] = (balancesMinor[s.personaId] || 0) - owedMinor;
+          balancesMinor[e.pagatoDa] = (balancesMinor[e.pagatoDa] || 0) + owedMinor;
         }
       }
     }
   }
   const creditors = [], debtors = [];
-  for (const [id, bal] of Object.entries(balances)) {
-    if (bal > 0.01) creditors.push({ id, bal });
-    if (bal < -0.01) debtors.push({ id, bal: -bal });
+  for (const [id, balMinor] of Object.entries(balancesMinor)) {
+    if (balMinor > 1) creditors.push({ id, balMinor });
+    if (balMinor < -1) debtors.push({ id, balMinor: -balMinor });
   }
-  creditors.sort((a, b) => b.bal - a.bal);
-  debtors.sort((a, b) => b.bal - a.bal);
+  creditors.sort((a, b) => b.balMinor - a.balMinor);
+  debtors.sort((a, b) => b.balMinor - a.balMinor);
   const settlements = [];
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
-    const pay = Math.min(debtors[i].bal, creditors[j].bal);
-    if (pay > 0.01) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
-    debtors[i].bal -= pay;
-    creditors[j].bal -= pay;
-    if (debtors[i].bal < 0.01) i++;
-    if (creditors[j].bal < 0.01) j++;
+    const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
+    if (payMinor > 1) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+    debtors[i].balMinor -= payMinor;
+    creditors[j].balMinor -= payMinor;
+    if (debtors[i].balMinor < 1) i++;
+    if (creditors[j].balMinor < 1) j++;
   }
   return settlements;
 }
@@ -2079,15 +2084,15 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
     for (const b of agg.balances) deltaByAccount[b._id] = b.delta;
     const monthByTipo = {};
     for (const m of agg.monthTotals) monthByTipo[m._id] = m.tot;
-    const speseMese = Math.round((monthByTipo.uscita || 0) * 100) / 100;
-    const entrateMese = Math.round((monthByTipo.entrata || 0) * 100) / 100;
+    const speseMese = roundAmount(monthByTipo.uscita || 0);
+    const entrateMese = roundAmount(monthByTipo.entrata || 0);
 
     const conti = accounts.map(c => {
       const id = c._id.toString();
       const saldo = (c.saldoIniziale || 0) + (deltaByAccount[id] || 0);
-      return { nome: c.nome, icona: c.icona || "🏦", saldo: Math.round(saldo * 100) / 100 };
+      return { nome: c.nome, icona: c.icona || "🏦", saldo: roundAmount(saldo) };
     });
-    const totConti = conti.reduce((s, c) => s + c.saldo, 0);
+    const totConti = sumAmounts(conti.map(c => c.saldo));
 
     // Portfolio a costo medio, prezzo manuale o costo di carico
     const prices = {};
@@ -2113,12 +2118,12 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
 
     res.json({
       aggiornato: new Date().toISOString(),
-      patrimonio: Math.round((totConti + totInvestimenti) * 100) / 100,
+      patrimonio: sumAmounts([totConti, totInvestimenti]),
       conti,
       contiCompleti: accounts.map(c => ({ id: c._id.toString(), nome: c.nome, icona: c.icona || "🏦" })),
       persone: household.persone || [],
       categorie: household.categorieUscita || WIDGET_DEFAULT_CATEGORIE,
-      investimenti: Math.round(totInvestimenti * 100) / 100,
+      investimenti: roundAmount(totInvestimenti),
       speseMese,
       entrateMese,
     });

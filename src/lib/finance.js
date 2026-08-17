@@ -2,11 +2,17 @@
 // Estratti da App.jsx per essere testabili in isolamento (vedi finance.test.js).
 // Nessuna dipendenza da React o dallo stato dell'app: solo input → output.
 
+import { toMinorUnits, fromMinorUnits } from "./money.js";
+
 // Matrice debiti della casa: da transazioni (uscite con split + saldi) a lista
 // di debiti minimizzata con matching greedy creditori/debitori.
+// Bilanci accumulati in unità minori intere (MOD-016), non float grezzi —
+// una casa con molte transazioni è esattamente il caso in cui l'errore in
+// virgola mobile si accumulerebbe prima dell'arrotondamento finale.
 export function calcolaDebitiMatrix(transazioni, persone) {
-  const balances = {};
+  const balancesMinor = {};
   for (const t of transazioni) {
+    const importoMinor = toMinorUnits(t.importo);
     if (t.tipo === "saldo") {
       if (!t.pagatoDa || !t.ricevutoDa) continue;
       // Trip settlements are record-only: the underlying trip expenses never
@@ -15,7 +21,7 @@ export function calcolaDebitiMatrix(transazioni, persone) {
       if (t.categoria === "saldo_viaggio") continue;
       // Payment reduces debt: add in reverse direction so netting cancels it out
       const key = `${t.ricevutoDa}->${t.pagatoDa}`;
-      balances[key] = (balances[key] || 0) + t.importo;
+      balancesMinor[key] = (balancesMinor[key] || 0) + importoMinor;
       continue;
     }
     if (t.tipo !== "uscita" || !t.pagatoDa) continue;
@@ -34,55 +40,59 @@ export function calcolaDebitiMatrix(transazioni, persone) {
     if (totalQ === 0) continue;
     for (const sh of shares) {
       if (sh.personaId === payer) continue;
-      const owed = t.importo * (sh.quota / totalQ);
+      const owedMinor = Math.round(importoMinor * (sh.quota / totalQ));
       const key = `${sh.personaId}->${payer}`;
-      balances[key] = (balances[key] || 0) + owed;
+      balancesMinor[key] = (balancesMinor[key] || 0) + owedMinor;
     }
   }
   // Convert directional pair balances → per-person net balance
-  const netPerPerson = {};
-  for (const [key, amount] of Object.entries(balances)) {
+  const netPerPersonMinor = {};
+  for (const [key, amountMinor] of Object.entries(balancesMinor)) {
     const [da, a] = key.split("->");
-    netPerPerson[da] = (netPerPerson[da] || 0) - amount; // owes → negative
-    netPerPerson[a]  = (netPerPerson[a]  || 0) + amount; // owed → positive
+    netPerPersonMinor[da] = (netPerPersonMinor[da] || 0) - amountMinor; // owes → negative
+    netPerPersonMinor[a]  = (netPerPersonMinor[a]  || 0) + amountMinor; // owed → positive
   }
 
   // Greedy creditor/debtor matching — minimises number of transactions
   const creditors = [], debtors = [];
-  for (const [id, bal] of Object.entries(netPerPerson)) {
-    if (bal >  0.01) creditors.push({ id, bal });
-    if (bal < -0.01) debtors.push({ id, bal: -bal });
+  for (const [id, balMinor] of Object.entries(netPerPersonMinor)) {
+    if (balMinor >  1) creditors.push({ id, balMinor });
+    if (balMinor < -1) debtors.push({ id, balMinor: -balMinor });
   }
-  creditors.sort((a, b) => b.bal - a.bal);
-  debtors.sort((a, b) => b.bal - a.bal);
+  creditors.sort((a, b) => b.balMinor - a.balMinor);
+  debtors.sort((a, b) => b.balMinor - a.balMinor);
 
   const debiti = [];
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
-    const pay = Math.min(debtors[i].bal, creditors[j].bal);
-    debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
-    debtors[i].bal   -= pay;
-    creditors[j].bal -= pay;
-    if (debtors[i].bal   < 0.01) i++;
-    if (creditors[j].bal < 0.01) j++;
+    const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
+    debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+    debtors[i].balMinor   -= payMinor;
+    creditors[j].balMinor -= payMinor;
+    if (debtors[i].balMinor   < 1) i++;
+    if (creditors[j].balMinor < 1) j++;
   }
   return debiti;
 }
 
 // Saldi dei conti: saldo iniziale + entrate − uscite assegnate + giroconti.
+// Accumulato in unità minori intere (MOD-016) per lo stesso motivo di sopra.
 export function calcolaSaldiConti(conti, transazioni) {
-  const saldi = {};
-  for (const c of conti) saldi[c.id] = c.saldoIniziale || 0;
+  const saldiMinor = {};
+  for (const c of conti) saldiMinor[c.id] = toMinorUnits(c.saldoIniziale || 0);
   for (const t of transazioni) {
+    const importoMinor = toMinorUnits(t.importo);
     if (t.tipo === "trasferimento") {
-      if (t.contoDa && saldi[t.contoDa] !== undefined) saldi[t.contoDa] -= t.importo;
-      if (t.contoA && saldi[t.contoA] !== undefined) saldi[t.contoA] += t.importo;
+      if (t.contoDa && saldiMinor[t.contoDa] !== undefined) saldiMinor[t.contoDa] -= importoMinor;
+      if (t.contoA && saldiMinor[t.contoA] !== undefined) saldiMinor[t.contoA] += importoMinor;
       continue;
     }
-    if (!t.contoId || saldi[t.contoId] === undefined) continue;
-    if (t.tipo === "entrata") saldi[t.contoId] += t.importo;
-    else if (t.tipo === "uscita") saldi[t.contoId] -= t.importo;
+    if (!t.contoId || saldiMinor[t.contoId] === undefined) continue;
+    if (t.tipo === "entrata") saldiMinor[t.contoId] += importoMinor;
+    else if (t.tipo === "uscita") saldiMinor[t.contoId] -= importoMinor;
   }
+  const saldi = {};
+  for (const id of Object.keys(saldiMinor)) saldi[id] = fromMinorUnits(saldiMinor[id]);
   return saldi;
 }
 
@@ -169,35 +179,36 @@ export function contaFiltriAttivi(filtri = {}) {
 }
 
 export function calcolaSettleViaggio(trip) {
-  const balances = {};
+  const balancesMinor = {};
   for (const e of trip.expenses) {
     if (e.splits && e.splits.length > 0) {
       const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
+      const importoMinor = toMinorUnits(e.importo);
       for (const s of e.splits) {
         if (s.personaId !== e.pagatoDa) {
-          const owed = e.importo * (s.quota / totalQ);
-          balances[s.personaId] = (balances[s.personaId] || 0) - owed;
-          balances[e.pagatoDa] = (balances[e.pagatoDa] || 0) + owed;
+          const owedMinor = Math.round(importoMinor * (s.quota / totalQ));
+          balancesMinor[s.personaId] = (balancesMinor[s.personaId] || 0) - owedMinor;
+          balancesMinor[e.pagatoDa] = (balancesMinor[e.pagatoDa] || 0) + owedMinor;
         }
       }
     }
   }
   const creditors = [], debtors = [];
-  for (const [id, bal] of Object.entries(balances)) {
-    if (bal > 0.01) creditors.push({ id, bal });
-    if (bal < -0.01) debtors.push({ id, bal: -bal });
+  for (const [id, balMinor] of Object.entries(balancesMinor)) {
+    if (balMinor > 1) creditors.push({ id, balMinor });
+    if (balMinor < -1) debtors.push({ id, balMinor: -balMinor });
   }
-  creditors.sort((a, b) => b.bal - a.bal);
-  debtors.sort((a, b) => b.bal - a.bal);
+  creditors.sort((a, b) => b.balMinor - a.balMinor);
+  debtors.sort((a, b) => b.balMinor - a.balMinor);
   const settlements = [];
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
-    const pay = Math.min(debtors[i].bal, creditors[j].bal);
-    if (pay > 0.01) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: Math.round(pay * 100) / 100 });
-    debtors[i].bal -= pay;
-    creditors[j].bal -= pay;
-    if (debtors[i].bal < 0.01) i++;
-    if (creditors[j].bal < 0.01) j++;
+    const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
+    if (payMinor > 1) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+    debtors[i].balMinor -= payMinor;
+    creditors[j].balMinor -= payMinor;
+    if (debtors[i].balMinor < 1) i++;
+    if (creditors[j].balMinor < 1) j++;
   }
   return settlements;
 }
@@ -213,32 +224,33 @@ export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Dat
     monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
 
-  const totalsByMonth = {};
-  const categoryTotalsByMonth = {};
-  for (const key of monthKeys) { totalsByMonth[key] = 0; categoryTotalsByMonth[key] = {}; }
+  const totalsByMonthMinor = {};
+  const categoryTotalsByMonthMinor = {};
+  for (const key of monthKeys) { totalsByMonthMinor[key] = 0; categoryTotalsByMonthMinor[key] = {}; }
 
   for (const t of transazioni) {
     if (t.tipo !== "uscita" || !t.data) continue;
     const key = t.data.slice(0, 7);
-    if (!(key in totalsByMonth)) continue;
-    totalsByMonth[key] += t.importo;
+    if (!(key in totalsByMonthMinor)) continue;
+    const importoMinor = toMinorUnits(t.importo);
+    totalsByMonthMinor[key] += importoMinor;
     const cat = t.categoria || "altro";
-    categoryTotalsByMonth[key][cat] = (categoryTotalsByMonth[key][cat] || 0) + t.importo;
+    categoryTotalsByMonthMinor[key][cat] = (categoryTotalsByMonthMinor[key][cat] || 0) + importoMinor;
   }
 
-  const monthsWithData = monthKeys.filter(k => totalsByMonth[k] > 0);
+  const monthsWithData = monthKeys.filter(k => totalsByMonthMinor[k] > 0);
   const monthsUsed = monthsWithData.length;
   if (monthsUsed === 0) return { forecast: 0, monthsUsed: 0, perCategory: [] };
 
-  const sumTotal = monthsWithData.reduce((s, k) => s + totalsByMonth[k], 0);
-  const forecast = Math.round((sumTotal / monthsUsed) * 100) / 100;
+  const sumTotalMinor = monthsWithData.reduce((s, k) => s + totalsByMonthMinor[k], 0);
+  const forecast = fromMinorUnits(Math.round(sumTotalMinor / monthsUsed));
 
   const catIds = new Set();
-  for (const k of monthsWithData) for (const cid of Object.keys(categoryTotalsByMonth[k])) catIds.add(cid);
+  for (const k of monthsWithData) for (const cid of Object.keys(categoryTotalsByMonthMinor[k])) catIds.add(cid);
 
   const perCategory = [...catIds].map(id => {
-    const sum = monthsWithData.reduce((s, k) => s + (categoryTotalsByMonth[k][id] || 0), 0);
-    const valore = Math.round((sum / monthsUsed) * 100) / 100;
+    const sumMinor = monthsWithData.reduce((s, k) => s + (categoryTotalsByMonthMinor[k][id] || 0), 0);
+    const valore = fromMinorUnits(Math.round(sumMinor / monthsUsed));
     const cat = categorie.find(c => c.id === id);
     return { id, nome: cat?.nome || id, emoji: cat?.emoji || "📦", colore: cat?.colore || "#888", valore };
   }).filter(c => c.valore > 0).sort((a, b) => b.valore - a.valore);

@@ -97,7 +97,11 @@ components:
           type: number
           minimum: 0
           exclusiveMinimum: true
-          description: Rounded to 2 decimal places server-side. Not integer minor units (see MOD-016 in the modification plan).
+          description: >
+            Rounded server-side via lib/money.js's integer-minor-units
+            round-trip (MOD-016), stored as a decimal number (e.g. 12.34) —
+            not as an integer amountMinorUnits field. That storage-format
+            change is a separate, larger migration gated on MOD-026.
         data:
           type: string
           format: date

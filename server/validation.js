@@ -10,6 +10,7 @@
 // Node builtin, not a framework/DB dependency, so it's fine to use here.)
 
 import { randomUUID } from "crypto";
+import { roundAmount } from "../src/lib/money.js";
 
 export const TRANSACTION_TYPES = ["uscita", "entrata", "saldo", "trasferimento"];
 
@@ -48,12 +49,17 @@ export function isKnownParticipant(id, participantIds) {
   return isPlainId(id) && participantIds.has(id);
 }
 
-// Rounded to 2 decimal places on the way in so floating-point noise
-// (0.1 + 0.2 style artifacts) never propagates into stored balances. This
-// still stores a decimal number (e.g. 12.34), not integer minor units
-// (1234) — a true integer-cents money model is a separate, larger change
-// (see MOD-016 in the modification plan) not yet implemented.
-export function validateAmount(raw) {
+// Rounded on the way in via lib/money.js's integer-minor-units round-trip
+// (MOD-016) so floating-point noise (0.1 + 0.2 style artifacts) never
+// propagates into stored balances. `currency` is optional — most call
+// sites validate the raw entered amount before currency conversion even
+// happens (see applyValutaTransazione in index.js), so this defaults to
+// 2-decimal precision; pass it through when the currency is already known.
+// This still stores a decimal number (e.g. 12.34), not integer minor units
+// (1234) as the persisted field — that's the larger, not-yet-done storage
+// migration (see MOD-016 in the modification plan, gated on MOD-026's
+// migration framework). This is the arithmetic layer only.
+export function validateAmount(raw, currency) {
   const n = typeof raw === "number" ? raw : parseFloat(raw);
   if (!Number.isFinite(n)) {
     throw new ValidationError("INVALID_AMOUNT", "Importo non valido", { importo: raw });
@@ -61,7 +67,7 @@ export function validateAmount(raw) {
   if (n <= 0) {
     throw new ValidationError("INVALID_AMOUNT", "L'importo deve essere maggiore di zero", { importo: raw });
   }
-  return Math.round(n * 100) / 100;
+  return roundAmount(n, currency);
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
