@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
+import { parseReceiptText } from "../helpers.js";
 
 // ─── Receipt Scanner ───
 export function ReceiptScanner({ onScanComplete }) {
@@ -75,71 +76,6 @@ export function ReceiptScanner({ onScanComplete }) {
     };
     reader.readAsDataURL(file);
     e.target.value = "";
-  }
-
-  function parseReceiptText(text) {
-    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const result = { importo: null, descrizione: "", categoria: "" };
-
-    const totalPatterns = [
-      /(?:totale|total|amount|sum)[\s:]*[\€\$]?\s*([\d.,]+)/i,
-      /(?:€\s*|EUR\s*)\s*([\d.,]+)/i,
-      /^[\€\$]?\s*([\d.,]+)\s*$/m,
-      /(?:sub\s*total|subtotale)[\s:]*[\€\$]?\s*([\d.,]+)/i,
-      /([\d.,]+)\s*[\€\$]\s*$/m,
-    ];
-
-    for (const line of lines.reverse()) {
-      for (const pat of totalPatterns) {
-        const match = line.match(pat);
-        if (match) {
-          const val = parseFloat(match[1].replace(",", "."));
-          if (val > 0 && val < 10000) {
-            result.importo = val;
-            break;
-          }
-        }
-      }
-      if (result.importo) break;
-    }
-
-    if (!result.importo) {
-      const moneyMatch = text.match(/[\€\$]\s*([\d.,]{2,})/);
-      if (moneyMatch) {
-        const val = parseFloat(moneyMatch[1].replace(",", "."));
-        if (val > 0 && val < 10000) result.importo = val;
-      }
-    }
-
-    if (lines.length > 0) {
-      const firstLine = lines[0];
-      if (firstLine.length > 2 && firstLine.length < 50) {
-        result.descrizione = firstLine;
-      }
-    }
-
-    const lowerText = text.toLowerCase();
-    const categoryKeywords = {
-      cibo: ["panino", "pizza", "caffè", "bar", "ristorante", "supermercato", "coop", "carrefour", "esselunga", "md", "lidl", "conad", "bio", "food", "pasta", "frutta"],
-      trasporti: ["benzina", "gasolio", "enel", "energia", "elettrico", "carburante", "q8", "eni", "tamoil", "api", "shell", "totalerg", "bus", "treno", "trenitalia"],
-      casa: ["enel", "acea", "vodafone", "tim", "wind", "fastweb", "internet", "luce", "gas", "acqua", "condominio"],
-      salute: ["farmacia", "medico", "ospedale", "clinica", "analisi", "laboratorio", "dentista", "visita"],
-      svago: ["cinema", "teatro", "concert", "game", "playstation", "xbox", "steam", "netflix", "spotify", "abbonamento"],
-      shopping: ["amazon", "ebay", "zalando", "nike", "adidas", "zara", "h&m", "outlet"],
-      bollette: ["bolletta", "fattura", "pagamento", "rimborso"],
-    };
-
-    for (const [catId, keywords] of Object.entries(categoryKeywords)) {
-      for (const kw of keywords) {
-        if (lowerText.includes(kw)) {
-          result.categoria = catId;
-          break;
-        }
-      }
-      if (result.categoria) break;
-    }
-
-    return result;
   }
 
   return (
