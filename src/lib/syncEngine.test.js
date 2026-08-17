@@ -209,6 +209,119 @@ describe("syncEngine — runSync", () => {
     await syncEngine.runSync(ctx);
     expect(await offlineDb.getOutboxOps("h1")).toHaveLength(0);
   });
+
+  it("a partial batch failure doesn't block a sibling operation from syncing in the same pass", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await syncEngine.enqueueWrite(ctx, { entityType: "transactions", operation: "create", payload: { tipo: "uscita", importo: 10 } });
+    await syncEngine.enqueueWrite(ctx, { entityType: "goals", operation: "create", payload: { nome: "Vacanza", targetAmount: -5 } }); // will be rejected
+
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (url.includes("/api/transactions")) return jsonResponse(201, { id: "tx-real", tipo: "uscita", importo: 10 });
+      if (url.includes("/api/goals")) return jsonResponse(400, { error: { code: "INVALID_FIELD", message: "targetAmount deve essere positivo" } });
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+    vi.stubGlobal("navigator", { onLine: true });
+    await syncEngine.runSync(ctx);
+
+    const ops = await offlineDb.getOutboxOps("h1");
+    expect(ops).toHaveLength(1); // the transaction synced and left the outbox; only the rejected goal remains
+    expect(ops[0].entityType).toBe("goals");
+    expect(ops[0].status).toBe("failed");
+
+    const txs = await offlineDb.getAllEntities("transactions", "h1");
+    expect(txs[0].id).toBe("tx-real"); // promoted to the real server id despite its sibling op failing
+  });
+
+  it("an operation queued offline, surviving a simulated browser restart, still syncs successfully once reconnected", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    await syncEngine.enqueueWrite(ctx, { entityType: "accounts", operation: "create", payload: { nome: "Conto vacanze" } });
+
+    // Simulate the app being fully closed and reopened: fresh module graph,
+    // same underlying fake IndexedDB (a real reload keeps the browser's).
+    vi.resetModules();
+    const syncEngine2 = await import("./syncEngine.js");
+    const offlineDb2 = await import("./offlineDb.js");
+
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(201, { id: "acc-real", nome: "Conto vacanze" })));
+    vi.stubGlobal("navigator", { onLine: true });
+    await syncEngine2.runSync(ctx);
+
+    expect(await offlineDb2.getOutboxOps("h1")).toHaveLength(0);
+    const accounts = await offlineDb2.getAllEntities("accounts", "h1");
+    expect(accounts[0].id).toBe("acc-real");
+  });
+});
+
+// Two browser sessions ("devices") sharing one household but never talking
+// to each other directly — each only sees the server through its own sync
+// pass. This is the same "pending local change always wins over an
+// incoming server value" rule already proven for a single device
+// (fetchAndMergeSnapshot tests above), but exercised across two entirely
+// separate IndexedDB instances to confirm the resolution is actually
+// deterministic end-to-end: whichever device's sync reaches the server
+// LAST determines the final value, not whichever edited first — there is
+// no field-level merge, no "most recent timestamp wins" logic, just
+// "local pending beats server snapshot, until it's synced and there's no
+// longer anything pending."
+describe("syncEngine — two devices editing the same entity", () => {
+  it("device B's pending edit overrides device A's already-synced value, and syncing device B updates the server accordingly", async () => {
+    let serverAccount = { id: "acc1", nome: "Nome originale" };
+
+    // Device A: makes an offline edit, then syncs it to the server.
+    {
+      globalThis.indexedDB = new IDBFactory();
+      vi.resetModules();
+      const syncEngineA = await import("./syncEngine.js");
+      const offlineDbA = await import("./offlineDb.js");
+      const ctxA = makeCtx();
+
+      vi.stubGlobal("navigator", { onLine: false });
+      await offlineDbA.putEntity("accounts", "h1", serverAccount);
+      await syncEngineA.enqueueWrite(ctxA, { entityType: "accounts", operation: "update", entityId: "acc1", payload: { nome: "Da Device A" } });
+
+      vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
+        serverAccount = { ...serverAccount, ...JSON.parse(opts.body) };
+        return jsonResponse(200, serverAccount);
+      }));
+      vi.stubGlobal("navigator", { onLine: true });
+      await syncEngineA.runSync(ctxA);
+      expect(serverAccount.nome).toBe("Da Device A");
+    }
+
+    // Device B: independent IndexedDB, still holding its own stale local
+    // copy plus its own pending edit made before it ever saw Device A's
+    // change (i.e. genuinely concurrent, not "B saw A's edit and reverted it").
+    globalThis.indexedDB = new IDBFactory();
+    vi.resetModules();
+    const syncEngineB = await import("./syncEngine.js");
+    const offlineDbB = await import("./offlineDb.js");
+    const ctxB = makeCtx();
+
+    vi.stubGlobal("navigator", { onLine: false });
+    await offlineDbB.putEntity("accounts", "h1", { id: "acc1", nome: "Nome originale" });
+    await syncEngineB.enqueueWrite(ctxB, { entityType: "accounts", operation: "update", entityId: "acc1", payload: { nome: "Da Device B" } });
+
+    // Device B refreshes and sees Device A's already-synced server value —
+    // its own pending edit still wins locally (same rule as a single device).
+    const beforeStatus = await syncEngineB.getSyncStatus("h1");
+    const merged = await syncEngineB.fetchAndMergeSnapshot(ctxB, "accounts", [serverAccount]);
+    expect(merged.find(a => a.id === "acc1").nome).toBe("Da Device B");
+    const afterStatus = await syncEngineB.getSyncStatus("h1");
+    expect(afterStatus.syncConflictsObserved).toBe(beforeStatus.syncConflictsObserved + 1); // a genuine two-writer conflict, and it's counted
+
+    // Device B finally syncs — its edit, being the one that reaches the
+    // server last, wins overall. Deterministic: re-running this exact
+    // sequence always ends with "Da Device B" server-side, never a merge
+    // of both edits and never a race-dependent outcome.
+    vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
+      serverAccount = { ...serverAccount, ...JSON.parse(opts.body) };
+      return jsonResponse(200, serverAccount);
+    }));
+    vi.stubGlobal("navigator", { onLine: true });
+    await syncEngineB.runSync(ctxB);
+    expect(serverAccount.nome).toBe("Da Device B");
+    expect(await offlineDbB.getOutboxOps("h1")).toHaveLength(0);
+  });
 });
 
 describe("syncEngine — fetchAndMergeSnapshot (server refresh never clobbers pending local changes)", () => {
