@@ -1,13 +1,14 @@
 # MOD-025 full redesign — design doc
 
-Status: **Stage 1 is implemented** — schema (`persone[].auth`), the
-three endpoints (`persona-credential` enroll/remove, `persona-login`),
-rate limiting/lockout, and response sanitization described below. See
-"Persona credentials (MOD-025 Stage 1)" in `API.md` for the actual
-shipped behavior — that's the authoritative reference now, this
-document is the plan it was built from. **Stage 2 (role enforcement)
-and everything under "Role enforcement" below is still design only,
-not built.**
+Status: **Stage 1 and Stage 2 are both implemented.** Stage 1: schema
+(`persone[].auth`), the three endpoints (`persona-credential` enroll/
+remove, `persona-login`), rate limiting/lockout, response sanitization.
+Stage 2: `requireRole` middleware, wired onto the endpoint matrix below
+almost exactly as drafted (see "What shipped vs. the draft matrix"
+right after the table for the small deltas). See "Persona credentials
+(MOD-025 Stage 1)" and "Role enforcement (MOD-025 Stage 2)" in `API.md`
+for the actual shipped behavior — that's the authoritative reference
+now; this document is the plan both were built from.
 
 The foundation half of MOD-025 (`persone[].ruolo`, advisory-only, no
 enforcement) shipped earlier — see "Household member roles" in
@@ -126,9 +127,10 @@ household."
 
 ## Role enforcement — a concrete matrix, not "add checks everywhere"
 
-Enforcement only applies to requests carrying a `personaId` (see
-above) — a request without one keeps today's permissive behavior
-exactly, which is what makes this rollout gradual instead of a cliff.
+**Shipped.** Enforcement only applies to requests carrying a
+`personaId` (see above) — a request without one keeps today's
+permissive behavior exactly, which is what makes this rollout gradual
+instead of a cliff.
 
 | Action | Minimum role | Today | After |
 |---|---|---|---|
@@ -138,6 +140,32 @@ exactly, which is what makes this rollout gradual instead of a cliff.
 | Create/edit/delete transactions, accounts, goals, trips | member+ (i.e. not guest) | any PIN-holder | member+, if attributable |
 | Read-only endpoints (GET *) | any role including guest | unchanged | unchanged |
 | Widget/calendar key create/revoke | admin+ | any PIN-holder | admin+, if attributable |
+
+### What shipped vs. the draft above
+
+- **`requireRole(minRole)`**, not `requirePersonaAuth` +
+  `PERSONA_AUTH_REQUIRED`. The draft above sketched a separate
+  "require an attributed session at all" gate; what actually shipped
+  is simpler — a single `requireRole` middleware that's a no-op when
+  `req.personaId` is absent and checks a rank hierarchy
+  (`owner > admin > member > guest`) when it's present, returning
+  `403 INSUFFICIENT_ROLE` on failure. There was no case in the matrix
+  that needed "logged in as a persona at all, any role" as a distinct
+  requirement from "logged in as at least role X," so the extra
+  middleware wasn't worth building.
+- **"Self-exempt for viewing" wasn't applicable** — that phrase was
+  about a persona viewing their own role, which was never gated (it's
+  a `GET`, always unrestricted). The `PUT .../ruolo` endpoint itself
+  is `admin`+ uniformly, including for changing one's own role — an
+  admin can promote themselves further; this wasn't tightened beyond
+  that, since the last-owner guard already prevents the one genuinely
+  unrecoverable case (a household with zero owners).
+- **Positions and trip-share endpoints are NOT gated** — the matrix
+  only ever listed "transactions, accounts, goals, trips," and
+  positions/trip-sharing were deliberately left out of that list
+  rather than assumed into the same tier. They remain permissive for
+  every session, same as before Stage 2, pending an explicit decision
+  to add them.
 
 This list is a starting point for review, not final — the point of the
 table is that enforcement is scoped and explicit, not "audit every
@@ -263,11 +291,20 @@ Stage 1 — done, see `server/api.persona-auth.test.js`:
 - A household with zero personas enrolled behaves identically to
   today across a dedicated regression check.
 
-Stage 2 (not built) — planned, not yet written:
+Stage 2 — done, see `server/api.role-enforcement.test.js`:
 
-- Every row in the (not-yet-implemented) role-enforcement matrix:
-  allowed for the right role, 403 for the wrong one, unchanged
-  behavior when `personaId` is absent.
+- A plain household-PIN session (no persona-login) can still do
+  everything, unchanged — including after a persona is demoted to
+  `guest`, confirming the demotion itself only affects attributed
+  sessions.
+- A `guest` persona is blocked (`403 INSUFFICIENT_ROLE`) from creating
+  transactions/accounts/goals/trips; a `member` persona can.
+- A `guest` persona can still read everything — enforcement is
+  write-only, matching the matrix.
+- A `member` cannot change roles or create a widget key; an `admin`
+  can.
+- An `admin` cannot delete the household; that's `owner`-only.
+- A `member` cannot change the household PIN; an `admin` can.
 
 ## Decisions (formerly open questions)
 

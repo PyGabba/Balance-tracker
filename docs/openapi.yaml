@@ -383,6 +383,15 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    InsufficientRole:
+      description: >
+        MOD-025 Stage 2 role check failed (INSUFFICIENT_ROLE). Only
+        possible for a session that went through persona-login — a
+        plain household-PIN session never gets this. See "Role
+        enforcement (MOD-025 Stage 2)" in API.md for the full gate table.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
 
 paths:
   /auth/register:
@@ -548,10 +557,12 @@ paths:
 
   /household/persone/{id}/ruolo:
     put:
-      summary: Change a household member's role (MOD-025 foundation)
+      summary: Change a household member's role (MOD-025)
       description: >
-        Advisory only — see the ruolo field description above. Refuses to
-        demote/remove the household's last owner (400 LAST_OWNER).
+        Requires admin+ for a persona-login session (MOD-025 Stage 2);
+        unrestricted for a plain household-PIN session — see "Role
+        enforcement" in API.md. Refuses to demote/remove the household's
+        last owner (400 LAST_OWNER) regardless of who's asking.
       parameters:
         - name: id
           in: path
@@ -576,6 +587,7 @@ paths:
                 properties:
                   persone: { type: array, items: { $ref: "#/components/schemas/TripPartecipante" } }
         "400": { description: Invalid role, or an attempt to demote/remove the last owner. }
+        "403": { $ref: "#/components/responses/InsufficientRole" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /auth/persona-credential:

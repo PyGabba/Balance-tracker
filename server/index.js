@@ -997,12 +997,32 @@ async function requireHousehold(req, res, next) {
       return sendError(res, 403, "PIN_CHANGE_REQUIRED", "Cambio PIN richiesto prima di continuare");
     }
     // MOD-025 Stage 1: personaId is set only for a session that went
-    // through persona-login on top of the household PIN — absent for
-    // every session today, and for any persona that never enrolled a
-    // credential. Nothing currently reads it to gate anything (that's
-    // Stage 2); it's attached here so it's available when that lands.
+    // through persona-login on top of the household PIN.
     req.household = household; req.householdId = hid; req.jti = jti; req.personaId = personaId || null; next();
   } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore autenticazione"); }
+}
+
+// ─── Role enforcement (MOD-025 Stage 2) ───
+// Zero-risk-to-non-adopters by construction: this only blocks a request
+// when req.personaId is set, i.e. only for a session that went through
+// persona-login (MOD-025 Stage 1) — a household that has never enrolled
+// anyone, or any request made with a plain household-PIN session, is
+// unaffected by every requireRole() gate below, exactly as documented in
+// MOD-025-DESIGN.md's Stage 2 section. This is the one place that
+// "unaffected" guarantee is enforced, so every requireRole call site
+// automatically inherits it rather than each one re-deciding it.
+const ROLE_RANK = { owner: 3, admin: 2, member: 1, guest: 0 };
+function requireRole(minRole) {
+  const minRank = ROLE_RANK[minRole];
+  return (req, res, next) => {
+    if (!req.personaId) return next(); // no attributed identity — permissive, matches every request today
+    const persona = (req.household.persone || []).find(p => p.id === req.personaId);
+    const ruolo = persona?.ruolo || DEFAULT_HOUSEHOLD_ROLE;
+    if ((ROLE_RANK[ruolo] ?? 0) < minRank) {
+      return sendError(res, 403, "INSUFFICIENT_ROLE", `Richiede ruolo ${minRole} o superiore`, { required: minRole, actual: ruolo });
+    }
+    next();
+  };
 }
 
 app.post("/api/auth/login", loginLimiter, async (req, res) => {
@@ -1133,7 +1153,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
 
 // ─── DELETE household ───
 // ─── Change PIN ───
-app.put("/api/auth/pin", requireHousehold, async (req, res) => {
+app.put("/api/auth/pin", requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     const { newPin } = req.body || {};
     if (!newPin || !/^\d{6,8}$/.test(newPin))
@@ -1247,7 +1267,7 @@ app.put("/api/auth/recovery-email", writeLimiter, requireHousehold, async (req, 
   }
 });
 
-app.delete("/api/auth/household", requireHousehold, async (req, res) => {
+app.delete("/api/auth/household", requireHousehold, requireRole("owner"), async (req, res) => {
   try {
     const { pin } = req.body || {};
     if (!pin) return sendError(res, 400, "MISSING_PIN", "PIN obbligatorio per confermare");
@@ -1291,14 +1311,15 @@ app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-// ─── Household member roles (MOD-025 foundation) ───
-// Advisory only — see validateRuolo's comment. Anyone with the household
-// PIN can already act as any persona; this doesn't add a new permission
-// boundary, it lets a household record who's meant to be in charge of
-// what. Refuses to demote/remove the household's last "owner" — a
-// data-integrity guard (a household with zero owners is a dead end no one
-// can fix from inside the app), not a security control.
-app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, async (req, res) => {
+// ─── Household member roles (MOD-025) ───
+// Gated to admin+ (see requireRole's comment) — but only for a session
+// that went through persona-login; a plain household-PIN session can
+// still call this for any persona, same as everything else, since there's
+// no attributed identity to check. Also refuses to demote/remove the
+// household's last "owner" regardless of who's asking — a data-integrity
+// guard (a household with zero owners is a dead end no one can fix from
+// inside the app), not a role check.
+app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     let ruolo;
     try { ruolo = validateRuolo(req.body?.ruolo); }
@@ -1495,7 +1516,7 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
 // transactions all reject the same malformed/out-of-household input instead
 // of trusting client-provided relationships. Idempotency-Key support
 // (MOD-004) means a retried request can't create a duplicate transaction.
-app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/transactions", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
     const claim = await claimIdempotencyKey(req.householdId, idemKey);
@@ -1541,7 +1562,7 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
 });
 
 // ─── DELETE transaction (soft delete — moves to trash, purged after 30 days) ───
-app.delete("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/transactions/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await transactionsCol.findOneAndUpdate(
@@ -1562,7 +1583,7 @@ app.get("/api/transactions/trash", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.post("/api/transactions/:id/restore", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/transactions/:id/restore", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const result = await transactionsCol.findOneAndUpdate(
@@ -1575,7 +1596,7 @@ app.post("/api/transactions/:id/restore", writeLimiter, requireHousehold, async 
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/transactions/:id/permanent", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/transactions/:id/permanent", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await transactionsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: { $ne: null } });
@@ -1584,7 +1605,7 @@ app.delete("/api/transactions/:id/permanent", writeLimiter, requireHousehold, as
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const r = await transactionsCol.deleteMany({ householdId: req.householdId, deletedAt: { $ne: null } });
     res.json({ deleted: r.deletedCount });
@@ -1596,7 +1617,7 @@ app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, asyn
 // present in the request body are validated/returned, but cross-field rules
 // (transfer accounts, split participants) still see the full picture via
 // the existing document (MOD-001, MOD-002).
-app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.put("/api/transactions/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const existing = await transactionsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -1926,7 +1947,7 @@ app.get("/api/goals", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/goals", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
     const claim = await claimIdempotencyKey(req.householdId, idemKey);
@@ -1961,7 +1982,7 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.put("/api/goals/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const b = req.body;
@@ -1992,7 +2013,7 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/goals/:id", requireHousehold, async (req, res) => {
+app.delete("/api/goals/:id", requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await db.collection("goals").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -2009,7 +2030,7 @@ app.get("/api/accounts", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/accounts", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
     const claim = await claimIdempotencyKey(req.householdId, idemKey);
@@ -2035,7 +2056,7 @@ app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.put("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.put("/api/accounts/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const b = req.body;
@@ -2055,7 +2076,7 @@ app.put("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) =>
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/accounts/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await db.collection("accounts").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -2214,7 +2235,7 @@ const WIDGET_DEFAULT_CATEGORIE = [
 // La chiave permette a un widget (es. Scriptable) di leggere un riassunto dei
 // dati senza login interattivo. È revocabile e dà accesso in sola lettura a
 // numeri aggregati, mai a operazioni di scrittura.
-app.post("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/widget-key", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     const key = randomBytes(24).toString("base64url");
     // MOD-011: store only the hash — the plaintext key exists only in this
@@ -2225,7 +2246,7 @@ app.post("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => 
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/widget-key", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { widgetKey: "", widgetKeyHash: "", widgetKeyCreatedAt: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_revoked", at: new Date() });
@@ -2434,7 +2455,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
 // Same capability-URL pattern as the widget key. Google Calendar, Apple
 // Calendar and Outlook all support "subscribe by URL" natively, so one
 // endpoint covers every calendar app without any OAuth/provider integration.
-app.post("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/calendar-key", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     const key = randomBytes(24).toString("base64url");
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { calendarKeyHash: hashCapabilityToken(key), calendarKeyCreatedAt: new Date() }, $unset: { calendarKey: "" } });
@@ -2443,7 +2464,7 @@ app.post("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) =
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/calendar-key", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { calendarKey: "", calendarKeyHash: "", calendarKeyCreatedAt: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_revoked", at: new Date() });
@@ -2521,7 +2542,7 @@ app.get("/api/trips", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/trips", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
     const claim = await claimIdempotencyKey(req.householdId, idemKey);
@@ -2549,7 +2570,7 @@ app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.put("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.put("/api/trips/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const t = req.body;
@@ -2567,7 +2588,7 @@ app.put("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/trips/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await tripsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -2606,7 +2627,7 @@ async function pushTripExpenseIfUnderLimit(tripFilter, expense) {
   );
 }
 
-app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -2633,7 +2654,7 @@ app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, 
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });

@@ -210,18 +210,14 @@ Only `GET /api/transactions` paginates. Cursor-based, not offset-based:
 | PUT | `/api/household/persone/:id/ruolo` | session | Body: `{ ruolo }`, one of `owner\|admin\|member\|guest`. See "Household member roles" below — **advisory, not a permission check**. |
 | GET | `/api/health` | none | `{ status: "ok", db: boolean }` — liveness check, no auth. |
 
-### Household member roles (MOD-025 foundation)
+### Household member roles (MOD-025)
 
 `persone[].ruolo` labels each household member as `owner`, `admin`,
-`member`, or `guest`. **This is not enforced by authentication.** Every
-household shares one PIN and one session — the server has no way to know
-*which* persona is making a given request, so a role check couldn't mean
-anything as an authorization boundary yet; anyone who knows the PIN can
-already act as any persona, role or no role, exactly as before this
-existed. What it does provide: a household-visible label (useful for
-agreeing "who's nominally in charge of what") and a place for a future
-per-user-identity system to attach real enforcement to, without needing a
-second data-model change when that happens.
+`member`, or `guest`. **Enforcement depends entirely on how the session
+was authenticated** — see "Role enforcement (MOD-025 Stage 2)" below for
+the actual rule; a plain household-PIN session (the only kind that
+existed before persona-login shipped) is unaffected by role entirely,
+same as before any of this existed.
 
 - New households: the first persona (whoever filled in the registration
   form) defaults to `owner`, everyone else to `member`. A registration
@@ -231,11 +227,8 @@ second data-model change when that happens.
   touch personas that already have one.
 - Changing a role refuses to demote/remove a household's last `owner`
   (`400 LAST_OWNER`) — a data-integrity guard against a household with
-  zero owners, not a security control.
-- This is deliberately the additive half of MOD-025 in the modification
-  plan, not the full feature — see "Persona credentials" below for the
-  part of the redesign that IS implemented, and `MOD-025-DESIGN.md` for
-  what still isn't (role enforcement across endpoints).
+  zero owners, not a role check (applies regardless of who's asking).
+- Changing a role itself now requires `admin`+ — see below.
 
 ### Persona credentials (MOD-025 Stage 1)
 
@@ -270,6 +263,32 @@ role. If you're touching either endpoint, keep that separation.
 the PIN lockout uses, not a new mechanism. 10 wrong passwords locks that
 specific persona for 10 minutes, regardless of source IP; other personas
 and the household PIN itself are unaffected.
+
+### Role enforcement (MOD-025 Stage 2)
+
+`requireRole(minRole)` (`server/index.js`) gates specific write
+endpoints against the rank hierarchy `owner > admin > member > guest`.
+**It's a no-op unless the session has a `personaId`** — i.e. unless it
+went through `POST /api/auth/persona-login` — so a plain household-PIN
+session (still the default, still every session before Stage 1) is
+completely unaffected by every rule below, always. This is what keeps
+Stage 2 non-breaking the same way Stage 1 was: nothing changes for a
+household that's never used persona-login.
+
+| Gate | Endpoints |
+|---|---|
+| `owner` | `DELETE /api/auth/household` |
+| `admin`+ | `PUT /api/household/persone/:id/ruolo`, `PUT /api/auth/pin`, `POST`/`DELETE /api/widget-key`, `POST`/`DELETE /api/calendar-key` |
+| `member`+ (blocks `guest`) | Create/update/delete on transactions (incl. restore/permanent-delete/empty-trash), accounts, goals, trips (incl. expenses) |
+| unrestricted | every `GET` — reading is never gated, regardless of role |
+
+A failing check returns `403 INSUFFICIENT_ROLE` with
+`{ required, actual }` in `fields`. **Not gated**, on purpose, pending a
+separate decision: positions/portfolio endpoints, and trip
+sharing (`POST`/`DELETE /api/trips/:id/share`) — the design matrix in
+`MOD-025-DESIGN.md` never included them, so they weren't assumed into
+the `member+` tier rather than risk gating something that was never
+actually decided on.
 
 ## Transactions — `/api/transactions*`
 

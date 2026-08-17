@@ -14,20 +14,16 @@ import { roundAmount, toMinorUnits } from "../src/lib/money.js";
 
 export const TRANSACTION_TYPES = ["uscita", "entrata", "saldo", "trasferimento"];
 
-// ─── Household member roles (MOD-025 foundation) ───
-// A data-model-only addition: `persone[].ruolo` labels each household
-// member as owner/admin/member/guest. It is NOT enforced by
-// authentication — every household member shares the same PIN and the
-// same session, so the server has no way to know WHICH persona is
-// actually making a given request; anyone with the PIN can already act as
-// any persona today, role or no role. This is deliberately the additive
-// foundation half of MOD-025, not the full feature (see
-// docs/API.md's "Household member roles" section) — real enforcement
-// needs per-user credentials (a much larger, not-yet-scheduled change),
-// at which point a request could actually be attributed to one persona
-// and a role check would mean something. Until then, roles are a
-// household-visible label (useful for a household to agree "who's in
-// charge of X"), not a security boundary.
+// ─── Household member roles (MOD-025) ───
+// `persone[].ruolo` labels each household member as
+// owner/admin/member/guest. Enforcement (server/index.js's requireRole)
+// only applies to a session that went through persona-login (MOD-025
+// Stage 1) — the plain household-PIN session every household starts
+// with, and the only kind that existed before Stage 1, is NOT gated by
+// role at all: the server has no attributed identity to check a role
+// against, so every requireRole() call is a no-op for it. A household
+// that never enrolls a persona credential sees no behavior change,
+// ever — this is opt-in, not a retroactive restriction.
 export const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
 export const DEFAULT_HOUSEHOLD_ROLE = "member";
 
