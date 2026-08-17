@@ -67,6 +67,7 @@ const dict = {
     "home.tryAllMonths": "Prova a cercare in tutti i mesi.",
     "home.noTransactionsIn": "Nessuna transazione in",
     "home.pressToStart": "Premi + per iniziare!",
+    "home.loadMore": "Carica altre",
 
     "form.whoPaid": "Chi ha pagato?",
     "form.whoParticipates": "Chi partecipa alla spesa?",
@@ -594,6 +595,7 @@ const dict = {
     "home.tryAllMonths": "Try searching across all months.",
     "home.noTransactionsIn": "No transactions in",
     "home.pressToStart": "Tap + to get started!",
+    "home.loadMore": "Load more",
 
     "form.whoPaid": "Who paid?",
     "form.whoParticipates": "Who's splitting this?",

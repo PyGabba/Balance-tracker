@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, filtraTransazioni, contaFiltriAttivi } from "../lib/finance.js";
 import { t, mese } from "../lib/i18n.js";
 import { formattaValuta } from "../lib/format.js";
@@ -29,6 +29,13 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
   const [showFiltri, setShowFiltri] = useState(false);
   const [tuttiIMesi, setTuttiIMesi] = useState(false);
   const [showAddGoal, setShowAddGoal] = useState(false);
+  // MOD-006: the local cache still holds the household's full history (needed
+  // for stats/offline/search to see everything, unaffected by this), but an
+  // "all months" search on a long-lived household can match thousands of
+  // rows — rendering all of them into the DOM at once is the actual "on
+  // demand" gap. Render a bounded page and let the user ask for more.
+  const PAGE_SIZE = 100;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = mese(meseVis.getMonth()) + " " + meseVis.getFullYear();
@@ -49,6 +56,11 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
   const txOrdinate = filtraTransazioni(baseTx, { ...filtri, query: search }, categorie)
     .sort((a, b) => new Date(b.data) - new Date(a.data));
   const totaleRisultati = ricercaAttiva ? txOrdinate.reduce((s, t) => s + (t.tipo === "uscita" ? -t.importo : t.tipo === "entrata" ? t.importo : 0), 0) : 0;
+
+  // Reset the visible page whenever the result set itself changes — otherwise
+  // "load more" state from a previous month/search would leak into the next.
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [meseOffset, search, filtri, tuttiIMesi]);
+  const txVisibili = txOrdinate.slice(0, visibleCount);
 
   const debitiGlobale = calcolaDebitiMatrix(transazioni, persone);
   const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
@@ -293,7 +305,7 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {txOrdinate.map(t => (
+          {txVisibili.map(t => (
             <TransactionRow key={t.id} t={t} persone={persone} categorie={categorie} conti={conti} isEditing={editId === t.id}
               onTap={() => setEditId(editId === t.id ? null : t.id)}
               onDelete={() => { onDelete(t.id); setEditId(null); }}
@@ -302,6 +314,14 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
               lang={lang}
             />
           ))}
+          {txOrdinate.length > visibleCount && (
+            <button onClick={() => setVisibleCount(v => v + PAGE_SIZE)} style={{
+              marginTop: 4, padding: "10px", border: "1px solid #252538", borderRadius: 10,
+              background: "#1a1a28", color: "#a78bfa", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+            }}>
+              {t(lang, "home.loadMore")} ({txOrdinate.length - visibleCount})
+            </button>
+          )}
         </div>
       )}
 

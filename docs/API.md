@@ -135,6 +135,13 @@ Only `GET /api/transactions` paginates. Cursor-based, not offset-based:
   to build a full local cache — this is a full-export mechanism as much as a
   "page 2 of the UI" mechanism, which is also why its rate limit
   (`exportLimiter`, 30/min) is more generous than the general write limiter.
+  Full local caching is deliberate — offline mode, stats, and forecasting
+  all need the household's complete history to be locally available, not
+  just the newest N rows. What's paginated *on top of that* is DOM
+  rendering: `HomeView` renders search/filter results (which, with the
+  "all months" toggle, can match the full cached history) in pages of 100
+  with a "load more" button, instead of mounting every matching row at
+  once (MOD-006 follow-up).
 
 ---
 
