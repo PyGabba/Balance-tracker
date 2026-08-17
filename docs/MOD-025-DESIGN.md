@@ -6,6 +6,16 @@ enforcement) is already merged — see "Household member roles" in
 `API.md`. This document is the plan for the remaining, breaking half:
 real per-user identity, with role checks that actually mean something.
 
+**Decisions locked in** (previously open questions, now resolved):
+password-first (passkey as a later enrollment option, not blocking);
+per-persona opt-in stays optional forever, no future "mandatory for
+everyone" mode; a `guest`-role household member CAN get a real
+credential, same as any other role — "guest" is a real, lower-privilege
+member category, not just a synonym for trip-share-link guests; and the
+persona-login rate-limiting shape is specified below rather than
+deferred. These are reflected throughout the rest of this document —
+see the sections they touch for what changed as a result.
+
 ## Goals
 
 - A household member can prove they're specifically *them*, not just
@@ -23,10 +33,11 @@ real per-user identity, with role checks that actually mean something.
   about *who's allowed to act*, not a multi-tenant-within-household data
   model.
 - Trip guests (capability-token, no household session) are unaffected —
-  they stay exactly as they are. This redesign is about household
-  members, not trip-share-link guests.
-- A "guest" role member is not expected to get a real login — see Open
-  Question 3.
+  they stay exactly as they are, a completely separate mechanism from
+  household `persone`. A `guest`-*role* household member (see Decisions)
+  is a different thing: a real persona, with a real optional credential,
+  who happens to have the lowest-privilege role — not a trip-share-link
+  guest.
 
 ## Why this is being designed separately from the foundation
 
@@ -137,7 +148,7 @@ schema migration needed — additive field, same pattern as every
 
 - `POST /api/auth/persona-login` — body `{ personaId, password }` (or a
   WebAuthn assertion for passkey), issues a session with `personaId`
-  set. Rate-limited like `POST /api/auth/login`.
+  set. Rate limiting: see "Rate limiting for persona login" below.
 - `POST /api/auth/persona-credential` — enroll or change a persona's
   own password/passkey. Requires the household PIN (today's auth) plus,
   if the persona already has a credential enrolled, that credential too
@@ -156,20 +167,18 @@ schema migration needed — additive field, same pattern as every
    ship enrollment endpoints, ship a UI for a persona to optionally set
    a password. Every household keeps working exactly as today — this
    stage is invisible unless someone opts in.
-2. **Enforcement, opt-in per request.** Wire `requirePersonaAuth` +ith 
+2. **Enforcement, opt-in per request.** Wire `requirePersonaAuth` with
    role checks onto the matrix above, but ONLY blocking when
    `personaId` is present and the role check fails. Households that
    haven't enrolled anyone see no change at all.
-3. **(Future, not designed here) household-level "require persona
-   login."** A household-wide flag that, once every persona has
-   enrolled a credential, disables the PIN-only fallback entirely. Not
-   part of this design — a household should be able to see stages 1-2
-   work first.
+
+There is no stage 3. Per-persona opt-in is permanent, by decision —
+there will not be a household-wide "require persona login for
+everyone" mode. `auth.method: null` is a valid, permanent, supported
+state for any persona indefinitely, not a transitional one.
 
 No existing household is ever forced through a migration script for
-this — unlike MOD-016's data migration, there's nothing to backfill;
-`auth.method: null` is a valid, permanent, supported state for a
-household that never wants individual logins.
+this — unlike MOD-016's data migration, there's nothing to backfill.
 
 ## Threat model changes
 
@@ -192,6 +201,39 @@ household that never wants individual logins.
   recommendation is password-first, passkey as a follow-up enrollment
   option once the flow is proven.
 
+## Rate limiting for persona login
+
+Same two-layer pattern the household PIN login already uses (see
+`POST /api/auth/login` in `API.md`) — a fast in-memory IP limiter as a
+blunt outer bound, plus a persistent, escalating Mongo-backed lockout as
+the real defense, since the in-memory limiter alone resets on every
+server restart/deploy:
+
+- **Outer bound — `personaLoginLimiter`** (`express-rate-limit`, same
+  family as `loginLimiter`): 15 min window, IP-keyed, generous (~30
+  attempts) — catches a single source hammering the endpoint at all,
+  same role `loginLimiter` already plays for household login.
+- **Real defense — persistent lockout, reusing `login_locks`.** Same
+  collection and escalating-lockout-duration mechanism the household
+  PIN already uses (`locksCol` / `checkLock` / `recordFailure` in
+  `server/index.js`), keyed by `persona:${householdId}:${personaId}`
+  instead of the household-level key the PIN uses. This is the
+  attacker-rotating-IPs-doesn't-help layer — 10 wrong passwords against
+  one specific persona locks that persona out regardless of source IP,
+  mirroring exactly how the PIN lockout already works. Locking is
+  per-persona, not per-household: a lockout on one persona's login
+  doesn't affect any other persona's ability to log in (household PIN
+  access is also unaffected either way, since that's a separate
+  mechanism this doesn't touch).
+- **Not IP+personaId combined as the lock key** — deliberately just
+  `householdId:personaId`, matching the household PIN lockout's own
+  choice to key on the credential being guessed, not the credential
+  plus the guesser's IP (an attacker only needs to rotate IPs to reset
+  an IP-scoped lock; keying on the target instead removes that
+  escape hatch, at the cost of a legitimate user on a shaky connection
+  potentially locking themselves out faster — same tradeoff the PIN
+  lockout already accepts today).
+
 ## Testing plan (once implementation starts)
 
 - Every row in the role-enforcement matrix: allowed for the right role,
@@ -205,23 +247,23 @@ household that never wants individual logins.
 - A household with zero personas enrolled behaves identically to today
   across the full existing test suite (regression gate).
 
-## Open questions — need a decision before implementation starts
+## Decisions (formerly open questions)
 
-1. **Password vs. passkey priority.** Recommendation above: password
-   first (reuses existing crypto/rate-limit infra, ships faster),
-   passkey as a follow-up enrollment option. Confirm or override.
-2. **Opt-in per-household, forever, or eventually mandatory?** This
-   design assumes per-persona opt-in stays permanently optional (stage
-   3's household-wide flag is speculative, not committed to). Confirm
-   whether a future "require it for everyone" push is actually wanted,
-   since that changes how much stage-3 needs designing now vs. later.
-3. **Guest-role personas.** Should a `guest`-role household member ever
-   get a real credential, or does "guest" in this system always mean
-   "trip-share-link guest" (capability token, no household login at
-   all — today's model, unaffected by any of this)? If household guests
-   are meant to be a real category (e.g. a temporary member with
-   limited access), that needs its own row in the role matrix.
-4. **Rate limiting for persona login.** Needs its own limiter tier,
-   keyed to `(householdId, personaId)` rather than just IP/household —
-   worth sizing once stage 1 ships and there's a real enrollment count
-   to reason about.
+1. **Password vs. passkey priority — password first.** Reuses existing
+   bcrypt/rate-limit infra, ships faster. Passkey is a later, additive
+   enrollment option per persona, not a blocker for stage 1.
+2. **Opt-in scope — permanently optional, no mandatory mode.** There is
+   no stage 3 (see Migration plan). A household that never enrolls
+   anyone is not on a deprecation path.
+3. **Guest-role personas — get a real login, same as any other role.**
+   `guest` is the lowest-privilege row in the role matrix for a real
+   household member, unrelated to trip-share-link guests (a completely
+   separate, unauthenticated-session mechanism that this design doesn't
+   touch). A `guest` persona can enroll `auth.method` exactly like an
+   `owner`/`admin`/`member` persona; what differs is what the role
+   matrix permits them to do once authenticated, not whether they can
+   authenticate at all.
+4. **Rate limiting — specified**, see "Rate limiting for persona login"
+   above: IP-keyed `express-rate-limit` outer bound + persistent
+   `login_locks`-based lockout keyed on `householdId:personaId`,
+   mirroring the household PIN's existing lockout mechanism exactly.
