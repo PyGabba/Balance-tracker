@@ -2284,9 +2284,9 @@ const calendarLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeader
 app.get("/api/calendar.ics", calendarLimiter, async (req, res) => {
   try {
     const key = req.query.key;
-    if (!key || typeof key !== "string" || key.length < 20) return res.status(401).send("Chiave mancante");
+    if (!key || typeof key !== "string" || key.length < 20) return sendError(res, 401, "MISSING_KEY", "Chiave mancante");
     const household = await findByCapabilityToken(householdsCol, "calendarKey", key);
-    if (!household) return res.status(401).send("Chiave non valida");
+    if (!household) return sendError(res, 401, "INVALID_KEY", "Chiave non valida");
     const hid = household.householdId;
 
     const templates = await transactionsCol.find({
@@ -2329,7 +2329,7 @@ app.get("/api/calendar.ics", calendarLimiter, async (req, res) => {
     res.set("Content-Type", "text/calendar; charset=utf-8");
     res.set("Content-Disposition", 'inline; filename="finanza-ricorrenti.ics"');
     res.send(lines.join("\r\n"));
-  } catch (e) { console.error(e); res.status(500).send("Errore"); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Trips API ───

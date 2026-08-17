@@ -51,6 +51,44 @@ household's `requiresPinChange` flag is set, every route except
 `PUT /api/auth/pin` and `POST /api/auth/logout` returns
 `403 PIN_CHANGE_REQUIRED` regardless of the token's validity.
 
+### Capability token audit (MOD-011)
+
+All three capability types share the same primitives
+(`randomBytes(24).toString("base64url")`, `hashCapabilityToken` = SHA-256,
+`findByCapabilityToken` for lookup) — this is the checklist every one of
+them was verified against, not just asserted:
+
+| | Widget key | Calendar key | Trip share token |
+|---|---|---|---|
+| Random secret | ✅ 192-bit | ✅ 192-bit | ✅ 192-bit |
+| Hashed server-side | ✅ `widgetKeyHash` | ✅ `calendarKeyHash` | ✅ `shareTokenHash` |
+| Explicit scope | Read-only aggregate snapshot (`GET /api/widget`) + `POST /api/widget/transaction`'s deliberately minimal write surface — never the raw transaction list | Read-only `.ics` feed of recurring-transaction templates — nothing else | Read-only trip view + guest join + guest expense logging, scoped to **this trip only**, never the rest of the household |
+| Expiration | None (long-lived "subscribe once" credential, by design — see below) | None (same reasoning) | 30 days (`TRIP_SHARE_TOKEN_TTL_DAYS`) |
+| Revoke | `DELETE /api/widget-key` | `DELETE /api/calendar-key` | `DELETE /api/trips/:id/share` |
+| Regenerate | `POST /api/widget-key` — implicitly invalidates the previous one (one key per household, overwrites the hash) | `POST /api/calendar-key` — same | `POST /api/trips/:id/share` — same, per trip |
+| Audit-logged create/revoke | ✅ `widget_key_created`/`widget_key_revoked` | ✅ `calendar_key_created`/`calendar_key_revoked` | ✅ `trip_share_created`/`trip_share_revoked` |
+| Raw token ever logged | No — only the hash is persisted; `server/logger.js`'s `SENSITIVE_KEYS` redaction (`key`, `widgetkey`, `calendarkey`, `sharetoken`, case-insensitive) is a second line of defense on top of no call site ever passing the raw value to a log call | No | No |
+
+**Why widget/calendar keys don't expire but trip share tokens do:** a
+widget or calendar subscription is meant to be set up once and keep
+working indefinitely — an unexpected expiry would silently break a home
+screen widget or a calendar feed with no error the user would ever see
+short of noticing stale data. A trip, by contrast, is an inherently
+time-bound event; a share link is only ever needed for the trip's
+duration plus some settling-up time after, and a copy of it circulating
+long after the trip ended (a screenshot, a forwarded message) is a real
+residual-risk case with no legitimate ongoing use. Both are intentional,
+not an inconsistency — this table exists so that's verifiable rather than
+assumed.
+
+Found and fixed during this audit: `GET /api/calendar.ics`'s three error
+responses (missing key, invalid key, and its catch-all) were still using
+`res.status(...).send("plain text")` — the pre-MOD-022 pattern the rest
+of the API moved off of, missed by that migration because it matched
+`.json({error:...})` calls specifically and this route uses `.send()`
+(the success response is `text/calendar`, not JSON). Now uses `sendError`
+like every other route; only the success path stays `text/calendar`.
+
 ## Standard error shape
 
 Introduced in MOD-022 (phase 3) via the `sendError(res, status, code, message, fields?)`
