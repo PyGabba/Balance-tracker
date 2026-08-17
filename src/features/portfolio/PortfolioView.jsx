@@ -5,6 +5,7 @@ import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle } from "../../components/ui/styles.js";
 import { DonutChart } from "../../components/ui/Charts.jsx";
+import { computeHoldingsBreakdown } from "../../services/portfolioService.js";
 
 export function PortfolioView({ lang = "it" }) {
   const [positions, setPositions] = useState([]);
@@ -32,47 +33,11 @@ export function PortfolioView({ lang = "it" }) {
     })();
   }, []);
 
-  // Aggregate by ticker with average-cost accounting.
-  // Trades are processed chronologically: a sell reduces cost basis by qty × average
-  // cost, and realizes qty × (sell price − average cost) as P&L. Fully closed
-  // positions are kept separately with their realized P&L.
-  const holdings = [];
-  const closedHoldings = [];
-  const tickerMap = {};
-  const sortedPositions = [...positions].sort((a, b) =>
-    (a.dataAcquisto || "").localeCompare(b.dataAcquisto || "") ||
-    (a.createdAt || "").localeCompare(b.createdAt || "")
-  );
-  for (const p of sortedPositions) {
-    if (!tickerMap[p.ticker]) {
-      tickerMap[p.ticker] = { ticker: p.ticker, nome: p.nome || p.ticker, quantita: 0, costoTotale: 0, realizzato: 0, trades: [] };
-    }
-    const h = tickerMap[p.ticker];
-    if (p.tipo === "sell") {
-      const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
-      const sellQ = Math.min(p.quantita, h.quantita); // guard against overselling
-      h.realizzato += sellQ * (p.prezzoAcquisto - avg);
-      h.costoTotale -= sellQ * avg;
-      h.quantita -= sellQ;
-      if (h.quantita < 0.0001) { h.quantita = 0; h.costoTotale = 0; }
-    } else {
-      h.quantita += p.quantita;
-      h.costoTotale += p.quantita * p.prezzoAcquisto;
-    }
-    h.trades.push(p);
-  }
-  for (const k of Object.keys(tickerMap)) {
-    const h = tickerMap[k];
-    if (h.quantita > 0.0001) {
-      h.prezzoMedio = h.costoTotale / h.quantita;
-      holdings.push(h);
-    } else if (h.trades.some(t => t.tipo === "sell")) {
-      h.ultimaData = h.trades[h.trades.length - 1]?.dataAcquisto || "";
-      closedHoldings.push(h);
-    }
-  }
-  closedHoldings.sort((a, b) => (b.ultimaData || "").localeCompare(a.ultimaData || ""));
-  const totalRealizzato = [...holdings, ...closedHoldings].reduce((s, h) => s + h.realizzato, 0);
+  // Average-cost accounting (realized P&L, open vs. closed positions) is
+  // computed by services/portfolioService.js — pure, tested in isolation,
+  // shared with anything else that needs the same accounting rules instead
+  // of a second copy drifting from calcolaValorePortfolio in lib/finance.js.
+  const { holdings, closedHoldings, totalRealizzato } = computeHoldingsBreakdown(positions);
 
   async function handleAdd() {
     if (!ticker.trim() || !quantita || !prezzoAcquisto) return;

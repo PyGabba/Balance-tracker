@@ -7,7 +7,8 @@ import { SyncStatusBadge } from "../components/SyncStatusBadge.jsx";
 import { setImportiNascosti as setImportiNascostiFormat } from "../lib/format.js";
 import { defaultCategorie, generaId } from "../lib/appHelpers.js";
 import { AggiungiView } from "../features/transactions/AggiungiView.jsx";
-import { calcolaProssimaData } from "../features/transactions/helpers.js";
+import { findDueRecurring, buildRecurringOccurrence } from "../services/recurringService.js";
+import { computeAutoContributions } from "../services/goalsService.js";
 import { LoginScreen } from "../features/auth/LoginScreen.jsx";
 import { ViaggiView } from "../features/trips/ViaggiView.jsx";
 import { TripGuestView } from "../features/trips/TripGuestView.jsx";
@@ -100,25 +101,20 @@ export default function FinanzaApp() {
   const householdName = getHouseholdName();
 
   // ─── Auto-generate due recurring transactions ───
+  // Which templates are due and what their next occurrence looks like is
+  // decided by services/recurringService.js (pure, tested in isolation);
+  // this callback only owns persistence (addTransaction/updateTransaction)
+  // and merging the result into UI state.
   const generaRicorrenti = useCallback(async (txList) => {
-    const oggi = new Date().toISOString().slice(0, 10);
-    const dovute = txList.filter(t =>
-      t.ricorrenza?.frequenza && t.ricorrenza?.prossimaData && t.ricorrenza.prossimaData <= oggi
-    );
+    const dovute = findDueRecurring(txList);
     if (dovute.length === 0) return;
     const nuove = [];
     for (const t of dovute) {
-      const newProssimaData = calcolaProssimaData(t.ricorrenza.prossimaData, t.ricorrenza.frequenza);
-      // Child is a plain transaction — no ricorrenza, so it never re-triggers
-      const nuovaTx = { ...t, id: generaId(), data: t.ricorrenza.prossimaData };
-      delete nuovaTx._id;
-      delete nuovaTx.ricorrenza;
-      if (t.ricorrenza.variabile) nuovaTx.daVerificare = true;
+      const { nuovaTx, updatedRicorrenza } = buildRecurringOccurrence(t, generaId);
       try {
         const saved = await addTransaction(nuovaTx);
         nuove.push(saved);
         // Advance the template's prossimaData so it doesn't fire again this period
-        const updatedRicorrenza = { frequenza: t.ricorrenza.frequenza, prossimaData: newProssimaData, variabile: t.ricorrenza.variabile };
         await updateTransaction(t.id, { ricorrenza: updatedRicorrenza });
         setTransazioni(prev => prev.map(tx => tx.id === t.id ? { ...tx, ricorrenza: updatedRicorrenza } : tx));
       } catch (e) { console.error("Ricorrente error:", e); }
@@ -245,27 +241,12 @@ export default function FinanzaApp() {
       const saved = await addTransaction(t);
       setTransazioni(prev => [...prev, saved]);
       
-      // Auto-apply goal contributions on entrata
-      if (t.tipo === "entrata" && goals?.length > 0) {
-        const activeGoals = goals.filter(g => g.autoAdd && (g.contributionType === "percent" || g.contributionType === "fixed"));
-        for (const g of activeGoals) {
-          const curr = g.currentAmount || 0;
-          if (g.targetAmount > 0 && curr >= g.targetAmount) continue; // goal reached: stop auto-saving
-          let contribution = 0;
-          if (g.contributionType === "percent") {
-            contribution = t.importo * (g.contributionValue / 100);
-          } else if (g.contributionType === "fixed") {
-            contribution = g.contributionValue;
-          }
-          // Round to cents and never overshoot the target
-          contribution = Math.round(contribution * 100) / 100;
-          if (g.targetAmount > 0) contribution = Math.min(contribution, g.targetAmount - curr);
-          if (contribution > 0) {
-            const newAmount = Math.round((curr + contribution) * 100) / 100;
-            await updateGoal(g.id, { currentAmount: newAmount });
-            setGoals(prev => prev.map(goal => goal.id === g.id ? { ...goal, currentAmount: newAmount } : goal));
-          }
-        }
+      // Auto-apply goal contributions on entrata — which goals qualify and by
+      // how much is decided by services/goalsService.js (pure, tested in
+      // isolation); this block only persists and merges into UI state.
+      for (const { goalId, newAmount } of computeAutoContributions(goals, t)) {
+        await updateGoal(goalId, { currentAmount: newAmount });
+        setGoals(prev => prev.map(goal => goal.id === goalId ? { ...goal, currentAmount: newAmount } : goal));
       }
       
       setTab("home");

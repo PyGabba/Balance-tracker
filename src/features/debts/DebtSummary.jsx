@@ -2,6 +2,7 @@ import { useState } from "react";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { generaId } from "../../lib/appHelpers.js";
+import { buildSettlementTransaction } from "../../services/debtService.js";
 
 // ─── Debt summary card (MOD-013) ───
 // Shows this month's and all-time debts between household members, lets
@@ -77,15 +78,7 @@ export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, tra
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => { setSettlingKey(null); setSettleAmount(""); }} style={{ flex: 1, padding: "9px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "home.cancel")}</button>
                       <button onClick={() => {
-                        const raw = parseFloat(String(settleAmount).replace(",", "."));
-                        const amt = isNaN(raw) || raw <= 0 ? d.importo : Math.min(raw, d.importo);
-                        onSettle({
-                          id: generaId(), tipo: "saldo",
-                          importo: Math.round(amt * 100) / 100,
-                          descrizione: `Saldo debito → ${pA.nome}`,
-                          data: new Date().toISOString().slice(0, 10),
-                          pagatoDa: d.da, ricevutoDa: d.a,
-                        });
+                        onSettle(buildSettlementTransaction(d, settleAmount, { generaId, recipientName: pA.nome }));
                         setSettlingKey(null); setSettleAmount("");
                       }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: "#4ECDC4", color: "#111119", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
                         {t(lang, "home.confirmSettle")}
