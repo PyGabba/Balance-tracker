@@ -240,6 +240,92 @@ server-side via a Mongo aggregation for its own response.
 | GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — the live-quote endpoint below is disabled, so this is the only price source. |
 | GET | `/api/quotes` | session | **Disabled.** Always `410 Gone` — "Usa i prezzi manuali." Kept only so old clients get a clear error instead of a 404. |
 
+### Cost-basis accounting (MOD-018)
+
+**This is portfolio *tracking*, not tax accounting.** It exists to answer
+"what is this worth and how has it done," not "what do I owe in capital
+gains tax." No jurisdiction's specific tax-lot rules (FIFO/LIFO election,
+wash-sale adjustments, long/short-term holding-period splits, etc.) are
+modeled. If a `sell` position needs to be reported to a tax authority,
+treat this as a starting point for that calculation, not the calculation
+itself.
+
+**Method: single average cost per ticker**, computed by
+`computeHoldingsBreakdown` (`src/services/portfolioService.js`, mirrored by
+`calcolaValorePortfolio` in `src/lib/finance.js` for the lighter-weight
+value-only case) — not FIFO, not LIFO, not per-lot. Every `buy` for a
+ticker pools into one running `(quantità, costoTotale)`; every `sell`
+draws down that same pool at its current average cost, regardless of
+which specific earlier `buy` "the shares came from." This is deliberate:
+per-lot tracking would need a lot-matching policy (FIFO vs. LIFO vs.
+specific-lot) that this app has no basis for choosing on the user's
+behalf, and average-cost is both simpler to reason about and the more
+common default for personal (non-tax-lot-elected) tracking.
+
+- **Chronological, not insertion-order.** Trades are sorted by
+  `(dataAcquisto, createdAt)` before processing, so a `sell` entered before
+  an earlier-dated `buy` (backfilling a receipt, correcting a typo'd date,
+  etc.) still nets against the right average cost — not against whatever
+  happened to exist in the array at insert time. Covered by "out-of-order
+  trades" tests in both `finance.test.js` and `portfolioService.test.js`.
+- **Partial sale:** a `sell` for less than the held quantity reduces
+  `costoTotale` by `soldQty × averageCost` and `quantità` by `soldQty`,
+  leaving the *average cost of the remainder unchanged* — exactly what
+  average-cost accounting means. Realized P&L for that sell is
+  `soldQty × (sellPrice − averageCostAtTimeOfSale)`.
+- **Full sale (closed position):** quantity reaches (within a `0.0001`
+  floating-point tolerance) zero — cost basis is zeroed out with it, and
+  the position moves from the open `holdings` list to `closedHoldings`,
+  keyed by its last trade date. A closed position never contributes to
+  `totalInvestito`/`totalValore`; only its realized P&L persists.
+- **Overselling is clamped, not rejected.** A `sell` for more than the
+  currently-held quantity (a manual-entry mistake, or two sells racing) is
+  silently capped to the held quantity — `Math.min(sellQty, heldQty)` — so
+  quantity and cost basis can never go negative. This trades "tell the
+  user their data is wrong" for "never show a nonsensical negative
+  holding"; there is currently no user-facing warning when a clamp
+  happens, which is itself worth knowing if you're debugging why a
+  recorded sell quantity doesn't match what got realized.
+- **Zero holdings:** an empty position list, or a ticker whose trades net
+  to zero, simply contributes nothing — `holdings`/`totalValore` are `0`/
+  `[]`, not an error state.
+- **Realized vs. unrealized P&L are tracked and shown separately** (see
+  `PortfolioView.jsx`'s "Realized"/"Unrealized" figures) — realized comes
+  only from `sell` trades already recorded; unrealized is
+  `currentValue − costBasis` on what's still held, and is `0`/hidden for
+  any ticker with no manual price set (see below), not silently computed
+  against cost basis as if that were the current price.
+
+**Known limitations, not yet handled:**
+
+- **No fees.** `prezzoAcquisto` is the trade price only; brokerage/
+  transaction fees aren't a modeled field anywhere, so cost basis and
+  realized P&L are both fee-exclusive. A user who wants fee-accurate
+  figures needs to fold the fee into the recorded price themselves.
+- **No currency conversion.** Each position has a `valuta` field (default
+  `EUR`), but nothing in the cost-basis calculation reads it — quantities
+  and prices across every position are summed as if they were all the
+  same currency, regardless of what `valuta` says. Recording a position
+  in a currency other than the household's base currency will silently
+  produce a wrong total, the same failure mode MOD-005 eliminated for
+  transactions (an unavailable/ignored exchange rate) — just not yet
+  fixed here.
+- **Price source is manual-only.** The live-quote endpoint is disabled
+  (see the table above); an open position with no manual price set has no
+  current value distinct from its cost basis, so its unrealized P&L shows
+  as `0`/`—` rather than "unknown." Don't read a `0` unrealized P&L as "no
+  gain or loss" without checking whether a manual price is actually set.
+
+**Acceptance criterion this section exists to satisfy:** identical
+transaction history always produces deterministic portfolio results — the
+sort-then-fold algorithm above has no hidden state, no wall-clock
+dependency, and no randomness, so re-running it against the same trades
+(regardless of the order they were originally entered) always produces
+the same `holdings`/`closedHoldings`/realized-P&L numbers. See
+`finance.test.js` and `portfolioService.test.js` for the tests that pin
+this down (partial sale, full sale, oversell clamp, out-of-order,
+zero-holdings).
+
 ## Backup & restore — `/api/backup*`
 
 | Method | Path | Auth | Notes |

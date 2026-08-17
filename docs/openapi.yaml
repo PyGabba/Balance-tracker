@@ -199,6 +199,15 @@ components:
 
     Position:
       type: object
+      description: >
+        One buy or sell trade. Portfolio value/cost-basis is computed
+        client- and server-side from the full set of a household's
+        Positions per ticker using single average-cost accounting — see
+        "Cost-basis accounting (MOD-018)" in API.md for the full method,
+        partial/full-sale/oversell behavior, and known limitations
+        (no fees, no cross-currency conversion despite the valuta field
+        below). This is portfolio tracking, not tax accounting — no
+        jurisdiction's tax-lot rules are modeled.
       properties:
         id: { type: string }
         ticker: { type: string, maxLength: 20 }
@@ -207,7 +216,13 @@ components:
         prezzoAcquisto: { type: number }
         prezzoAcquistoMinorUnits: { type: integer, description: "Integer-cents companion of prezzoAcquisto (MOD-016)." }
         dataAcquisto: { type: string, format: date }
-        valuta: { type: string, default: EUR }
+        valuta:
+          type: string
+          default: EUR
+          description: >
+            Recorded but NOT used in cost-basis/value calculations today —
+            every position is summed as if it were the household's base
+            currency regardless of this field (MOD-018 known limitation).
         note: { type: string }
         tipo: { type: string, enum: [buy, sell], default: buy }
       required: [id, ticker, quantita, prezzoAcquisto]

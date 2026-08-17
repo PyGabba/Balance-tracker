@@ -215,6 +215,7 @@ const dict = {
     "stats.daysLeft": "g rimasti",
 
     "portfolio.tickers": "titoli",
+    "portfolio.notTaxAdviceNote": "Solo monitoraggio, non un calcolo fiscale — costo medio, senza commissioni né conversione valuta.",
     "portfolio.loading": "Caricamento portfolio...",
     "portfolio.totalValue": "Valore portafoglio",
     "portfolio.invested": "Investito",
@@ -743,6 +744,7 @@ const dict = {
     "stats.daysLeft": "d left",
 
     "portfolio.tickers": "tickers",
+    "portfolio.notTaxAdviceNote": "Tracking only, not a tax calculation — average cost, no fees or currency conversion.",
     "portfolio.loading": "Loading portfolio...",
     "portfolio.totalValue": "Portfolio value",
     "portfolio.invested": "Invested",

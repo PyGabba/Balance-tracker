@@ -168,6 +168,7 @@ export function PortfolioView({ lang = "it" }) {
         <div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>{t(lang, "nav.portfolio")}</div>
           <div style={{ fontSize: 12, color: "#888" }}>{holdings.length} {t(lang, "portfolio.tickers")}</div>
+          <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>{t(lang, "portfolio.notTaxAdviceNote")}</div>
         </div>
         <button onClick={() => setShowAdd(!showAdd)} style={{
             background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538",

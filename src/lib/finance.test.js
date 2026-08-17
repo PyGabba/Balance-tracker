@@ -110,6 +110,20 @@ describe("calcolaValorePortfolio", () => {
     ], {});
     expect(investito).toBe(500);
   });
+
+  it("nessuna posizione: valore e investito sono zero, non un errore (MOD-018)", () => {
+    expect(calcolaValorePortfolio([], {})).toEqual({ valore: 0, investito: 0 });
+  });
+
+  it("oversell ripetuto non va mai sotto zero (MOD-018)", () => {
+    const { valore, investito } = calcolaValorePortfolio([
+      { ticker: "E", tipo: "buy", quantita: 3, prezzoAcquisto: 50, dataAcquisto: "2026-01-01" },
+      { ticker: "E", tipo: "sell", quantita: 10, prezzoAcquisto: 60, dataAcquisto: "2026-02-01" },
+      { ticker: "E", tipo: "sell", quantita: 10, prezzoAcquisto: 70, dataAcquisto: "2026-03-01" },
+    ], { E: 999 });
+    expect(valore).toBe(0);
+    expect(investito).toBe(0);
+  });
 });
 
 describe("calcolaSettleViaggio", () => {
