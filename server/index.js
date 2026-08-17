@@ -1717,10 +1717,7 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-// Stock quotes endpoint — DISABLED
-// Only manual prices via /api/manual-prices are now supported
-// To re-enable: uncomment and ensure yahoo-finance2 is installed
-
+// Stock quotes endpoint — DISABLED, only manual prices are supported now.
 app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
   sendError(res, 410, "QUOTES_DISABLED", "API quotazioni rimossa. Usa i prezzi manuali.");
 });
