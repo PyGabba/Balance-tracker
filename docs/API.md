@@ -235,7 +235,9 @@ second data-model change when that happens.
   plan, not the full feature. Per-user login, JWT/session redesign to
   carry a user identity, and role enforcement across endpoints are a
   separate, larger, breaking change — not started, not scheduled as part
-  of this work.
+  of this work. See `MOD-025-DESIGN.md` for the design (data model, auth
+  flow, migration plan, open questions) if/when that work is taken on —
+  design only, nothing in it is implemented.
 
 ## Transactions — `/api/transactions*`
 
