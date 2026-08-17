@@ -206,7 +206,36 @@ Only `GET /api/transactions` paginates. Cursor-based, not offset-based:
 | GET | `/api/categorie` | session | Household's custom expense categories, or `null` (client falls back to its own defaults). |
 | PUT | `/api/categorie` | session | Body: `{ categorie: (string \| object)[] }`, ≤100 items. |
 | GET | `/api/trip-categories` / PUT | session | Same shape as `/api/categorie`, separate field, used for trip expenses. |
+| PUT | `/api/household/persone/:id/ruolo` | session | Body: `{ ruolo }`, one of `owner\|admin\|member\|guest`. See "Household member roles" below — **advisory, not a permission check**. |
 | GET | `/api/health` | none | `{ status: "ok", db: boolean }` — liveness check, no auth. |
+
+### Household member roles (MOD-025 foundation)
+
+`persone[].ruolo` labels each household member as `owner`, `admin`,
+`member`, or `guest`. **This is not enforced by authentication.** Every
+household shares one PIN and one session — the server has no way to know
+*which* persona is making a given request, so a role check couldn't mean
+anything as an authorization boundary yet; anyone who knows the PIN can
+already act as any persona, role or no role, exactly as before this
+existed. What it does provide: a household-visible label (useful for
+agreeing "who's nominally in charge of what") and a place for a future
+per-user-identity system to attach real enforcement to, without needing a
+second data-model change when that happens.
+
+- New households: the first persona (whoever filled in the registration
+  form) defaults to `owner`, everyone else to `member`. A registration
+  request can override this per-persona via an object's `ruolo` field.
+- Existing households: migration 002 (`server/migrations/`) backfills the
+  same default onto every persona missing the field — additive, doesn't
+  touch personas that already have one.
+- Changing a role refuses to demote/remove a household's last `owner`
+  (`400 LAST_OWNER`) — a data-integrity guard against a household with
+  zero owners, not a security control.
+- This is deliberately the additive half of MOD-025 in the modification
+  plan, not the full feature. Per-user login, JWT/session redesign to
+  carry a user identity, and role enforcement across endpoints are a
+  separate, larger, breaking change — not started, not scheduled as part
+  of this work.
 
 ## Transactions — `/api/transactions*`
 

@@ -516,6 +516,11 @@ const dict = {
 
     "settings.title": "Account",
     "settings.subtitle": "Gestisci il tuo gruppo",
+    "settings.role.owner": "Owner",
+    "settings.role.admin": "Admin",
+    "settings.role.member": "Membro",
+    "settings.role.guest": "Ospite",
+    "settings.roleNotEnforcedHint": "Etichetta visibile alla casa, non un permesso: chiunque conosca il PIN può comunque fare tutto.",
     "settings.activeGroup": "Gruppo attivo",
     "settings.language": "Lingua",
     "settings.recoveryEmail": "Email di recupero PIN",
@@ -1045,6 +1050,11 @@ const dict = {
 
     "settings.title": "Account",
     "settings.subtitle": "Manage your household",
+    "settings.role.owner": "Owner",
+    "settings.role.admin": "Admin",
+    "settings.role.member": "Member",
+    "settings.role.guest": "Guest",
+    "settings.roleNotEnforcedHint": "Visible to the household, not a permission: anyone who knows the PIN can still do everything.",
     "settings.activeGroup": "Active household",
     "settings.language": "Language",
     "settings.recoveryEmail": "PIN recovery email",

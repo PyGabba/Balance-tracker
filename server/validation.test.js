@@ -14,6 +14,9 @@ import {
   settlementTransactionKey,
   isKnownParticipant,
   ValidationError,
+  validateRuolo,
+  HOUSEHOLD_ROLES,
+  DEFAULT_HOUSEHOLD_ROLE,
 } from "./validation.js";
 
 const householdPersonIds = ["g", "l"];
@@ -442,5 +445,25 @@ describe("isKnownParticipant (MOD-009 — reused by both validateTransactionInpu
     const longId = "x".repeat(51);
     const idsWithLong = new Set([longId]);
     expect(isKnownParticipant(longId, idsWithLong)).toBe(false);
+  });
+});
+
+describe("validateRuolo (MOD-025 foundation)", () => {
+  it("defaults to the standard member role when unset", () => {
+    expect(validateRuolo(null)).toBe(DEFAULT_HOUSEHOLD_ROLE);
+    expect(validateRuolo(undefined)).toBe(DEFAULT_HOUSEHOLD_ROLE);
+  });
+
+  it("accepts every documented role", () => {
+    for (const role of HOUSEHOLD_ROLES) expect(validateRuolo(role)).toBe(role);
+  });
+
+  it("rejects an unknown role", () => {
+    expect(() => validateRuolo("superadmin")).toThrow(ValidationError);
+  });
+
+  it("rejects a role of the wrong type", () => {
+    expect(() => validateRuolo(123)).toThrow(ValidationError);
+    expect(() => validateRuolo({})).toThrow(ValidationError);
   });
 });

@@ -1,14 +1,39 @@
 import { useState, useEffect } from "react";
-import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates } from "../../api.js";
+import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo } from "../../api.js";
 import { LANGUAGES, t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle } from "../../components/ui/styles.js";
 import { VALUTE_FALLBACK } from "../transactions/helpers.js";
 
+const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
+
 export function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange, lang = "it", onLangChange }) {
   const [valutaBusy, setValutaBusy] = useState(false);
   const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
+
+  // MOD-025 foundation: a household-visible label, not a permission check —
+  // see server/validation.js's validateRuolo comment. `persone` is derived
+  // from the session on every parent render, so it won't reflect a role
+  // change on its own until something re-triggers that render; mirror it
+  // into local state so the chip list updates immediately after a save.
+  const [personeLocal, setPersoneLocal] = useState(persone);
+  useEffect(() => { setPersoneLocal(persone); }, [persone]);
+  const [editingRuoloId, setEditingRuoloId] = useState(null);
+  const [ruoloBusy, setRuoloBusy] = useState(false);
+
+  async function handleRuoloChange(personaId, ruolo) {
+    setRuoloBusy(true);
+    try {
+      const updated = await updatePersonaRuolo(personaId, ruolo);
+      setPersoneLocal(updated);
+      setEditingRuoloId(null);
+    } catch (e) {
+      toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
+    } finally {
+      setRuoloBusy(false);
+    }
+  }
 
   useEffect(() => {
     fetchExchangeRates().then(r => {
@@ -235,13 +260,34 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
           <div style={{ fontSize: 11, color: "#555", fontFamily: "'Space Mono',monospace", marginBottom: 12 }}>ID: {householdId}</div>
         )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {persone.map(p => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#252538", borderRadius: 20, padding: "6px 12px" }}>
+          {personeLocal.map(p => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#252538", borderRadius: 20, padding: "6px 6px 6px 12px" }}>
               <span style={{ fontSize: 18 }}>{p.emoji}</span>
               <span style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{p.nome}</span>
+              {editingRuoloId === p.id ? (
+                <select
+                  autoFocus
+                  disabled={ruoloBusy}
+                  value={p.ruolo || "member"}
+                  onChange={e => handleRuoloChange(p.id, e.target.value)}
+                  onBlur={() => setEditingRuoloId(null)}
+                  style={{ background: "#12121a", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 11, padding: "3px 6px", colorScheme: "dark" }}
+                >
+                  {HOUSEHOLD_ROLES.map(r => <option key={r} value={r}>{t(lang, `settings.role.${r}`)}</option>)}
+                </select>
+              ) : (
+                <button
+                  onClick={() => setEditingRuoloId(p.id)}
+                  title={t(lang, "settings.roleNotEnforcedHint")}
+                  style={{ background: "#12121a", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 10, fontWeight: 700, padding: "3px 8px", cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3 }}
+                >
+                  {t(lang, `settings.role.${p.ruolo || "member"}`)}
+                </button>
+              )}
             </div>
           ))}
         </div>
+        <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>{t(lang, "settings.roleNotEnforcedHint")}</div>
       </div>
 
       {/* Language */}

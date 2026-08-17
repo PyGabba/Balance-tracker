@@ -11,7 +11,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
 import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits, minorUnitsOf } from "../src/lib/money.js";
 dotenv.config();
@@ -1047,12 +1047,28 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
 
     const DEFAULT_EMOJIS = ["👤", "👩", "👨", "🧑", "👧", "👦"];
     const COLORS = ["#6C5CE7", "#E84393", "#0984E3", "#00B894", "#FD79A8", "#FDCB6E"];
-    const personeFormatted = persone.map((p, i) => ({
-      id: (typeof p === "string" ? p : p.nome).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ""),
-      nome: typeof p === "string" ? p : p.nome,
-      emoji: (typeof p === "object" && p.emoji) ? p.emoji : DEFAULT_EMOJIS[i % DEFAULT_EMOJIS.length],
-      colore: COLORS[i % COLORS.length],
-    }));
+    // MOD-025 foundation: the first persona (whoever filled in the
+    // registration form) defaults to "owner", everyone else to "member" —
+    // a reasonable default, not a security decision (see validateRuolo's
+    // comment: roles aren't enforced by authentication yet). A caller can
+    // override per-persona via an object's `ruolo` field.
+    let personeFormatted;
+    try {
+      personeFormatted = persone.map((p, i) => {
+        const explicitRuolo = typeof p === "object" ? p.ruolo : null;
+        const ruolo = explicitRuolo != null ? validateRuolo(explicitRuolo) : (i === 0 ? "owner" : DEFAULT_HOUSEHOLD_ROLE);
+        return {
+          id: (typeof p === "string" ? p : p.nome).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ""),
+          nome: typeof p === "string" ? p : p.nome,
+          emoji: (typeof p === "object" && p.emoji) ? p.emoji : DEFAULT_EMOJIS[i % DEFAULT_EMOJIS.length],
+          colore: COLORS[i % COLORS.length],
+          ruolo,
+        };
+      });
+    } catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
+    }
 
     const pinHash = await hashPin(pin);
     const doc = { householdId, nome, persone: personeFormatted, pinHash, pinLookup: pinLookupKey(pin), createdAt: new Date() };
@@ -1231,6 +1247,36 @@ app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res
     if (!valuta) return sendError(res, 400, "INVALID_CURRENCY", "Valuta non supportata");
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { valutaBase: valuta, updatedAt: new Date() } });
     res.json({ valutaBase: valuta });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// ─── Household member roles (MOD-025 foundation) ───
+// Advisory only — see validateRuolo's comment. Anyone with the household
+// PIN can already act as any persona; this doesn't add a new permission
+// boundary, it lets a household record who's meant to be in charge of
+// what. Refuses to demote/remove the household's last "owner" — a
+// data-integrity guard (a household with zero owners is a dead end no one
+// can fix from inside the app), not a security control.
+app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    let ruolo;
+    try { ruolo = validateRuolo(req.body?.ruolo); }
+    catch (ve) { if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields); throw ve; }
+
+    const persone = req.household.persone || [];
+    const target = persone.find(p => p.id === req.params.id);
+    if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
+
+    const currentRuolo = target.ruolo || DEFAULT_HOUSEHOLD_ROLE;
+    const ownerCount = persone.filter(p => (p.ruolo || DEFAULT_HOUSEHOLD_ROLE) === "owner").length;
+    if (currentRuolo === "owner" && ruolo !== "owner" && ownerCount <= 1) {
+      return sendError(res, 400, "LAST_OWNER", "La casa deve avere almeno un owner", { personaId: req.params.id });
+    }
+
+    const updatedPersone = persone.map(p => p.id === req.params.id ? { ...p, ruolo } : p);
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    audit("persona_role_changed", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: req.params.id, ruolo } });
+    res.json({ persone: updatedPersone });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 

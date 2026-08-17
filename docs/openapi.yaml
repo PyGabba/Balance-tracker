@@ -528,9 +528,55 @@ paths:
                 properties:
                   id: { type: string }
                   nome: { type: string }
-                  persone: { type: array, items: { $ref: "#/components/schemas/TripPartecipante" } }
+                  persone:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/TripPartecipante"
+                        - type: object
+                          properties:
+                            ruolo:
+                              type: string
+                              enum: [owner, admin, member, guest]
+                              description: >
+                                Household member role (MOD-025 foundation) —
+                                advisory only, not enforced by
+                                authentication. Not present on trip
+                                partecipanti, only household persone.
                   hasRecoveryEmail: { type: boolean }
                   valutaBase: { type: string }
+
+  /household/persone/{id}/ruolo:
+    put:
+      summary: Change a household member's role (MOD-025 foundation)
+      description: >
+        Advisory only — see the ruolo field description above. Refuses to
+        demote/remove the household's last owner (400 LAST_OWNER).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ruolo]
+              properties:
+                ruolo: { type: string, enum: [owner, admin, member, guest] }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persone: { type: array, items: { $ref: "#/components/schemas/TripPartecipante" } }
+        "400": { description: Invalid role, or an attempt to demote/remove the last owner. }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /household/valuta:
     put:

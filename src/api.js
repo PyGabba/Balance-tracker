@@ -401,6 +401,24 @@ export async function updateValutaBase(valutaBase) {
   return json;
 }
 
+// ─── Household member roles (MOD-025 foundation) ───
+// Advisory only — see server/validation.js's validateRuolo comment. Not
+// a permission check; every household member can call this for any
+// persona, same as every other endpoint in this shared-PIN model.
+export async function updatePersonaRuolo(personaId, ruolo) {
+  const res = await fetch(`${API_BASE}/api/household/persone/${personaId}/ruolo`, {
+    method: "PUT", headers: authHeaders(), credentials: "include", body: JSON.stringify({ ruolo }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, persone: json.persone };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return json.persone;
+}
+
 export async function fetchExchangeRates() {
   const res = await fetch(`${API_BASE}/api/exchange-rates`, { headers: authHeaders(), credentials: "include" });
   if (!res.ok) throw new Error("Errore tassi di cambio");

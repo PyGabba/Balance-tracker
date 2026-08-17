@@ -14,6 +14,31 @@ import { roundAmount, toMinorUnits } from "../src/lib/money.js";
 
 export const TRANSACTION_TYPES = ["uscita", "entrata", "saldo", "trasferimento"];
 
+// ─── Household member roles (MOD-025 foundation) ───
+// A data-model-only addition: `persone[].ruolo` labels each household
+// member as owner/admin/member/guest. It is NOT enforced by
+// authentication — every household member shares the same PIN and the
+// same session, so the server has no way to know WHICH persona is
+// actually making a given request; anyone with the PIN can already act as
+// any persona today, role or no role. This is deliberately the additive
+// foundation half of MOD-025, not the full feature (see
+// docs/API.md's "Household member roles" section) — real enforcement
+// needs per-user credentials (a much larger, not-yet-scheduled change),
+// at which point a request could actually be attributed to one persona
+// and a role check would mean something. Until then, roles are a
+// household-visible label (useful for a household to agree "who's in
+// charge of X"), not a security boundary.
+export const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
+export const DEFAULT_HOUSEHOLD_ROLE = "member";
+
+export function validateRuolo(raw) {
+  if (raw == null) return DEFAULT_HOUSEHOLD_ROLE;
+  if (!HOUSEHOLD_ROLES.includes(raw)) {
+    throw new ValidationError("INVALID_ROLE", `Ruolo non valido: ${raw}`, { ruolo: raw, allowed: HOUSEHOLD_ROLES });
+  }
+  return raw;
+}
+
 // Percentage-point tolerance for split totals. Generous enough for 3-way
 // splits like 33.33 + 33.33 + 33.34 = 100.00, tight enough that 40 + 40
 // (=80) is still rejected instead of silently normalized.
