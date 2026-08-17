@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold } from "../api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId } from "../api.js";
+import { PersonaSwitcher } from "../features/auth/PersonaSwitcher.jsx";
 import { getLang, setLang, t, detectGuestLang } from "../lib/i18n.js";
 import { toast, ToastHost } from "../components/Toast.jsx";
 import { SyncStatusBadge } from "../components/SyncStatusBadge.jsx";
@@ -30,6 +31,10 @@ const DEFAULT_PERSONE = [
 // ─── Main App ───
 export default function FinanzaApp() {
   const [authed, setAuthed] = useState(isLoggedIn() && !getSession()?.requiresPinChange);
+  // MOD-025 Stage 1 UI: which persona (if any) this session has logged in
+  // as on top of the household PIN — purely a display convenience, the
+  // server's JWT is the only real source of truth for this.
+  const [activePersonaId, setActivePersonaId] = useState(getActivePersonaId());
   const urlParams = new URLSearchParams(window.location.search);
   const [tab, setTab] = useState(urlParams.get("action") === "add" ? "aggiungi" : "home");
   const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
@@ -230,6 +235,7 @@ export default function FinanzaApp() {
   function handleLogout() {
     logout();
     setAuthed(false);
+    setActivePersonaId(null);
     setTransazioni([]);
     setPositions([]);
     setCategorieUscita(defaultCategorie(lang).filter(c => c.id !== "entrata"));
@@ -322,6 +328,7 @@ export default function FinanzaApp() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <SyncStatusBadge lang={lang} />
+          <PersonaSwitcher persone={persone} activePersonaId={activePersonaId} onSwitched={setActivePersonaId} lang={lang} />
           <button onClick={toggleNascondiImporti} title={nascondiImporti ? t(lang, "header.showAmounts") : t(lang, "header.hideAmounts")} style={{
             background: nascondiImporti ? "#6C5CE722" : "none", border: nascondiImporti ? "1px solid #6C5CE7" : "1px solid #252538",
             borderRadius: 8, cursor: "pointer", color: nascondiImporti ? "#a78bfa" : "#888",

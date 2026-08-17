@@ -455,7 +455,10 @@ export async function removePersonaCredential(personaId) {
 
 // Step 2 of the layered login flow — requires an existing household
 // session (already logged in via the PIN). Replaces the current session
-// with one that additionally names this persona.
+// with one that additionally names this persona. The server is the only
+// real source of truth for this (it's baked into the JWT); activePersonaId
+// here is purely a client-side display convenience so the UI can show
+// "you're logged in as X" — never used for any access decision client-side.
 export async function personaLogin(personaId, password) {
   const res = await fetch(`${API_BASE}/api/auth/persona-login`, {
     method: "POST", headers: authHeaders(), credentials: "include",
@@ -463,7 +466,16 @@ export async function personaLogin(personaId, password) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, activePersonaId: json.personaId };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
   return json.personaId;
+}
+
+export function getActivePersonaId() {
+  return currentHousehold?.activePersonaId || null;
 }
 
 export async function fetchExchangeRates() {
