@@ -10,7 +10,7 @@
 // Node builtin, not a framework/DB dependency, so it's fine to use here.)
 
 import { randomUUID } from "crypto";
-import { roundAmount } from "../src/lib/money.js";
+import { roundAmount, toMinorUnits } from "../src/lib/money.js";
 
 export const TRANSACTION_TYPES = ["uscita", "entrata", "saldo", "trasferimento"];
 
@@ -215,7 +215,14 @@ export function validateTransactionInput(body, { householdPersonIds = [], accoun
   const get = (key) => (b[key] !== undefined ? b[key] : (partial ? existing?.[key] : undefined));
 
   if (!partial || b.tipo !== undefined) doc.tipo = validateType(get("tipo"));
-  if (!partial || b.importo !== undefined) doc.importo = validateAmount(get("importo"));
+  // MOD-016: every write path sets the *MinorUnits companion field
+  // alongside the decimal one, going forward — otherwise new writes would
+  // fall behind the one-time migration that backfilled it for existing
+  // data, and the companion field would silently stop being trustworthy.
+  if (!partial || b.importo !== undefined) {
+    doc.importo = validateAmount(get("importo"));
+    doc.importoMinorUnits = toMinorUnits(doc.importo);
+  }
   if (!partial || b.data !== undefined) doc.data = validateDateStr(get("data"));
 
   // Participants known to this request: household members + any ad-hoc
@@ -296,6 +303,7 @@ export function buildTripExpense(body, trip) {
     id: randomUUID(),
     pagatoDa: b.pagatoDa,
     importo,
+    importoMinorUnits: toMinorUnits(importo), // MOD-016
     descrizione: sanitizeText(b.descrizione, 200),
     categoria: sanitizeText(b.categoria, 50) || "altro",
     data,

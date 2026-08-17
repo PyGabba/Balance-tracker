@@ -520,9 +520,11 @@ async function applyValutaTransazione(doc, importoInput, valutaInput, householdV
   }
   doc.valuta = valuta;
   doc.importoOriginale = importoInput;
+  doc.importoOriginaleMinorUnits = toMinorUnits(importoInput); // MOD-016
   doc.tassoCambio = rate;
   if (stale) doc.tassoCambioObsoleto = true; // explicit stale-rate flag (MOD-005) — surfaced to the client rather than hidden
   doc.importo = roundAmount(importoInput * rate, base);
+  doc.importoMinorUnits = toMinorUnits(doc.importo, base); // overrides the pre-conversion value validateTransactionInput set
 }
 
 // ─── Recurring transactions — server-side generator ───
@@ -736,6 +738,7 @@ export async function chiudiViaggiScaduti() {
             householdId: claimed.householdId,
             tipo: "saldo",
             importo: s.importo,
+            importoMinorUnits: toMinorUnits(s.importo), // MOD-016
             categoria: "saldo_viaggio",
             descrizione: `Saldo viaggio: ${claimed.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
             data: oggi,
@@ -1475,8 +1478,12 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
     }).toArray();
 
     // Per-person net balance
-    const netPerPerson = {};
-    function addAmount(id, delta) { netPerPerson[id] = (netPerPerson[id] || 0) + delta; }
+    // MOD-016: accumulate in integer minor units, not raw floats — same
+    // reasoning as calcolaDebitiMatrix (src/lib/finance.js) and
+    // calcolaSettleViaggioServer above, which this endpoint otherwise
+    // duplicates.
+    const netPerPersonMinor = {};
+    function addAmountMinor(id, deltaMinor) { netPerPersonMinor[id] = (netPerPersonMinor[id] || 0) + deltaMinor; }
 
     for (const t of txs) {
       const payer = t.pagatoDa;
@@ -1490,38 +1497,40 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
       if (!shares.length) continue;
       const totalQ = shares.reduce((s, sh) => s + (sh.quota || 0), 0);
       if (totalQ <= 0) continue;
+      const importoMinor = toMinorUnits(t.importo);
       for (const sh of shares) {
         if (sh.personaId === payer) continue;
-        const owed = t.importo * (sh.quota / totalQ);
-        addAmount(payer, +owed);
-        addAmount(sh.personaId, -owed);
+        const owedMinor = Math.round(importoMinor * (sh.quota / totalQ));
+        addAmountMinor(payer, +owedMinor);
+        addAmountMinor(sh.personaId, -owedMinor);
       }
     }
 
     // Settlements reduce balances
     for (const s of saldi) {
-      addAmount(s.pagatoDa, +s.importo);
-      addAmount(s.ricevutoDa, -s.importo);
+      const importoMinor = toMinorUnits(s.importo);
+      addAmountMinor(s.pagatoDa, +importoMinor);
+      addAmountMinor(s.ricevutoDa, -importoMinor);
     }
 
     // Greedy creditor/debtor matching
     const creditors = [], debtors = [];
-    for (const [id, bal] of Object.entries(netPerPerson)) {
-      if (bal >  0.01) creditors.push({ id, bal });
-      if (bal < -0.01) debtors.push({ id, bal: -bal });
+    for (const [id, balMinor] of Object.entries(netPerPersonMinor)) {
+      if (balMinor >  1) creditors.push({ id, balMinor });
+      if (balMinor < -1) debtors.push({ id, balMinor: -balMinor });
     }
-    creditors.sort((a, b) => b.bal - a.bal);
-    debtors.sort((a, b) => b.bal - a.bal);
+    creditors.sort((a, b) => b.balMinor - a.balMinor);
+    debtors.sort((a, b) => b.balMinor - a.balMinor);
 
     const debiti = [];
     let i = 0, j = 0;
     while (i < debtors.length && j < creditors.length) {
-      const pay = Math.min(debtors[i].bal, creditors[j].bal);
-      debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: +(pay.toFixed(2)) });
-      debtors[i].bal   -= pay;
-      creditors[j].bal -= pay;
-      if (debtors[i].bal   < 0.01) i++;
-      if (creditors[j].bal < 0.01) j++;
+      const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
+      debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+      debtors[i].balMinor   -= payMinor;
+      creditors[j].balMinor -= payMinor;
+      if (debtors[i].balMinor   < 1) i++;
+      if (creditors[j].balMinor < 1) j++;
     }
     res.json({ debiti });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
@@ -1663,6 +1672,7 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
       nome: sanitizeText(b.nome || ticker, 100),
       quantita: parseFloat(b.quantita),
       prezzoAcquisto: parseFloat(b.prezzoAcquisto),
+      prezzoAcquistoMinorUnits: toMinorUnits(parseFloat(b.prezzoAcquisto)), // MOD-016
       dataAcquisto: b.dataAcquisto || new Date().toISOString().slice(0, 10),
       valuta: b.valuta || "EUR",
       note: sanitizeText(b.note, 500),
@@ -1752,8 +1762,10 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
       householdId: req.householdId,
       nome: sanitizeText(b.nome, 100),
       targetAmount: parseFloat(b.targetAmount),
+      targetAmountMinorUnits: toMinorUnits(parseFloat(b.targetAmount)), // MOD-016
       targetDate: b.targetDate || null,
       currentAmount: parseFloat(b.currentAmount) || 0,
+      currentAmountMinorUnits: toMinorUnits(parseFloat(b.currentAmount) || 0), // MOD-016
       contributionType: b.contributionType || "manual",
       contributionValue: b.contributionType !== "manual" ? parseFloat(b.contributionValue) || 0 : 0,
       autoAdd: b.autoAdd === true,
@@ -1780,9 +1792,15 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
     }
     const update = {};
     if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 100);
-    if (b.targetAmount !== undefined) update.targetAmount = parseFloat(b.targetAmount);
+    if (b.targetAmount !== undefined) {
+      update.targetAmount = parseFloat(b.targetAmount);
+      update.targetAmountMinorUnits = toMinorUnits(update.targetAmount); // MOD-016
+    }
     if (b.targetDate !== undefined) update.targetDate = b.targetDate;
-    if (b.currentAmount !== undefined) update.currentAmount = parseFloat(b.currentAmount);
+    if (b.currentAmount !== undefined) {
+      update.currentAmount = parseFloat(b.currentAmount);
+      update.currentAmountMinorUnits = toMinorUnits(update.currentAmount); // MOD-016
+    }
     if (b.contributionType !== undefined) update.contributionType = b.contributionType;
     if (b.contributionValue !== undefined) update.contributionValue = parseFloat(b.contributionValue);
     if (b.autoAdd !== undefined) update.autoAdd = b.autoAdd === true;
@@ -1825,6 +1843,7 @@ app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
       nome: sanitizeText(b.nome, 60),
       icona: sanitizeText(b.icona, 8) || "🏦",
       saldoIniziale: Number.isFinite(saldoIniziale) ? saldoIniziale : 0,
+      saldoInizialeMinorUnits: toMinorUnits(Number.isFinite(saldoIniziale) ? saldoIniziale : 0), // MOD-016
       createdAt: new Date(),
     };
     const result = await db.collection("accounts").insertOne(doc);
@@ -1847,6 +1866,7 @@ app.put("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) =>
       const v = parseFloat(b.saldoIniziale);
       if (!Number.isFinite(v)) return sendError(res, 400, "INVALID_FIELD", "saldoIniziale non valido");
       update.saldoIniziale = v;
+      update.saldoInizialeMinorUnits = toMinorUnits(v); // MOD-016
     }
     if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
@@ -1915,6 +1935,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
       doc.nome = sanitizeText(String(doc.nome || "Conto"), 60);
       doc.icona = sanitizeText(String(doc.icona || "🏦"), 8);
       doc.saldoIniziale = Number.isFinite(parseFloat(doc.saldoIniziale)) ? parseFloat(doc.saldoIniziale) : 0;
+      doc.saldoInizialeMinorUnits = toMinorUnits(doc.saldoIniziale); // MOD-016
       doc.restoredAt = new Date();
       const r = await db.collection("accounts").insertOne(doc);
       if (a.id) contoIdMap[a.id] = r.insertedId.toString();
@@ -1926,14 +1947,23 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
     for (const g of asArray(b.goals)) {
       const doc = clean(g);
       doc.contoId = remap(doc.contoId);
+      if (Number.isFinite(parseFloat(doc.targetAmount))) doc.targetAmountMinorUnits = toMinorUnits(parseFloat(doc.targetAmount)); // MOD-016
+      if (Number.isFinite(parseFloat(doc.currentAmount))) doc.currentAmountMinorUnits = toMinorUnits(parseFloat(doc.currentAmount)); // MOD-016
       doc.restoredAt = new Date();
       await db.collection("goals").insertOne(doc);
       counts.goals++;
     }
 
-    // 3. Trips (expenses are embedded, restored as-is)
+    // 3. Trips (expenses are embedded, restored as-is — except the MOD-016
+    // companion field, recomputed per expense rather than trusted from a
+    // possibly stale/absent backup, same reasoning as transactions below)
     for (const t of asArray(b.trips)) {
       const doc = clean(t);
+      if (Array.isArray(doc.expenses)) {
+        doc.expenses = doc.expenses.map(e =>
+          typeof e.importo === "number" ? { ...e, importoMinorUnits: toMinorUnits(e.importo) } : e
+        );
+      }
       doc.restoredAt = new Date();
       await tripsCol.insertOne(doc);
       counts.trips++;
@@ -1942,6 +1972,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
     // 4. Positions
     for (const p of asArray(b.positions)) {
       const doc = clean(p);
+      if (Number.isFinite(parseFloat(doc.prezzoAcquisto))) doc.prezzoAcquistoMinorUnits = toMinorUnits(parseFloat(doc.prezzoAcquisto)); // MOD-016
       doc.restoredAt = new Date();
       await db.collection("positions").insertOne(doc);
       counts.positions++;
@@ -1966,6 +1997,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
       if (!validTipi.includes(doc.tipo)) continue;
       if (!Number.isFinite(parseFloat(doc.importo))) continue;
       doc.importo = parseFloat(doc.importo);
+      doc.importoMinorUnits = toMinorUnits(doc.importo); // MOD-016 — recomputed, not trusted from a possibly stale/absent backup field
       doc.descrizione = sanitizeText(doc.descrizione);
       doc.contoId = remap(doc.contoId);
       doc.contoDa = remap(doc.contoDa);
@@ -2201,6 +2233,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
       householdId: hid,
       tipo: b.tipo,
       importo,
+      importoMinorUnits: toMinorUnits(importo), // MOD-016
       categoria,
       descrizione: sanitizeText(String(b.descrizione || "Da widget"), 140),
       data,

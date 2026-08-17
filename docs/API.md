@@ -319,6 +319,43 @@ routes themselves:
 All three log structured start/end/failure JSON lines (job name, a
 per-run id, counts, duration) — see MOD-023.
 
+## Migrations (MOD-026)
+
+Not an HTTP endpoint — a CLI (`server/migrate.js`), run manually against
+whatever database `MONGODB_URI`/`DB_NAME` point at (same env vars, same
+defaults, as the server itself):
+
+```
+node migrate.js status              # list every migration + applied/pending
+node migrate.js up --dry-run        # report what would change, write nothing
+node migrate.js up                  # run every pending migration
+```
+
+Each migration (`server/migrations/*.js`) is a plain module exporting
+`{ id, description, up(db, ctx) }`; the runner (`server/migrations/runner.js`)
+tracks completed ones in a `schema_migrations` collection so `up` is
+always safe to re-run — already-applied migrations are skipped, and every
+migration is additionally idempotent on its own terms (filters its update
+query on "field not already set"), so an interrupted run can also just be
+re-run. There is no `down()` — every migration so far is additive (adds a
+derived field, never removes/overwrites the original), which is what
+makes "undo" unnecessary: stop reading the new field.
+
+**Migration 001** backfills `*MinorUnits` integer-cents companion fields
+(MOD-016) onto every existing money-bearing document — `transactions`,
+`accounts`, `goals`, `positions`, and each element of `trips[].expenses` —
+without touching the original decimal field, so it cannot change any
+stored balance. Every write path has set the companion field going
+forward since this migration was added, so running it once catches
+existing data up; nothing about the API contract changes (the decimal
+field is still what every response returns and what the server still
+reads everywhere except lib/money.js's arithmetic helpers).
+
+This does **not** back up the database first — take a snapshot before
+running `up` against production. See the file-level comment in
+`server/migrate.js` for why that's still worth doing even though every
+migration here is written to be additive/idempotent.
+
 ---
 
 ## Known inconsistencies

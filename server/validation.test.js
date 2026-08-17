@@ -224,7 +224,7 @@ describe("validateTransactionInput — partial (PUT) validation", () => {
 
   it("only returns fields present in the request body", () => {
     const doc = validateTransactionInput({ importo: 25 }, { ...base, partial: true, existing });
-    expect(doc).toEqual({ importo: 25 });
+    expect(doc).toEqual({ importo: 25, importoMinorUnits: 2500 }); // MOD-016 companion field
   });
 
   it("still enforces amount validation on a partial update", () => {
