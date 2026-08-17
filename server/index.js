@@ -790,35 +790,35 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30, // secondary ceiling — IP rotation can bypass MongoDB lockout but not this
   standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppi tentativi di accesso, riprova tra 15 minuti" },
+  message: { error: { code: "RATE_LIMITED", message: "Troppi tentativi di accesso, riprova tra 15 minuti" } },
 });
 
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
   standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppi account creati, riprova tra un'ora" },
+  message: { error: { code: "RATE_LIMITED", message: "Troppi account creati, riprova tra un'ora" } },
 });
 
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5, // #8: 5 attempts per 15 min — wrong secret = locked out fast
   standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppi tentativi admin" },
+  message: { error: { code: "RATE_LIMITED", message: "Troppi tentativi admin" } },
 });
 
 const quotesLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5, // #4: 5 quote fetches/min — prevents Yahoo Finance hammering
   standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppe richieste quotazioni, riprova tra un minuto" },
+  message: { error: { code: "RATE_LIMITED", message: "Troppe richieste quotazioni, riprova tra un minuto" } },
 });
 
 const writeLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120, // #5: 120 writes/min per IP — stops storage flood while allowing normal use
   standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppe operazioni, riprova tra un minuto" },
+  message: { error: { code: "RATE_LIMITED", message: "Troppe operazioni, riprova tra un minuto" } },
 });
 
 // MOD-006: cursor pagination (see GET /api/transactions) means each request
@@ -830,14 +830,14 @@ const exportLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true, legacyHeaders: false,
-  message: { error: "Troppe richieste, riprova tra un minuto" },
+  message: { error: { code: "RATE_LIMITED", message: "Troppe richieste, riprova tra un minuto" } },
 });
 
 // ─── Admin middleware ───
 function requireAdmin(req, res, next) {
   const secret = process.env.ADMIN_SECRET;
-  if (!secret) return res.status(503).json({ error: "Admin non configurato (ADMIN_SECRET mancante)" });
-  if (req.headers["x-admin-secret"] !== secret) return res.status(401).json({ error: "Non autorizzato" });
+  if (!secret) return sendError(res, 503, "ADMIN_NOT_CONFIGURED", "Admin non configurato (ADMIN_SECRET mancante)");
+  if (req.headers["x-admin-secret"] !== secret) return sendError(res, 401, "ADMIN_UNAUTHORIZED", "Non autorizzato");
   next();
 }
 
@@ -846,29 +846,29 @@ app.get("/api/admin/blacklist", adminLimiter, requireAdmin, async (req, res) => 
   try {
     const docs = await blacklistCol.find({}).sort({ addedAt: -1 }).toArray();
     res.json(docs.map(d => ({ key: d.key, reason: d.reason || "", addedAt: d.addedAt })));
-  } catch (e) { res.status(500).json({ error: "Errore" }); }
+  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/admin/blacklist", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const { key, reason } = req.body || {};
-    if (!key || typeof key !== "string") return res.status(400).json({ error: "key obbligatorio (es. ip:1.2.3.4 o device:uuid)" });
+    if (!key || typeof key !== "string") return sendError(res, 400, "MISSING_FIELDS", "key obbligatorio (es. ip:1.2.3.4 o device:uuid)");
     await blacklistCol.updateOne(
       { key },
       { $set: { key, reason: reason || "", addedAt: new Date() } },
       { upsert: true }
     );
     res.status(201).json({ ok: true, key });
-  } catch (e) { res.status(500).json({ error: "Errore" }); }
+  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/admin/blacklist/:key(*)", adminLimiter, requireAdmin, async (req, res) => {
   try {
     const key = decodeURIComponent(req.params.key);
     const r = await blacklistCol.deleteOne({ key });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovato");
     res.json({ ok: true, key });
-  } catch (e) { res.status(500).json({ error: "Errore" }); }
+  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // MOD-023: request counts/latency percentiles/error rates per route, plus
@@ -923,11 +923,11 @@ const PIN_CHANGE_EXEMPT = ["/api/auth/pin", "/api/auth/logout"];
 // { error: { code, message, fields? } } — lets the frontend (or any other
 // client, e.g. the widget/shortcuts integrations) distinguish an
 // authentication failure from a validation failure from a rate limit
-// programmatically instead of pattern-matching free text. Applied to the
-// authentication gate (every request passes through it) and to the
-// endpoints touched in this security-hardening pass; older endpoints
-// elsewhere in the file still return the plain { error: "message" } shape
-// pending a full pass (see MOD-022 in the modification plan).
+// programmatically instead of pattern-matching free text. Used by every
+// route in this file — the message text is unchanged from before this
+// migration (still Italian, still human-oriented), only the shape and the
+// addition of a stable `code` are new. `fields` is included only where a
+// specific field is at fault (mainly validation errors).
 function sendError(res, status, code, message, fields = undefined) {
   const body = { error: { code, message } };
   if (fields) body.error.fields = fields;
@@ -1015,21 +1015,21 @@ app.post("/api/auth/logout", requireHousehold, async (req, res) => {
     audit("logout", { householdId: req.householdId, ip: clientIp(req) });
     res.clearCookie("token", { path: "/", httpOnly: true, secure: IS_PROD, sameSite: "strict" });
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: "Errore logout" }); }
+  } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore logout"); }
 });
 
 app.post("/api/auth/register", registerLimiter, async (req, res) => {
   try {
     const { nome, persone, pin, email } = req.body || {};
     if (!nome || !pin || !Array.isArray(persone) || persone.length === 0)
-      return res.status(400).json({ error: "Campi obbligatori: nome, persone, pin" });
+      return sendError(res, 400, "MISSING_FIELDS", "Campi obbligatori: nome, persone, pin");
     if (!/^\d{6,8}$/.test(pin))
-      return res.status(400).json({ error: "Il PIN deve essere di 6-8 cifre" });
+      return sendError(res, 400, "INVALID_PIN_FORMAT", "Il PIN deve essere di 6-8 cifre");
     let emailNorm = null;
     if (email) {
       emailNorm = String(email).trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm) || emailNorm.length > 200)
-        return res.status(400).json({ error: "Email non valida" });
+        return sendError(res, 400, "INVALID_EMAIL", "Email non valida");
     }
 
     // Build householdId: slug from nome + random suffix
@@ -1059,10 +1059,10 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     res.cookie("token", token, COOKIE_OPTS);
     res.status(201).json({ householdId, nome, persone: personeFormatted });
   } catch (e) {
-    if (e.code === 11000 && e.message?.includes("pinLookup")) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
-    if (e.code === 11000 && e.message?.includes("email")) return res.status(409).json({ error: "Email già collegata a un altro gruppo" });
+    if (e.code === 11000 && e.message?.includes("pinLookup")) return sendError(res, 409, "PIN_ALREADY_IN_USE", "PIN già in uso, scegline un altro");
+    if (e.code === 11000 && e.message?.includes("email")) return sendError(res, 409, "EMAIL_ALREADY_IN_USE", "Email già collegata a un altro gruppo");
     logger.error("register_failed", { requestId: req.requestId, error: e.message }); // never log e directly — req.body may appear in stack
-    res.status(500).json({ error: "Errore durante la registrazione" });
+    sendError(res, 500, "INTERNAL_ERROR", "Errore durante la registrazione");
   }
 });
 
@@ -1072,7 +1072,7 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
   try {
     const { newPin } = req.body || {};
     if (!newPin || !/^\d{6,8}$/.test(newPin))
-      return res.status(400).json({ error: "Il nuovo PIN deve essere di 6-8 cifre" });
+      return sendError(res, 400, "INVALID_PIN_FORMAT", "Il nuovo PIN deve essere di 6-8 cifre");
     const pinHash = await hashPin(newPin);
     const pinLookup = pinLookupKey(newPin);
     await householdsCol.updateOne(
@@ -1085,11 +1085,11 @@ app.put("/api/auth/pin", requireHousehold, async (req, res) => {
     audit("pin_change", { householdId: req.householdId, ip: clientIp(req) });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ ok: true });
-  } catch (e) { logger.error("pin_change_failed", { requestId: req.requestId, householdId: req.householdId, error: e.message }); res.status(500).json({ error: "Errore aggiornamento PIN" }); }
+  } catch (e) { logger.error("pin_change_failed", { requestId: req.requestId, householdId: req.householdId, error: e.message }); sendError(res, 500, "INTERNAL_ERROR", "Errore aggiornamento PIN"); }
 });
 
 // ─── Recupero PIN dimenticato ───
-const forgotPinLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
+const forgotPinLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: { code: "RATE_LIMITED", message: "Troppi tentativi, riprova tra qualche minuto" } } });
 
 app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
   // Risposta generica sempre uguale, email esista o meno: non si conferma
@@ -1097,7 +1097,7 @@ app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
   const GENERIC_OK = { ok: true, message: "Se l'email è collegata a un account, riceverai un codice a breve." };
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Email non valida" });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return sendError(res, 400, "INVALID_EMAIL", "Email non valida");
 
     const household = await householdsCol.findOne({ email });
     if (!household) return res.json(GENERIC_OK); // non riveliamo se l'email esiste
@@ -1118,7 +1118,7 @@ app.post("/api/auth/forgot-pin/request", forgotPinLimiter, async (req, res) => {
     });
     audit("pin_reset_requested", { householdId: household.householdId, ip: clientIp(req) });
     res.json(GENERIC_OK);
-  } catch (e) { logger.error("forgot_pin_request_failed", { requestId: req.requestId, error: e.message }); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { logger.error("forgot_pin_request_failed", { requestId: req.requestId, error: e.message }); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
@@ -1126,23 +1126,23 @@ app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const code = String(req.body?.code || "").trim();
     const newPin = req.body?.newPin;
-    if (!email || !code || !newPin) return res.status(400).json({ error: "Campi obbligatori: email, codice, nuovo PIN" });
-    if (!/^\d{6,8}$/.test(newPin)) return res.status(400).json({ error: "Il nuovo PIN deve essere di 6-8 cifre" });
+    if (!email || !code || !newPin) return sendError(res, 400, "MISSING_FIELDS", "Campi obbligatori: email, codice, nuovo PIN");
+    if (!/^\d{6,8}$/.test(newPin)) return sendError(res, 400, "INVALID_PIN_FORMAT", "Il nuovo PIN deve essere di 6-8 cifre");
 
     const household = await householdsCol.findOne({ email });
-    if (!household) return res.status(400).json({ error: "Codice non valido o scaduto" });
+    if (!household) return sendError(res, 400, "INVALID_RESET_CODE", "Codice non valido o scaduto");
 
     const reset = await db.collection("pinResets").findOne({ householdId: household.householdId });
-    if (!reset || reset.expiresAt < new Date()) return res.status(400).json({ error: "Codice non valido o scaduto" });
+    if (!reset || reset.expiresAt < new Date()) return sendError(res, 400, "INVALID_RESET_CODE", "Codice non valido o scaduto");
     if (reset.attempts >= 5) {
       await db.collection("pinResets").deleteOne({ _id: reset._id });
-      return res.status(429).json({ error: "Troppi tentativi. Richiedi un nuovo codice." });
+      return sendError(res, 429, "TOO_MANY_ATTEMPTS", "Troppi tentativi. Richiedi un nuovo codice.");
     }
 
     const valid = await bcrypt.compare(code, reset.codeHash);
     if (!valid) {
       await db.collection("pinResets").updateOne({ _id: reset._id }, { $inc: { attempts: 1 } });
-      return res.status(400).json({ error: "Codice non corretto" });
+      return sendError(res, 400, "INVALID_RESET_CODE", "Codice non corretto");
     }
 
     const pinHash = await hashPin(newPin);
@@ -1160,9 +1160,9 @@ app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ id: household.householdId, nome: household.nome, persone: household.persone });
   } catch (e) {
-    if (e.code === 11000) return res.status(409).json({ error: "PIN già in uso, scegline un altro" });
+    if (e.code === 11000) return sendError(res, 409, "PIN_ALREADY_IN_USE", "PIN già in uso, scegline un altro");
     logger.error("forgot_pin_confirm_failed", { requestId: req.requestId, error: e.message });
-    res.status(500).json({ error: "Errore" });
+    sendError(res, 500, "INTERNAL_ERROR", "Errore");
   }
 });
 
@@ -1172,28 +1172,28 @@ app.put("/api/auth/recovery-email", writeLimiter, requireHousehold, async (req, 
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200)
-      return res.status(400).json({ error: "Email non valida" });
+      return sendError(res, 400, "INVALID_EMAIL", "Email non valida");
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { email, updatedAt: new Date() } });
     audit("recovery_email_set", { householdId: req.householdId, ip: clientIp(req) });
     res.json({ ok: true });
   } catch (e) {
-    if (e.code === 11000) return res.status(409).json({ error: "Email già collegata a un altro gruppo" });
-    console.error("Set recovery email error:", e.message); res.status(500).json({ error: "Errore" });
+    if (e.code === 11000) return sendError(res, 409, "EMAIL_ALREADY_IN_USE", "Email già collegata a un altro gruppo");
+    console.error("Set recovery email error:", e.message); sendError(res, 500, "INTERNAL_ERROR", "Errore");
   }
 });
 
 app.delete("/api/auth/household", requireHousehold, async (req, res) => {
   try {
     const { pin } = req.body || {};
-    if (!pin) return res.status(400).json({ error: "PIN obbligatorio per confermare" });
+    if (!pin) return sendError(res, 400, "MISSING_PIN", "PIN obbligatorio per confermare");
 
     // Verify PIN matches
     const household = await householdsCol.findOne({ householdId: req.householdId });
-    if (!household) return res.status(404).json({ error: "Account non trovato" });
+    if (!household) return sendError(res, 404, "NOT_FOUND", "Account non trovato");
     const pinValid = household.pinHash
       ? await bcrypt.compare(pin, household.pinHash)
       : household.pin === pin;
-    if (!pinValid) return res.status(401).json({ error: "PIN non corretto" });
+    if (!pinValid) return sendError(res, 401, "INVALID_PIN", "PIN non corretto");
 
     // Delete all data for this household
     await transactionsCol.deleteMany({ householdId: req.householdId });
@@ -1208,7 +1208,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
     audit("household_delete", { householdId: req.householdId, ip: clientIp(req) });
     res.clearCookie("token", { path: "/", httpOnly: true, secure: IS_PROD, sameSite: "strict" });
     res.json({ ok: true });
-  } catch (e) { console.error("Delete household error:", e.message); res.status(500).json({ error: "Errore durante l'eliminazione" }); }
+  } catch (e) { console.error("Delete household error:", e.message); sendError(res, 500, "INTERNAL_ERROR", "Errore durante l'eliminazione"); }
 });
 
 // ─── GET household info ───
@@ -1220,10 +1220,10 @@ app.get("/api/household", requireHousehold, (req, res) => {
 app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const valuta = sanitizeValuta(req.body?.valutaBase);
-    if (!valuta) return res.status(400).json({ error: "Valuta non supportata" });
+    if (!valuta) return sendError(res, 400, "INVALID_CURRENCY", "Valuta non supportata");
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { valutaBase: valuta, updatedAt: new Date() } });
     res.json({ valutaBase: valuta });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.get("/api/exchange-rates", requireHousehold, async (req, res) => {
@@ -1234,7 +1234,7 @@ app.get("/api/exchange-rates", requireHousehold, async (req, res) => {
       return res.status(503).json({ error: { code: "EXCHANGE_RATE_UNAVAILABLE", message: "Cambio valuta non disponibile al momento, riprova più tardi." } });
     }
     res.json({ base, rates: { ...rates, [base]: 1 }, stale });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── GET transactions ───
@@ -1298,7 +1298,7 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
       nextCursor,
       hasMore,
     });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── POST transaction ───
@@ -1349,20 +1349,20 @@ app.post("/api/transactions", writeLimiter, requireHousehold, async (req, res) =
     const responseBody = { id, ...doc };
     await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── DELETE transaction (soft delete — moves to trash, purged after 30 days) ───
 app.delete("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await transactionsCol.findOneAndUpdate(
       { _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: null },
       { $set: { deletedAt: new Date() } }
     );
-    if (!r) return res.status(404).json({ error: "Non trovata" });
+    if (!r) return sendError(res, 404, "NOT_FOUND", "Non trovata");
     res.json({ deleted: true, id: req.params.id });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Trash (soft-deleted transactions) ───
@@ -1371,36 +1371,36 @@ app.get("/api/transactions/trash", requireHousehold, async (req, res) => {
     const docs = await transactionsCol.find({ householdId: req.householdId, deletedAt: { $ne: null } })
       .sort({ deletedAt: -1 }).toArray();
     res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/transactions/:id/restore", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const result = await transactionsCol.findOneAndUpdate(
       { _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: { $ne: null } },
       { $unset: { deletedAt: "" } }, { returnDocument: "after" }
     );
-    if (!result) return res.status(404).json({ error: "Non trovata nel cestino" });
+    if (!result) return sendError(res, 404, "NOT_FOUND", "Non trovata nel cestino");
     const id = result._id.toString(); delete result._id; delete result.householdId;
     res.json({ id, ...result });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/transactions/:id/permanent", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await transactionsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId, deletedAt: { $ne: null } });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata nel cestino" });
+    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovata nel cestino");
     res.json({ deleted: true, id: req.params.id });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const r = await transactionsCol.deleteMany({ householdId: req.householdId, deletedAt: { $ne: null } });
     res.json({ deleted: r.deletedCount });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── PUT transaction ───
@@ -1410,9 +1410,9 @@ app.delete("/api/transactions/trash/empty", writeLimiter, requireHousehold, asyn
 // the existing document (MOD-001, MOD-002).
 app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const existing = await transactionsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (!existing) return res.status(404).json({ error: "Non trovata" });
+    if (!existing) return sendError(res, 404, "NOT_FOUND", "Non trovata");
 
     const householdPersonIds = (req.household.persone || []).map(p => p.id);
     const accountDocs = await db.collection("accounts").find({ householdId: req.householdId }, { projection: { _id: 1 } }).toArray();
@@ -1448,10 +1448,10 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, async (req, res
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
       setOp, { returnDocument: "after" }
     );
-    if (!result) return res.status(404).json({ error: "Non trovata" });
+    if (!result) return sendError(res, 404, "NOT_FOUND", "Non trovata");
     const id = result._id.toString(); delete result._id; delete result.householdId;
     res.json({ id, ...result });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── N-person debt matrix ───
@@ -1519,7 +1519,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
       if (creditors[j].bal < 0.01) j++;
     }
     res.json({ debiti });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Stats summary ───
@@ -1535,7 +1535,7 @@ app.get("/api/stats/summary", requireHousehold, async (req, res) => {
       { $group: { _id: { tipo: "$tipo", categoria: "$categoria", pagatoDa: "$pagatoDa" }, totale: { $sum: "$importo" }, count: { $sum: 1 } } }
     ]).toArray();
     res.json(results);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
@@ -1550,9 +1550,9 @@ app.put("/api/categorie", requireHousehold, async (req, res) => {
   try {
     const { categorie } = req.body || {};
     if (!Array.isArray(categorie) || categorie.length === 0)
-      return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
+      return sendError(res, 400, "INVALID_CATEGORIES", "categorie deve essere un array non vuoto");
     if (categorie.length > 100)
-      return res.status(400).json({ error: "Massimo 100 categorie" });
+      return sendError(res, 400, "TOO_MANY_CATEGORIES", "Massimo 100 categorie");
     // Sanitize: allow strings or objects with known keys only
     const ALLOWED_CAT_KEYS = new Set(["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"]);
     const sanitized = categorie.map(c => {
@@ -1567,13 +1567,13 @@ app.put("/api/categorie", requireHousehold, async (req, res) => {
       return null;
     }).filter(Boolean);
     if (sanitized.length === 0)
-      return res.status(400).json({ error: "Nessuna categoria valida" });
+      return sendError(res, 400, "NO_VALID_CATEGORIES", "Nessuna categoria valida");
     await householdsCol.updateOne(
       { householdId: req.householdId },
       { $set: { categorieUscita: sanitized, updatedAt: new Date() } }
     );
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Trip categories (sincronizzate sulla casa, come categorieUscita) ───
@@ -1585,9 +1585,9 @@ app.put("/api/trip-categories", writeLimiter, requireHousehold, async (req, res)
   try {
     const { categorie } = req.body || {};
     if (!Array.isArray(categorie) || categorie.length === 0)
-      return res.status(400).json({ error: "categorie deve essere un array non vuoto" });
+      return sendError(res, 400, "INVALID_CATEGORIES", "categorie deve essere un array non vuoto");
     if (categorie.length > 100)
-      return res.status(400).json({ error: "Massimo 100 categorie" });
+      return sendError(res, 400, "TOO_MANY_CATEGORIES", "Massimo 100 categorie");
     const ALLOWED_CAT_KEYS = new Set(["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"]);
     const sanitized = categorie.map(c => {
       if (c && typeof c === "object" && !Array.isArray(c)) {
@@ -1600,13 +1600,13 @@ app.put("/api/trip-categories", writeLimiter, requireHousehold, async (req, res)
       return null;
     }).filter(Boolean);
     if (sanitized.length === 0)
-      return res.status(400).json({ error: "Nessuna categoria valida" });
+      return sendError(res, 400, "NO_VALID_CATEGORIES", "Nessuna categoria valida");
     await householdsCol.updateOne(
       { householdId: req.householdId },
       { $set: { tripCategories: sanitized, updatedAt: new Date() } }
     );
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Stock Positions ───
@@ -1639,7 +1639,7 @@ app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, 
     const col = db.collection("positions");
     const docs = await col.find({ householdId: req.householdId }).sort({ dataAcquisto: -1 }).toArray();
     res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAccess, async (req, res) => {
@@ -1649,9 +1649,9 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
     if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body;
-    if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return res.status(400).json({ error: "Campi obbligatori: ticker, quantita, prezzoAcquisto" });
+    if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return sendError(res, 400, "MISSING_FIELDS", "Campi obbligatori: ticker, quantita, prezzoAcquisto");
     const ticker = b.ticker.toUpperCase().trim();
-    if (!/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) return res.status(400).json({ error: "Ticker non valido (max 20 caratteri alfanumerici)" });
+    if (!/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) return sendError(res, 400, "INVALID_TICKER", "Ticker non valido (max 20 caratteri alfanumerici)");
     const doc = {
       householdId: req.householdId,
       ticker,
@@ -1669,16 +1669,16 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
     const responseBody = { id, ...doc };
     await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await db.collection("positions").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovata" });
+    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovata");
     res.json({ deleted: true, id: req.params.id });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Manual price overrides (stored in quotes_cache, scoped by householdId) ───
@@ -1688,18 +1688,18 @@ app.get("/api/positions/prices", requireHousehold, async (req, res) => {
     const manualPrices = {};
     for (const d of docs) manualPrices[d.ticker] = d.manualPrice;
     res.json({ manualPrices });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.put("/api/positions/prices", requireHousehold, async (req, res) => {
   try {
     const { manualPrices } = req.body || {};
     if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
-      return res.status(400).json({ error: "manualPrices deve essere un oggetto" });
+      return sendError(res, 400, "INVALID_MANUAL_PRICES", "manualPrices deve essere un oggetto");
     const TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
     const entries = Object.entries(manualPrices);
     if (entries.length > 200)
-      return res.status(400).json({ error: "Massimo 200 prezzi manuali" });
+      return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali");
     // Remove all existing manual prices for this household, then upsert validated ones
     await quotesCol.deleteMany({ householdId: req.householdId, manualPrice: { $exists: true } });
     for (const [rawTicker, rawPrice] of entries) {
@@ -1714,7 +1714,7 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
       );
     }
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // Stock quotes endpoint — DISABLED
@@ -1722,7 +1722,7 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
 // To re-enable: uncomment and ensure yahoo-finance2 is installed
 
 app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
-  res.status(410).json({ error: "API quotazioni rimossa. Usa i prezzi manuali." });
+  sendError(res, 410, "QUOTES_DISABLED", "API quotazioni rimossa. Usa i prezzi manuali.");
 });
 
 // Savings Goals
@@ -1731,7 +1731,7 @@ app.get("/api/goals", requireHousehold, async (req, res) => {
     const col = db.collection("goals");
     const docs = await col.find({ householdId: req.householdId }).sort({ createdAt: -1 }).toArray();
     res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
@@ -1764,12 +1764,12 @@ app.post("/api/goals", writeLimiter, requireHousehold, async (req, res) => {
     const responseBody = { id, ...doc };
     await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const b = req.body;
     // MOD-009: same ownership check as create — a PUT can just as easily
     // try to attach the goal to someone else's account.
@@ -1785,20 +1785,20 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, async (req, res) => {
     if (b.contributionValue !== undefined) update.contributionValue = parseFloat(b.contributionValue);
     if (b.autoAdd !== undefined) update.autoAdd = b.autoAdd === true;
     if (b.contoId !== undefined) update.contoId = b.contoId || null;
-    if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
+    if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
     await db.collection("goals").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/goals/:id", requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await db.collection("goals").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovato");
     res.json({ deleted: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Accounts (conti) API ───
@@ -1806,7 +1806,7 @@ app.get("/api/accounts", requireHousehold, async (req, res) => {
   try {
     const docs = await db.collection("accounts").find({ householdId: req.householdId }).sort({ createdAt: 1 }).toArray();
     res.json(docs.map(d => { const id = d._id.toString(); delete d._id; delete d.householdId; return { id, ...d }; }));
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
@@ -1816,7 +1816,7 @@ app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
     if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body;
-    if (!b.nome) return res.status(400).json({ error: "Campo obbligatorio: nome" });
+    if (!b.nome) return sendError(res, 400, "MISSING_FIELDS", "Campo obbligatorio: nome");
     const saldoIniziale = parseFloat(b.saldoIniziale);
     const doc = {
       householdId: req.householdId,
@@ -1831,40 +1831,40 @@ app.post("/api/accounts", writeLimiter, requireHousehold, async (req, res) => {
     const responseBody = { id, ...doc };
     await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.put("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const b = req.body;
     const update = {};
     if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 60);
     if (b.icona !== undefined) update.icona = sanitizeText(b.icona, 8) || "🏦";
     if (b.saldoIniziale !== undefined) {
       const v = parseFloat(b.saldoIniziale);
-      if (!Number.isFinite(v)) return res.status(400).json({ error: "saldoIniziale non valido" });
+      if (!Number.isFinite(v)) return sendError(res, 400, "INVALID_FIELD", "saldoIniziale non valido");
       update.saldoIniziale = v;
     }
-    if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
+    if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
     await db.collection("accounts").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/accounts/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await db.collection("accounts").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovato");
     // Detach the deleted account from its transactions and goals (they stay, unassigned)
     await transactionsCol.updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
     await transactionsCol.updateMany({ householdId: req.householdId, contoDa: req.params.id }, { $set: { contoDa: null } });
     await transactionsCol.updateMany({ householdId: req.householdId, contoA: req.params.id }, { $set: { contoA: null } });
     await db.collection("goals").updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
     res.json({ deleted: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Full backup & restore ───
@@ -1894,13 +1894,13 @@ app.get("/api/backup", requireHousehold, async (req, res) => {
       positions: positions.map(strip),
       manualPrices,
     });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const b = req.body;
-    if (!b || b.formato !== "balance-tracker-backup") return res.status(400).json({ error: "File non riconosciuto come backup" });
+    if (!b || b.formato !== "balance-tracker-backup") return sendError(res, 400, "INVALID_BACKUP_FORMAT", "File non riconosciuto come backup");
     const hid = req.householdId;
     const asArray = (x) => Array.isArray(x) ? x : [];
     const clean = (d) => { const o = { ...d }; delete o.id; delete o._id; o.householdId = hid; return o; };
@@ -1980,7 +1980,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
 
     await auditCol.insertOne({ householdId: hid, action: "backup_restore", counts, at: new Date() });
     res.json({ ok: true, counts });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore durante il ripristino" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore durante il ripristino"); }
 });
 
 // Rispecchia le categorie di default del client, usate dal widget quando la
@@ -2008,7 +2008,7 @@ app.post("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => 
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { widgetKeyHash: hashCapabilityToken(key), widgetKeyCreatedAt: new Date() }, $unset: { widgetKey: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_created", at: new Date() });
     res.json({ key });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/widget-key", writeLimiter, requireHousehold, async (req, res) => {
@@ -2016,16 +2016,16 @@ app.delete("/api/widget-key", writeLimiter, requireHousehold, async (req, res) =
     await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { widgetKey: "", widgetKeyHash: "", widgetKeyCreatedAt: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "widget_key_revoked", at: new Date() });
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-const widgetLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const widgetLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: { code: "RATE_LIMITED", message: "Troppe richieste, riprova tra un minuto" } } });
 app.get("/api/widget", widgetLimiter, async (req, res) => {
   try {
     const key = req.query.key;
-    if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
+    if (!key || typeof key !== "string" || key.length < 20) return sendError(res, 401, "MISSING_KEY", "Chiave mancante");
     const household = await findByCapabilityToken(householdsCol, "widgetKey", key);
-    if (!household) return res.status(401).json({ error: "Chiave non valida" });
+    if (!household) return sendError(res, 401, "INVALID_KEY", "Chiave non valida");
     const hid = household.householdId;
 
     // MOD-020: this endpoint is meant to be polled frequently (a phone
@@ -2125,20 +2125,20 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
       speseMese,
       entrateMese,
     });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // Aggiunta rapida di una transazione dal widget. Stessa chiave dell'endpoint
 // di lettura, ma con superficie di scrittura minima e volutamente rigida:
 // solo tipo/importo/descrizione/data, categoria fissa lato server, nessun
 // accesso a split, persone, conti o eliminazioni.
-const widgetWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
+const widgetWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false, message: { error: { code: "RATE_LIMITED", message: "Troppe richieste, riprova tra un minuto" } } });
 app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
   try {
     const key = req.query.key;
-    if (!key || typeof key !== "string" || key.length < 20) return res.status(401).json({ error: "Chiave mancante" });
+    if (!key || typeof key !== "string" || key.length < 20) return sendError(res, 401, "MISSING_KEY", "Chiave mancante");
     const household = await findByCapabilityToken(householdsCol, "widgetKey", key);
-    if (!household) return res.status(401).json({ error: "Chiave non valida" });
+    if (!household) return sendError(res, 401, "INVALID_KEY", "Chiave non valida");
     const hid = household.householdId;
     const persone = household.persone || [];
     const personeIds = new Set(persone.map(p => p.id));
@@ -2150,13 +2150,13 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     if (handleIdempotencyClaim(claim, res)) return;
 
     const b = req.body || {};
-    if (!["uscita", "entrata"].includes(b.tipo)) return res.status(400).json({ error: "Tipo non valido (uscita/entrata)" });
+    if (!["uscita", "entrata"].includes(b.tipo)) return sendError(res, 400, "INVALID_TYPE", "Tipo non valido (uscita/entrata)");
 
     // Amount: same rule as every other transaction entry point (finite,
     // strictly > 0, normalized to cents) — MOD-001/MOD-005.
     let importo;
-    try { importo = validateAmount(b.importo); } catch { return res.status(400).json({ error: "Importo non valido" }); }
-    if (importo > 1000000) return res.status(400).json({ error: "Importo non valido" });
+    try { importo = validateAmount(b.importo); } catch { return sendError(res, 400, "INVALID_AMOUNT", "Importo non valido"); }
+    if (importo > 1000000) return sendError(res, 400, "INVALID_AMOUNT", "Importo non valido");
 
     // Date: same calendar-validity check as the main endpoints; falls back
     // to today rather than hard-failing, since this is a deliberately
@@ -2212,7 +2212,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
     const responseBody = { ok: true };
     await finalizeIdempotencyKey(hid, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Calendar sync: read-only .ics feed of recurring transactions ───
@@ -2225,7 +2225,7 @@ app.post("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) =
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { calendarKeyHash: hashCapabilityToken(key), calendarKeyCreatedAt: new Date() }, $unset: { calendarKey: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_created", at: new Date() });
     res.json({ key });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/calendar-key", writeLimiter, requireHousehold, async (req, res) => {
@@ -2233,7 +2233,7 @@ app.delete("/api/calendar-key", writeLimiter, requireHousehold, async (req, res)
     await householdsCol.updateOne({ householdId: req.householdId }, { $unset: { calendarKey: "", calendarKeyHash: "", calendarKeyCreatedAt: "" } });
     await auditCol.insertOne({ householdId: req.householdId, action: "calendar_key_revoked", at: new Date() });
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 function icsEscape(s) {
@@ -2245,7 +2245,7 @@ const RRULE_BY_FREQUENZA = {
   trimestrale: "FREQ=MONTHLY;INTERVAL=3",
   annuale: "FREQ=YEARLY",
 };
-const calendarLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+const calendarLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: { code: "RATE_LIMITED", message: "Troppe richieste, riprova tra un minuto" } } });
 app.get("/api/calendar.ics", calendarLimiter, async (req, res) => {
   try {
     const key = req.query.key;
@@ -2302,7 +2302,7 @@ app.get("/api/trips", requireHousehold, async (req, res) => {
   try {
     const trips = await tripsCol.find({ householdId: req.householdId }).sort({ startDate: -1 }).toArray();
     res.json(trips.map(t => { const id = t._id.toString(); delete t._id; delete t.householdId; return { id, ...t }; }));
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
@@ -2324,18 +2324,18 @@ app.post("/api/trips", writeLimiter, requireHousehold, async (req, res) => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    if (!doc.nome) return res.status(400).json({ error: "Nome richiesto" });
+    if (!doc.nome) return sendError(res, 400, "MISSING_FIELDS", "Nome richiesto");
     const result = await tripsCol.insertOne(doc);
     delete doc.householdId;
     const responseBody = { id: result.insertedId.toString(), ...doc };
     await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.json(responseBody);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.put("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const t = req.body;
     const update = {};
     if (t.nome !== undefined) update.nome = sanitizeText(t.nome, 100);
@@ -2344,20 +2344,20 @@ app.put("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
     if (t.endDate !== undefined) update.endDate = t.endDate;
     if (t.partecipanti !== undefined) update.partecipanti = sanitizePartecipanti(t.partecipanti);
     if (t.settled !== undefined) update.settled = t.settled === true;
-    if (Object.keys(update).length === 0) return res.status(400).json({ error: "Nessun campo da aggiornare" });
+    if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
     await tripsCol.updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await tripsCol.deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return res.status(404).json({ error: "Non trovato" });
+    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovato");
     res.json({ deleted: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Embedded array size guard (MOD-019, hardened) ───
@@ -2391,10 +2391,10 @@ async function pushTripExpenseIfUnderLimit(tripFilter, expense) {
 
 app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (!trip) return res.status(404).json({ error: "Viaggio non trovato" });
-    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+    if (!trip) return sendError(res, 404, "NOT_FOUND", "Viaggio non trovato");
+    if (trip.settled) return sendError(res, 400, "TRIP_SETTLED", "Viaggio già chiuso");
 
     let expense;
     try {
@@ -2413,22 +2413,22 @@ app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, async (req, 
       return sendError(res, 400, "TRIP_TOO_MANY_EXPENSES", "Questo viaggio ha raggiunto il numero massimo di spese registrabili; chiudilo o creane uno nuovo per continuare.", { count: (trip.expenses || []).length });
     }
     res.json(expense);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const trip = await tripsCol.findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (!trip) return res.status(404).json({ error: "Viaggio non trovato" });
-    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+    if (!trip) return sendError(res, 404, "NOT_FOUND", "Viaggio non trovato");
+    if (trip.settled) return sendError(res, 400, "TRIP_SETTLED", "Viaggio già chiuso");
     
     await tripsCol.updateOne(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
       { $pull: { expenses: { id: req.params.expenseId } }, $set: { updatedAt: new Date() } }
     );
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // ─── Trip share links: let a guest outside the household join a single trip
@@ -2436,33 +2436,33 @@ app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold,
 // Token-gated like the widget key — capability URL, revocable, scoped to one trip. ───
 app.post("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const shareToken = randomBytes(24).toString("base64url");
     const r = await tripsCol.findOneAndUpdate(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
       { $set: { shareTokenHash: hashCapabilityToken(shareToken), shareTokenCreatedAt: new Date() }, $unset: { shareToken: "" } },
       { returnDocument: "after" }
     );
-    if (!r) return res.status(404).json({ error: "Viaggio non trovato" });
+    if (!r) return sendError(res, 404, "NOT_FOUND", "Viaggio non trovato");
     audit("trip_share_created", { householdId: req.householdId, ip: clientIp(req) });
     res.json({ token: shareToken, expiresInDays: TRIP_SHARE_TOKEN_TTL_DAYS });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.delete("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "ID non valido" });
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     await tripsCol.updateOne(
       { _id: new ObjectId(req.params.id), householdId: req.householdId },
       { $unset: { shareToken: "", shareTokenHash: "", shareTokenCreatedAt: "" } }
     );
     audit("trip_share_revoked", { householdId: req.householdId, ip: clientIp(req) });
     res.json({ ok: true });
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-const tripShareLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
-const tripShareWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false });
+const tripShareLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: { code: "RATE_LIMITED", message: "Troppe richieste, riprova tra un minuto" } } });
+const tripShareWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false, message: { error: { code: "RATE_LIMITED", message: "Troppe richieste, riprova tra un minuto" } } });
 
 // MOD-011: trip share links expire — unlike the widget/calendar keys (meant
 // to be long-lived "subscribe once" capability URLs by design), a trip is
@@ -2492,25 +2492,25 @@ function stripTripForGuest(trip) {
 app.get("/api/trips/shared/:token", tripShareLimiter, async (req, res) => {
   try {
     const token = req.params.token;
-    if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
+    if (!token || token.length < 20) return sendError(res, 401, "INVALID_TOKEN", "Link non valido");
     const trip = await findTripByShareToken(token);
-    if (!trip) return res.status(404).json({ error: "Link non valido, scaduto o revocato" });
+    if (!trip) return sendError(res, 404, "NOT_FOUND", "Link non valido, scaduto o revocato");
     res.json(stripTripForGuest(trip));
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/trips/shared/:token/join", tripShareWriteLimiter, async (req, res) => {
   try {
     const token = req.params.token;
-    if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
+    if (!token || token.length < 20) return sendError(res, 401, "INVALID_TOKEN", "Link non valido");
     const trip = await findTripByShareToken(token);
-    if (!trip) return res.status(404).json({ error: "Link non valido, scaduto o revocato" });
-    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+    if (!trip) return sendError(res, 404, "NOT_FOUND", "Link non valido, scaduto o revocato");
+    if (trip.settled) return sendError(res, 400, "TRIP_SETTLED", "Viaggio già chiuso");
 
     const nome = sanitizeText(req.body?.nome, 100);
-    if (!nome) return res.status(400).json({ error: "Nome richiesto" });
+    if (!nome) return sendError(res, 400, "MISSING_FIELDS", "Nome richiesto");
     const id = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-    if (!id) return res.status(400).json({ error: "Nome non valido" });
+    if (!id) return sendError(res, 400, "INVALID_FIELD", "Nome non valido");
 
     const esistente = (trip.partecipanti || []).find(p => p.id === id);
     if (esistente) return res.json(esistente); // stesso nome già presente: rientra come lo stesso ospite
@@ -2519,16 +2519,16 @@ app.post("/api/trips/shared/:token/join", tripShareWriteLimiter, async (req, res
     const nuovo = { id, nome, emoji: "👤", colore: colors[(trip.partecipanti || []).length % colors.length] };
     await tripsCol.updateOne({ _id: trip._id }, { $push: { partecipanti: nuovo }, $set: { updatedAt: new Date() } });
     res.status(201).json(nuovo);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req, res) => {
   try {
     const token = req.params.token;
-    if (!token || token.length < 20) return res.status(401).json({ error: "Link non valido" });
+    if (!token || token.length < 20) return sendError(res, 401, "INVALID_TOKEN", "Link non valido");
     const trip = await findTripByShareToken(token);
-    if (!trip) return res.status(404).json({ error: "Link non valido, scaduto o revocato" });
-    if (trip.settled) return res.status(400).json({ error: "Viaggio già chiuso" });
+    if (!trip) return sendError(res, 404, "NOT_FOUND", "Link non valido, scaduto o revocato");
+    if (trip.settled) return sendError(res, 400, "TRIP_SETTLED", "Viaggio già chiuso");
 
     let expense;
     try {
@@ -2551,7 +2551,7 @@ app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req,
       return sendError(res, 400, "TRIP_TOO_MANY_EXPENSES", "Questo viaggio ha raggiunto il numero massimo di spese registrabili.", { count: (trip.expenses || []).length });
     }
     res.status(201).json(expense);
-  } catch (e) { console.error(e); res.status(500).json({ error: "Errore" }); }
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 function sanitizePartecipanti(arr) {

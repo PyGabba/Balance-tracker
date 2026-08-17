@@ -60,11 +60,11 @@ helper:
 { "error": { "code": "UNKNOWN_ACCOUNT", "message": "Conto non valido: contoId", "fields": { "contoId": "..." } } }
 ```
 
-`fields` is included only where relevant (mainly validation errors). This
-shape is used consistently by the authentication gate and by every route
-touched in phases 3+ (transactions, goals' account-ownership check, trip
-expenses, idempotency-conflict responses, etc). **Not every route uses it —
-see [Known inconsistencies](#known-inconsistencies).**
+`fields` is included only where relevant (mainly validation errors). Every
+route in `server/index.js` now returns this shape on error — the full
+migration away from the older plain `{ error: "text" }` shape (see
+[Known inconsistencies](#known-inconsistencies) for what's still
+inconsistent: success-response shapes, not error shapes).
 
 ## Rate limiting
 
@@ -316,18 +316,10 @@ per-run id, counts, duration) — see MOD-023.
 
 ## Known inconsistencies
 
-Documented here rather than silently fixed — standardizing these is MOD-022
-(phase 3) / MOD-012-13 (phase 6) scope, not phase 5's.
+Documented here rather than silently fixed — standardizing these is
+MOD-012-13 (phase 6) scope, not phase 5's. MOD-022 (error shape) is done.
 
-- **Error shape is not uniform.** The standardized `{ error: { code, message, fields? } }`
-  shape (via `sendError`) is used by the auth gate and by routes touched in
-  phase 3+ (transactions, goals' `contoId` check, trip expenses, idempotency
-  conflicts). A large number of older routes — most of accounts, positions,
-  goals' simpler fields, trips, backup/restore, widget, calendar-key — still
-  return the older plain `{ error: "some Italian string" }` shape on
-  failure. A client can't reliably branch on `error.code` for those routes;
-  it has to pattern-match a message string, and that string is in Italian.
-- **Success response shapes are inconsistent too.** Some POST endpoints
+- **Success response shapes are inconsistent.** Some POST endpoints
   return the created entity in-body (`{ id, ...doc }` — transactions,
   accounts, goals, positions); `POST /api/trips` does the same but via
   `res.json(...)` instead of `res.status(201).json(...)` (some think success);

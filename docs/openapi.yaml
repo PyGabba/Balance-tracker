@@ -42,20 +42,18 @@ components:
       type: object
       properties:
         error:
-          oneOf:
-            - type: string
-              description: Legacy shape — most endpoints not yet migrated to the structured shape (MOD-022).
-            - type: object
-              properties:
-                code:
-                  type: string
-                  example: UNKNOWN_PARTICIPANT
-                message:
-                  type: string
-                fields:
-                  type: object
-                  additionalProperties: true
-              required: [code, message]
+          type: object
+          description: Structured error shape (MOD-022) — used by every route, including rate-limit responses.
+          properties:
+            code:
+              type: string
+              example: UNKNOWN_PARTICIPANT
+            message:
+              type: string
+            fields:
+              type: object
+              additionalProperties: true
+          required: [code, message]
 
     Split:
       type: object
