@@ -3,15 +3,15 @@ info:
   title: Balance Tracker API
   version: "1.0"
   description: >
-    Household finance tracker API. This spec covers the core resources —
-    auth, transactions, accounts, goals, trips (+ expenses/sharing), and
-    positions — plus the widget and admin-metrics endpoints. It is a
-    snapshot maintained by hand alongside the code (MOD-024), not
-    generated. Endpoints not yet modeled here in full detail (backup,
-    categories, calendar feed, admin blacklist) are documented in prose in
-    ./API.md, which also covers pagination, idempotency, rate limiting,
+    Household finance tracker API. This spec covers every route in
+    `server/index.js` — auth, household/settings, transactions (+ trash),
+    accounts, goals, positions, trips (+ expenses/sharing/guest access),
+    backup/restore, widget, calendar feed, and admin (blacklist + metrics).
+    It is a snapshot maintained by hand alongside the code (MOD-024), not
+    generated. See ./API.md for pagination, idempotency, rate limiting,
     and the full error-code reference this spec references but doesn't
-    repeat.
+    repeat, plus the "Known inconsistencies" notes on error/response-shape
+    drift across older routes.
 servers:
   - url: /api
     description: Same-origin (production, via the Vercel proxy) or http://localhost:3001/api in development
@@ -385,6 +385,186 @@ paths:
       responses:
         "200": { description: Logged out. }
 
+  /auth/pin:
+    put:
+      summary: Change the household PIN
+      description: Revokes every existing session for the household and issues a fresh one. Clears requiresPinChange.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newPin]
+              properties: { newPin: { type: string } }
+      responses:
+        "200": { description: PIN changed; new session cookie set. }
+
+  /auth/forgot-pin/request:
+    post:
+      summary: Request a PIN-reset code by email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string } }
+      responses:
+        "200": { description: "Always { ok: true } regardless of whether the email exists — no account enumeration." }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/forgot-pin/confirm:
+    post:
+      summary: Confirm a PIN-reset code and set a new PIN
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code, newPin]
+              properties:
+                email: { type: string }
+                code: { type: string, description: "6-digit code, 15-min expiry, max 5 attempts." }
+                newPin: { type: string }
+      responses:
+        "200": { description: PIN reset; all prior sessions revoked. }
+        "400": { description: Invalid, expired, or exhausted code. }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/recovery-email:
+    put:
+      summary: Attach or update the household's recovery email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string } }
+      responses:
+        "200": { description: Updated. }
+
+  /auth/household:
+    delete:
+      summary: Permanently delete the household and all its data
+      description: Irreversibly deletes every collection's data for this household (transactions, accounts, goals, trips, positions, pinResets) and the household itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties: { pin: { type: string, description: Must match the household's current PIN. } }
+      responses:
+        "200": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /household:
+    get:
+      summary: Get household profile and settings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  nome: { type: string }
+                  persone: { type: array, items: { $ref: "#/components/schemas/TripPartecipante" } }
+                  hasRecoveryEmail: { type: boolean }
+                  valutaBase: { type: string }
+
+  /household/valuta:
+    put:
+      summary: Change the household's base currency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [valutaBase]
+              properties:
+                valutaBase: { type: string, description: "Any 3-letter ISO-4217-shaped code, not a hardcoded whitelist." }
+      responses:
+        "200": { description: Updated. }
+
+  /exchange-rates:
+    get:
+      summary: Get the household's base-currency exchange-rate table
+      description: Cached server-side for 24h. Never falls back to a 1:1 rate (MOD-005) — unavailable rates surface as an error instead.
+      responses:
+        "200": { description: OK }
+        "503": { description: Rate provider unavailable and no usable cache. }
+
+  /categorie:
+    get:
+      summary: Get the household's custom expense categories
+      responses:
+        "200": { description: "Category list, or null if unset (client falls back to its own defaults)." }
+    put:
+      summary: Set the household's custom expense categories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categorie]
+              properties:
+                categorie:
+                  type: array
+                  maxItems: 100
+                  items: {}
+      responses:
+        "200": { description: "{ ok: true } — no created entity in the response." }
+
+  /trip-categories:
+    get:
+      summary: Get the household's custom trip-expense categories
+      responses:
+        "200": { description: "Same shape as /categorie, separate field." }
+    put:
+      summary: Set the household's custom trip-expense categories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categorie]
+              properties:
+                categorie:
+                  type: array
+                  maxItems: 100
+                  items: {}
+      responses:
+        "200": { description: "{ ok: true }." }
+
+  /health:
+    get:
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  db: { type: boolean }
+
   /transactions:
     get:
       summary: List transactions (paginated)
@@ -469,6 +649,57 @@ paths:
       responses:
         "200": { description: Deleted. }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /transactions/trash:
+    get:
+      summary: List soft-deleted transactions
+      description: Most recently deleted first. Also auto-purged after 30 days by the svuotaCestinoScaduto background job.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Transaction" } }
+
+  /transactions/{id}/restore:
+    post:
+      summary: Restore a soft-deleted transaction
+      parameters: [{ $ref: "#/components/parameters/TransactionId" }]
+      responses:
+        "200": { description: Restored. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /transactions/{id}/permanent:
+    delete:
+      summary: Permanently delete a single trashed transaction
+      parameters: [{ $ref: "#/components/parameters/TransactionId" }]
+      responses:
+        "200": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /transactions/trash/empty:
+    delete:
+      summary: Permanently delete everything currently in trash
+      responses:
+        "200": { description: Emptied. }
+
+  /stats/debiti:
+    get:
+      summary: Debt-settlement matrix
+      description: Who owes whom, reduced to the minimal number of transfers needed to settle.
+      responses:
+        "200": { description: OK }
+
+  /stats/summary:
+    get:
+      summary: Aggregated transaction totals
+      description: "Grouped by (tipo, categoria, pagatoDa), optionally filtered by month."
+      parameters:
+        - name: meseAnno
+          in: query
+          schema: { type: string, example: "2026-08" }
+      responses:
+        "200": { description: OK }
 
   /accounts:
     get:
@@ -595,6 +826,43 @@ paths:
       responses:
         "200": { description: Deleted. }
 
+  /positions/prices:
+    get:
+      summary: Get manual price overrides
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manualPrices: { type: object, additionalProperties: { type: number } }
+    put:
+      summary: Set manual price overrides
+      description: The only price source — the live-quote endpoint is disabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [manualPrices]
+              properties:
+                manualPrices:
+                  type: object
+                  additionalProperties: { type: number }
+                  maxProperties: 200
+      responses:
+        "200": { description: "{ ok: true }." }
+
+  /quotes:
+    get:
+      summary: Live stock/fund quote lookup
+      description: Disabled — always 410. Kept only so old clients get a clear error instead of a 404.
+      responses:
+        "410": { description: "Gone — \"Usa i prezzi manuali.\"" }
+
   /trips:
     get:
       summary: List trips
@@ -706,6 +974,52 @@ paths:
           description: A stripped-down trip view (name, dates, participants, expenses, settled status).
         "404": { description: "Link invalid, expired, or revoked." }
 
+  /trips/shared/{token}/join:
+    post:
+      summary: Join a shared trip as a guest
+      security: []
+      description: Idempotent by normalized name — rejoining with the same name returns the existing participant instead of duplicating.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome]
+              properties: { nome: { type: string } }
+      responses:
+        "200": { description: Joined; returns the participant record. }
+        "404": { description: "Link invalid, expired, or revoked." }
+
+  /trips/shared/{token}/expenses:
+    post:
+      summary: Log an expense on a shared trip as a guest
+      security: []
+      description: Same validation/limits as the household version, plus a friendlier error for logging an expense before joining.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TripExpense" }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TripExpense" }
+        "400": { description: Validation failed, trip settled, guest hasn't joined, or expense-count limit reached. }
+        "404": { description: "Link invalid, expired, or revoked." }
+
   /widget-key:
     post:
       summary: Create (or rotate) the household's widget capability token
@@ -765,6 +1079,106 @@ paths:
       responses:
         "201": { description: Created. }
         "400": { $ref: "#/components/responses/BadRequest" }
+
+  /backup:
+    get:
+      summary: Full JSON export of the household's data
+      description: "Transactions, accounts, goals, trips, positions, manual prices, plus household metadata. formato: \"balance-tracker-backup\", versione: 1."
+      responses:
+        "200": { description: OK }
+
+  /backup/restore:
+    post:
+      summary: Restore a backup
+      description: >
+        Re-imports a backup produced by GET /backup. Additive, not
+        destructive — nothing existing is deleted first; restored rows get
+        a restoredAt timestamp. Account ids are remapped (old→new) so
+        restored transactions/goals still point at the right restored
+        account. Custom categories are only restored if the household
+        currently has none set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A document previously returned by GET /backup.
+      responses:
+        "200": { description: Restored. }
+        "400": { description: Malformed or unrecognized backup format. }
+
+  /calendar-key:
+    post:
+      summary: Issue a calendar-subscription capability key
+      responses:
+        "200":
+          description: The plaintext key, returned exactly once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { key: { type: string } }
+    delete:
+      summary: Revoke the calendar-subscription key
+      responses:
+        "200": { description: Revoked. }
+
+  /calendar.ics:
+    get:
+      summary: iCalendar feed of recurring-transaction templates
+      description: Read-only RFC 5545 feed for "subscribe by URL" in Google/Apple/Outlook calendars. No write counterpart.
+      security:
+        - capabilityTokenQuery: []
+      responses:
+        "200":
+          description: OK
+          content:
+            text/calendar: {}
+        "401": { description: Missing or invalid capability token. }
+
+  /admin/blacklist:
+    get:
+      summary: List blocked IP/device keys
+      security:
+        - adminSecret: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Missing/invalid X-Admin-Secret. }
+        "503": { description: ADMIN_SECRET not configured on the server. }
+    post:
+      summary: Block an IP or device
+      description: Permanent block, independent of the temporary lockout mechanism.
+      security:
+        - adminSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string, example: "ip:1.2.3.4", description: "e.g. ip:1.2.3.4 or device:<uuid>." }
+                reason: { type: string, nullable: true }
+      responses:
+        "200": { description: Blocked. }
+        "401": { description: Missing/invalid X-Admin-Secret. }
+
+  /admin/blacklist/{key}:
+    delete:
+      summary: Un-block an IP or device
+      security:
+        - adminSecret: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+          description: "e.g. ip:1.2.3.4 or device:<uuid>. Wildcard path segment on the server side to allow the embedded colon."
+      responses:
+        "200": { description: Unblocked. }
+        "401": { description: Missing/invalid X-Admin-Secret. }
 
   /admin/metrics:
     get:
