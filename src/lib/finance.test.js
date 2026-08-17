@@ -22,6 +22,15 @@ describe("calcolaDebitiMatrix", () => {
     expect(debiti).toEqual([]);
   });
 
+  it("usa importoMinorUnits come fonte autorevole quando presente (MOD-016 contract phase)", () => {
+    // importo e importoMinorUnits deliberatamente incoerenti: il campo
+    // minor-units vince, non viene mediato né incrociato col decimale.
+    const debiti = calcolaDebitiMatrix([
+      { tipo: "uscita", importo: 1, importoMinorUnits: 10000, pagatoDa: "g", splits: [{ personaId: "g", quota: 50 }, { personaId: "l", quota: 50 }] },
+    ], persone);
+    expect(debiti).toEqual([{ da: "l", a: "g", importo: 50 }]); // 100.00, not 0.50
+  });
+
   it("i saldi_viaggio sono record-only e ignorati", () => {
     const debiti = calcolaDebitiMatrix([
       { tipo: "saldo", importo: 3216.92, pagatoDa: "l", ricevutoDa: "g", categoria: "saldo_viaggio" },

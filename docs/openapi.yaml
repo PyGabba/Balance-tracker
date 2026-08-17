@@ -141,11 +141,15 @@ components:
             importoMinorUnits:
               type: integer
               description: >
-                Integer minor units (cents) derived from importo (MOD-016).
-                Set on every write since the MOD-016 migration; backfilled
+                Integer minor units (cents). Set on every write; backfilled
                 on pre-migration documents by migration 001 (see
-                server/migrations/). Not yet the canonical stored field —
-                still purely a derived companion, safe to ignore.
+                server/migrations/). Server-internal financial calculations
+                treat this field as authoritative when present (MOD-016
+                contract phase — see lib/money.js's minorUnitsOf), falling
+                back to converting `importo` only for documents that
+                predate this field. The wire format is unchanged by this —
+                `importo` is still what's canonical for API/DB purposes;
+                clients can safely ignore this field entirely.
             importoOriginale: { type: number, description: "Present if valuta conversion was applied." }
             importoOriginaleMinorUnits: { type: integer, description: "Minor-units companion of importoOriginale, same caveats as importoMinorUnits." }
             tassoCambio: { type: number }

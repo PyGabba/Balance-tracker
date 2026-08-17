@@ -3,20 +3,24 @@
 // and by how much. No API calls — callers persist each contribution via
 // updateGoal and merge the result into UI state.
 
-import { roundAmount, sumAmounts } from "../lib/money.js";
+import { roundAmount, sumAmounts, fromMinorUnits, minorUnitsOf } from "../lib/money.js";
 
 export function computeAutoContributions(goals, transazione) {
   if (transazione.tipo !== "entrata" || !goals?.length) return [];
+  // MOD-016 contract phase: importoMinorUnits, when set, is the
+  // authoritative amount — see minorUnitsOf in lib/money.js.
+  const importo = fromMinorUnits(minorUnitsOf(transazione));
   const contributions = [];
   for (const g of goals) {
     if (!g.autoAdd || (g.contributionType !== "percent" && g.contributionType !== "fixed")) continue;
-    const curr = g.currentAmount || 0;
-    if (g.targetAmount > 0 && curr >= g.targetAmount) continue; // goal reached: stop auto-saving
+    const curr = fromMinorUnits(minorUnitsOf({ ...g, currentAmount: g.currentAmount || 0 }, "currentAmount"));
+    const target = g.targetAmount > 0 ? fromMinorUnits(minorUnitsOf(g, "targetAmount")) : 0;
+    if (target > 0 && curr >= target) continue; // goal reached: stop auto-saving
     let contribution = g.contributionType === "percent"
-      ? transazione.importo * (g.contributionValue / 100)
+      ? importo * (g.contributionValue / 100)
       : g.contributionValue;
     contribution = roundAmount(contribution); // never overshoot the target
-    if (g.targetAmount > 0) contribution = Math.min(contribution, g.targetAmount - curr);
+    if (target > 0) contribution = Math.min(contribution, target - curr);
     if (contribution <= 0) continue;
     contributions.push({
       goalId: g.id,

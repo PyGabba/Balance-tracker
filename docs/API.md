@@ -529,6 +529,46 @@ running `up` against production. See the file-level comment in
 `server/migrate.js` for why that's still worth doing even though every
 migration here is written to be additive/idempotent.
 
+### MOD-016's two stages — "contract phase" is internal-only, on purpose
+
+MOD-016's storage side is deliberately split into two separate,
+independently-riskier stages, and only the first is done:
+
+- **Stage A (done): internal cutover, non-breaking.** Every write path
+  sets `*MinorUnits` alongside the decimal field (migration 001 backfills
+  existing data — see above). `lib/money.js`'s `minorUnitsOf(entity,
+  field)` is the single place that decides which one a calculation
+  actually reads: the companion field if it's a number, otherwise convert
+  the decimal field. Every internal financial calculation across both
+  `src/lib/finance.js` and `server/index.js`'s duplicated equivalents
+  (debt matrix, account balances, trip settlement, forecast, portfolio
+  cost basis, goal contributions) now reads amounts through this accessor
+  — not scattered per-call-site decisions between the two fields, which
+  is exactly the failure mode that would let two code paths compute two
+  different balances from the same document. The API/DB contract is
+  completely unchanged: `importo` is still what every response returns
+  and what a client sends; `importoMinorUnits` is optional and ignorable.
+  Zero coordinated deploy required, zero external-integration risk.
+- **Stage B (not started, not scheduled): breaking cutover.** Making
+  `importoMinorUnits` the *persisted, canonical* field — dropping decimal
+  `importo` from the API/DB entirely — is a real breaking API change: it
+  needs a coordinated frontend+backend deploy, and it breaks any external
+  widget/Shortcuts integration still parsing `importo` from a response.
+  Doing that now would be solving a problem Stage A already solves
+  (floating-point drift in financial arithmetic) for no additional benefit
+  today. If Stage B is ever undertaken, it's its own migration/release
+  gated on the same backup-first discipline as migration 001, not a
+  continuation of this one.
+
+Confidence that Stage A didn't change any calculated result: every
+function converted was already covered by pre-existing tests pinning
+exact expected values (`finance.test.js`, `portfolioService.test.js`,
+`goalsService.test.js`, `debtService.test.js`, plus the server-side
+`api.transactions.test.js` integration suite) — all of them still pass
+unchanged, on top of new tests specifically proving `importoMinorUnits`
+wins over a deliberately-inconsistent decimal value when both are present
+(`money.test.js`, `finance.test.js`).
+
 ---
 
 ## Known inconsistencies

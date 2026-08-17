@@ -8,6 +8,8 @@
 
 export { calcolaValorePortfolio as computePortfolioValue } from "../lib/finance.js";
 
+import { fromMinorUnits, minorUnitsOf } from "../lib/money.js";
+
 // Trades are processed chronologically: a sell reduces cost basis by
 // qty × average cost, and realizes qty × (sell price − average cost) as
 // P&L. Overselling is clamped to the held quantity. Fully closed positions
@@ -26,16 +28,19 @@ export function computeHoldingsBreakdown(positions) {
       tickerMap[p.ticker] = { ticker: p.ticker, nome: p.nome || p.ticker, quantita: 0, costoTotale: 0, realizzato: 0, trades: [] };
     }
     const h = tickerMap[p.ticker];
+    // MOD-016 contract phase: prezzoAcquistoMinorUnits, when set, is the
+    // authoritative price — see minorUnitsOf in lib/money.js.
+    const prezzo = fromMinorUnits(minorUnitsOf(p, "prezzoAcquisto"));
     if (p.tipo === "sell") {
       const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
       const sellQ = Math.min(p.quantita, h.quantita); // guard against overselling
-      h.realizzato += sellQ * (p.prezzoAcquisto - avg);
+      h.realizzato += sellQ * (prezzo - avg);
       h.costoTotale -= sellQ * avg;
       h.quantita -= sellQ;
       if (h.quantita < 0.0001) { h.quantita = 0; h.costoTotale = 0; }
     } else {
       h.quantita += p.quantita;
-      h.costoTotale += p.quantita * p.prezzoAcquisto;
+      h.costoTotale += p.quantita * prezzo;
     }
     h.trades.push(p);
   }

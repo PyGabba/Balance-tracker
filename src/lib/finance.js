@@ -2,7 +2,7 @@
 // Estratti da App.jsx per essere testabili in isolamento (vedi finance.test.js).
 // Nessuna dipendenza da React o dallo stato dell'app: solo input → output.
 
-import { toMinorUnits, fromMinorUnits } from "./money.js";
+import { fromMinorUnits, minorUnitsOf } from "./money.js";
 
 // Matrice debiti della casa: da transazioni (uscite con split + saldi) a lista
 // di debiti minimizzata con matching greedy creditori/debitori.
@@ -12,7 +12,7 @@ import { toMinorUnits, fromMinorUnits } from "./money.js";
 export function calcolaDebitiMatrix(transazioni, persone) {
   const balancesMinor = {};
   for (const t of transazioni) {
-    const importoMinor = toMinorUnits(t.importo);
+    const importoMinor = minorUnitsOf(t);
     if (t.tipo === "saldo") {
       if (!t.pagatoDa || !t.ricevutoDa) continue;
       // Trip settlements are record-only: the underlying trip expenses never
@@ -79,9 +79,11 @@ export function calcolaDebitiMatrix(transazioni, persone) {
 // Accumulato in unità minori intere (MOD-016) per lo stesso motivo di sopra.
 export function calcolaSaldiConti(conti, transazioni) {
   const saldiMinor = {};
-  for (const c of conti) saldiMinor[c.id] = toMinorUnits(c.saldoIniziale || 0);
+  // saldoIniziale is optional (defaults to 0) — minorUnitsOf doesn't
+  // itself default a missing decimal field, so that has to happen first.
+  for (const c of conti) saldiMinor[c.id] = minorUnitsOf({ ...c, saldoIniziale: c.saldoIniziale || 0 }, "saldoIniziale");
   for (const t of transazioni) {
-    const importoMinor = toMinorUnits(t.importo);
+    const importoMinor = minorUnitsOf(t);
     if (t.tipo === "trasferimento") {
       if (t.contoDa && saldiMinor[t.contoDa] !== undefined) saldiMinor[t.contoDa] -= importoMinor;
       if (t.contoA && saldiMinor[t.contoA] !== undefined) saldiMinor[t.contoA] += importoMinor;
@@ -107,12 +109,18 @@ export function calcolaValorePortfolio(positions, manualPrices) {
   for (const p of sorted) {
     if (!map[p.ticker]) map[p.ticker] = { quantita: 0, costoTotale: 0 };
     const h = map[p.ticker];
+    // Price read through minorUnitsOf (MOD-016 contract phase) so a trade
+    // with a stored prezzoAcquistoMinorUnits companion uses that as the
+    // authoritative value rather than reconverting the decimal every time;
+    // converted back to decimal since quantita is inherently fractional
+    // and cost-per-share isn't itself a whole-cent quantity.
+    const prezzo = fromMinorUnits(minorUnitsOf(p, "prezzoAcquisto"));
     if (p.tipo === "sell") {
       const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
       const q = Math.min(p.quantita, h.quantita);
       h.costoTotale -= q * avg; h.quantita -= q;
       if (h.quantita < 0.0001) { h.quantita = 0; h.costoTotale = 0; }
-    } else { h.quantita += p.quantita; h.costoTotale += p.quantita * p.prezzoAcquisto; }
+    } else { h.quantita += p.quantita; h.costoTotale += p.quantita * prezzo; }
   }
   let valore = 0, investito = 0;
   for (const k of Object.keys(map)) {
@@ -183,7 +191,7 @@ export function calcolaSettleViaggio(trip) {
   for (const e of trip.expenses) {
     if (e.splits && e.splits.length > 0) {
       const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
-      const importoMinor = toMinorUnits(e.importo);
+      const importoMinor = minorUnitsOf(e);
       for (const s of e.splits) {
         if (s.personaId !== e.pagatoDa) {
           const owedMinor = Math.round(importoMinor * (s.quota / totalQ));
@@ -232,7 +240,7 @@ export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Dat
     if (t.tipo !== "uscita" || !t.data) continue;
     const key = t.data.slice(0, 7);
     if (!(key in totalsByMonthMinor)) continue;
-    const importoMinor = toMinorUnits(t.importo);
+    const importoMinor = minorUnitsOf(t);
     totalsByMonthMinor[key] += importoMinor;
     const cat = t.categoria || "altro";
     categoryTotalsByMonthMinor[key][cat] = (categoryTotalsByMonthMinor[key][cat] || 0) + importoMinor;

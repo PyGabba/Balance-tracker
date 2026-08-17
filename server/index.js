@@ -13,7 +13,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
-import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits } from "../src/lib/money.js";
+import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits, minorUnitsOf } from "../src/lib/money.js";
 dotenv.config();
 
 // ─── Email (SendGrid via HTTPS API) ───
@@ -645,7 +645,7 @@ function calcolaSettleViaggioServer(trip) {
   for (const e of trip.expenses || []) {
     if (e.splits && e.splits.length > 0) {
       const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
-      const importoMinor = toMinorUnits(e.importo);
+      const importoMinor = minorUnitsOf(e); // MOD-016 contract phase
       for (const s of e.splits) {
         if (s.personaId !== e.pagatoDa) {
           const owedMinor = Math.round(importoMinor * (s.quota / totalQ));
@@ -1497,7 +1497,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
       if (!shares.length) continue;
       const totalQ = shares.reduce((s, sh) => s + (sh.quota || 0), 0);
       if (totalQ <= 0) continue;
-      const importoMinor = toMinorUnits(t.importo);
+      const importoMinor = minorUnitsOf(t); // MOD-016 contract phase
       for (const sh of shares) {
         if (sh.personaId === payer) continue;
         const owedMinor = Math.round(importoMinor * (sh.quota / totalQ));
@@ -1508,7 +1508,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
 
     // Settlements reduce balances
     for (const s of saldi) {
-      const importoMinor = toMinorUnits(s.importo);
+      const importoMinor = minorUnitsOf(s); // MOD-016 contract phase
       addAmountMinor(s.pagatoDa, +importoMinor);
       addAmountMinor(s.ricevutoDa, -importoMinor);
     }
