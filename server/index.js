@@ -12,7 +12,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError } from "./validation.js";
-import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot } from "./logger.js";
+import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
 import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits } from "../src/lib/money.js";
 dotenv.config();
 
@@ -2336,6 +2336,7 @@ app.get("/api/calendar.ics", calendarLimiter, async (req, res) => {
 app.get("/api/trips", requireHousehold, async (req, res) => {
   try {
     const trips = await tripsCol.find({ householdId: req.householdId }).sort({ startDate: -1 }).toArray();
+    for (const t of trips) recordTripEmbeddingStats(t); // MOD-019: cheap — trips are already in hand, no extra query
     res.json(trips.map(t => { const id = t._id.toString(); delete t._id; delete t.householdId; return { id, ...t }; }));
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
@@ -2407,9 +2408,10 @@ app.delete("/api/trips/:id", writeLimiter, requireHousehold, async (req, res) =>
 const TRIP_EXPENSE_WARN_THRESHOLD = 300;
 const TRIP_EXPENSE_HARD_LIMIT = 2000;
 function warnIfTripExpenseArrayGrowing(trip) {
+  recordTripEmbeddingStats(trip, { warnThreshold: TRIP_EXPENSE_WARN_THRESHOLD }); // MOD-019: feeds GET /api/admin/metrics.tripEmbedding
   const count = (trip.expenses || []).length;
   if (count >= TRIP_EXPENSE_WARN_THRESHOLD && count % 100 === 0) {
-    console.warn(`Trip ${trip._id}: ${count} spese incorporate nel documento — vale la pena valutare una collection dedicata (MOD-019) se questo numero continua a crescere`);
+    logger.warn("trip_expense_array_growing", { tripId: String(trip._id), count });
   }
 }
 // The hard limit is enforced as part of the SAME atomic operation as the

@@ -366,6 +366,55 @@ param checked against the household's hashed `widgetKeyHash`.
 | POST | `/api/trips/:id/share` | session | Issues a share token (30-day TTL), stored hashed. |
 | DELETE | `/api/trips/:id/share` | session | Revokes it immediately (independent of the TTL). |
 
+### Embedded-array scalability (MOD-019)
+
+Trip expenses live embedded inside the trip document (`trips.expenses[]`),
+not in their own collection — simple and fast for the normal case, but
+MongoDB's 16MB document limit and `$push`'s whole-document-rewrite cost
+mean that stops being the right model at some size. Rather than guess at
+a threshold, this measures:
+
+- **A single expense's real size.** `{ id, pagatoDa, importo,
+  importoMinorUnits, descrizione, categoria, data, splits }` with a
+  realistic description and a 2-person split serializes to **~270 bytes**
+  (measured via `Buffer.byteLength(JSON.stringify(...))`, not estimated).
+- **Current hard limit (2000 expenses) → ~527 KB per trip document** —
+  about **3.3% of the 16MB BSON limit**. The document-size ceiling is not
+  the binding constraint at the current limit; there's roughly 30x
+  headroom before it would be. (Reaching the 16MB limit at ~270
+  bytes/expense would take ~62,000 expenses on a single trip — nobody is
+  near that.)
+- **The actual risk is write cost, not size**: every `POST
+  /api/trips/:id/expenses` does a `$push` against the whole document, and
+  `GET /api/trips` returns every expense of every trip in one response —
+  both costs scale with expense count regardless of whether the 16MB
+  ceiling is anywhere close. `GET /api/admin/metrics` already tracks p50/
+  p95/p99 latency per route (MOD-023), so `POST /api/trips/:id/expenses`
+  and `GET /api/trips` latency is the number to actually watch, not
+  document size.
+- **Runtime instrumentation** (`recordTripEmbeddingStats` in
+  `server/logger.js`, fed by `GET /api/trips` and every expense write):
+  `GET /api/admin/metrics` → `tripEmbedding` reports the largest expense
+  count and largest (JSON-approximated) document size seen across every
+  trip fetched or written since the process started, plus how many trips
+  have crossed the 300-expense warn threshold. This is what "evidence"
+  means here — numbers a deployment actually produces, not a one-time
+  estimate.
+
+**Migration trigger (revisit when any of these is actually observed, not
+before):** move to a `trip_expenses` collection (`{ tripId, expenseId,
+date, amount, participants }`, indexed on `tripId`) if *either* (a)
+`tripEmbedding.maxDocumentSizeBytes` exceeds roughly 1MB (a large margin
+under the 16MB cap, left deliberately conservative since write cost
+degrades before the hard limit does) or (b) `POST
+/api/trips/:id/expenses` / `GET /api/trips` p95 latency climbs and stays
+elevated as `tripEmbedding.maxExpenseCount` grows. **Neither condition is
+currently observed in this codebase's own usage** — the existing 300-warn/
+2000-hard-limit guard is doing its job as an early-warning system, and
+normalizing now would be solving a problem that doesn't exist yet. This
+section is the record of *why* that's the right call today, and the
+metric to watch for when it stops being one.
+
 ### Trip guest access — capability-token auth, no household session
 
 | Method | Path | Auth | Notes |
@@ -385,7 +434,7 @@ capability-token mechanisms above.
 | GET | `/api/admin/blacklist` | List blocked IP/device keys. |
 | POST | `/api/admin/blacklist` | Body: `{ key, reason? }` — `key` is e.g. `ip:1.2.3.4` or `device:<uuid>`. Permanent block, independent of the temporary lockout mechanism. |
 | DELETE | `/api/admin/blacklist/:key(*)` | Un-blocks. |
-| GET | `/api/admin/metrics` | Operational snapshot (MOD-023): per-route request counts/error rates/latency percentiles (p50/p95/p99), background-job run/failure counts with the last error message, and a running sync-conflict tally (see `server/logger.js`). In-memory only — resets on server restart. |
+| GET | `/api/admin/metrics` | Operational snapshot (MOD-023): per-route request counts/error rates/latency percentiles (p50/p95/p99), background-job run/failure counts with the last error message, a running sync-conflict tally, and trip embedded-array size/count instrumentation (`tripEmbedding`, MOD-019 — see "Embedded-array scalability" above) (see `server/logger.js`). In-memory only — resets on server restart. |
 
 ## Background jobs (not HTTP endpoints)
 

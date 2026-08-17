@@ -110,6 +110,46 @@ export function recordSyncConflict(count = 1) {
   state.syncConflicts += count;
 }
 
+// ─── Trip embedded-array instrumentation (MOD-019) ───
+// Trip expenses are embedded in the trip document (server/index.js has the
+// full reasoning). This is the "measure before you migrate" half of that
+// decision: track the largest expense count and document size actually
+// seen, in-memory, the same way the rest of this module's metrics work —
+// so the migration threshold documented in docs/API.md can eventually be
+// revised from real numbers instead of a one-time guess. Approximates BSON
+// size with a JSON-string byte length (Buffer.byteLength) rather than
+// pulling in a BSON-serialization dependency just for a metrics estimate —
+// close enough for "is this trending toward a problem," not meant to be
+// the exact number MongoDB would report.
+const tripStats = {
+  maxExpenseCount: 0,
+  maxDocumentSizeBytes: 0,
+  maxExpenseCountTripId: null,
+  maxDocumentSizeTripId: null,
+  tripsOverWarnThresholdSeen: 0,
+  samples: 0,
+};
+
+export function estimateDocumentSizeBytes(doc) {
+  return Buffer.byteLength(JSON.stringify(doc), "utf8");
+}
+
+export function recordTripEmbeddingStats(trip, { warnThreshold = 300 } = {}) {
+  const count = (trip.expenses || []).length;
+  const sizeBytes = estimateDocumentSizeBytes(trip);
+  const tripId = trip._id ? String(trip._id) : trip.id;
+  tripStats.samples++;
+  if (count >= warnThreshold) tripStats.tripsOverWarnThresholdSeen++;
+  if (count > tripStats.maxExpenseCount) {
+    tripStats.maxExpenseCount = count;
+    tripStats.maxExpenseCountTripId = tripId;
+  }
+  if (sizeBytes > tripStats.maxDocumentSizeBytes) {
+    tripStats.maxDocumentSizeBytes = sizeBytes;
+    tripStats.maxDocumentSizeTripId = tripId;
+  }
+}
+
 export function getMetricsSnapshot() {
   const routes = {};
   for (const [key, r] of state.routes) {
@@ -130,6 +170,7 @@ export function getMetricsSnapshot() {
     routes,
     jobs: state.jobs,
     syncConflictsObserved: state.syncConflicts,
+    tripEmbedding: { ...tripStats },
   };
 }
 
@@ -140,4 +181,10 @@ export function _resetMetricsForTests() {
   state.routes = new Map();
   state.jobs = {};
   state.syncConflicts = 0;
+  tripStats.maxExpenseCount = 0;
+  tripStats.maxDocumentSizeBytes = 0;
+  tripStats.maxExpenseCountTripId = null;
+  tripStats.maxDocumentSizeTripId = null;
+  tripStats.tripsOverWarnThresholdSeen = 0;
+  tripStats.samples = 0;
 }

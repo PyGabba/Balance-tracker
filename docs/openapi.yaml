@@ -316,6 +316,19 @@ components:
               lastFailureAt: { type: string, format: date-time, nullable: true }
               lastError: { type: string, nullable: true }
         syncConflictsObserved: { type: integer }
+        tripEmbedding:
+          type: object
+          description: >
+            Trip embedded-expenses-array instrumentation (MOD-019) — see
+            "Embedded-array scalability" in API.md for the evidence-based
+            migration threshold this feeds.
+          properties:
+            maxExpenseCount: { type: integer, description: "Largest expenses[] length seen on any trip fetched or written since process start." }
+            maxDocumentSizeBytes: { type: integer, description: "Largest JSON-approximated trip document size seen, in bytes." }
+            maxExpenseCountTripId: { type: string, nullable: true }
+            maxDocumentSizeTripId: { type: string, nullable: true }
+            tripsOverWarnThresholdSeen: { type: integer, description: "Count of trip samples at/above the 300-expense warn threshold." }
+            samples: { type: integer, description: "Total trip documents observed (not unique trips — a trip fetched twice counts twice)." }
 
   parameters:
     IdempotencyKey:

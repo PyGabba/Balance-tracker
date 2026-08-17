@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   redactSensitive, buildLogEntry, recordRequestMetric, recordJobRun,
   recordSyncConflict, getMetricsSnapshot, _resetMetricsForTests,
+  estimateDocumentSizeBytes, recordTripEmbeddingStats,
 } from "./logger.js";
 
 describe("redactSensitive", () => {
@@ -146,6 +147,54 @@ describe("metrics — sync conflicts", () => {
     recordSyncConflict();
     recordSyncConflict(3);
     expect(getMetricsSnapshot().syncConflictsObserved).toBe(4);
+  });
+});
+
+describe("estimateDocumentSizeBytes", () => {
+  it("returns the UTF-8 byte length of the JSON serialization", () => {
+    expect(estimateDocumentSizeBytes({ a: 1 })).toBe(Buffer.byteLength(JSON.stringify({ a: 1 }), "utf8"));
+  });
+
+  it("grows with document content, not fixed", () => {
+    const small = estimateDocumentSizeBytes({ expenses: [] });
+    const big = estimateDocumentSizeBytes({ expenses: Array(50).fill({ id: "x", importo: 10, descrizione: "cena" }) });
+    expect(big).toBeGreaterThan(small);
+  });
+});
+
+describe("recordTripEmbeddingStats (MOD-019)", () => {
+  beforeEach(() => _resetMetricsForTests());
+
+  it("tracks the largest expense count seen across multiple trips", () => {
+    recordTripEmbeddingStats({ _id: "t1", expenses: Array(5).fill({}) });
+    recordTripEmbeddingStats({ _id: "t2", expenses: Array(50).fill({}) });
+    recordTripEmbeddingStats({ _id: "t3", expenses: Array(10).fill({}) });
+    const snap = getMetricsSnapshot();
+    expect(snap.tripEmbedding.maxExpenseCount).toBe(50);
+    expect(snap.tripEmbedding.maxExpenseCountTripId).toBe("t2");
+  });
+
+  it("tracks the largest document size seen, independent of expense count", () => {
+    recordTripEmbeddingStats({ _id: "small-count-big-desc", expenses: [{ descrizione: "x".repeat(5000) }] });
+    recordTripEmbeddingStats({ _id: "big-count-tiny-desc", expenses: Array(20).fill({ descrizione: "a" }) });
+    const snap = getMetricsSnapshot();
+    expect(snap.tripEmbedding.maxDocumentSizeTripId).toBe("small-count-big-desc");
+  });
+
+  it("counts samples that cross the warn threshold", () => {
+    recordTripEmbeddingStats({ _id: "t1", expenses: Array(100).fill({}) }, { warnThreshold: 300 });
+    recordTripEmbeddingStats({ _id: "t2", expenses: Array(400).fill({}) }, { warnThreshold: 300 });
+    const snap = getMetricsSnapshot();
+    expect(snap.tripEmbedding.tripsOverWarnThresholdSeen).toBe(1);
+    expect(snap.tripEmbedding.samples).toBe(2);
+  });
+
+  it("resets cleanly between test runs", () => {
+    recordTripEmbeddingStats({ _id: "t1", expenses: Array(999).fill({}) });
+    _resetMetricsForTests();
+    const snap = getMetricsSnapshot();
+    expect(snap.tripEmbedding.maxExpenseCount).toBe(0);
+    expect(snap.tripEmbedding.samples).toBe(0);
   });
 });
 
