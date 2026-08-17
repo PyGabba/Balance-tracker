@@ -112,6 +112,7 @@ Every route is behind one of these `express-rate-limit` instances (per IP,
 | Limiter | Window | Max | Applied to |
 |---|---|---|---|
 | `loginLimiter` | 15 min | 30 | `POST /api/auth/login` |
+| `personaLoginLimiter` | 15 min | 30 | `POST /api/auth/persona-login` — outer bound only; the real defense is a persistent per-persona lockout, see "Persona credentials" below |
 | `registerLimiter` | 60 min | 5 | `POST /api/auth/register` |
 | `forgotPinLimiter` | 10 min | 5 | forgot-PIN request/confirm |
 | `adminLimiter` | 15 min | 5 | `/api/admin/*` |
@@ -232,12 +233,43 @@ second data-model change when that happens.
   (`400 LAST_OWNER`) — a data-integrity guard against a household with
   zero owners, not a security control.
 - This is deliberately the additive half of MOD-025 in the modification
-  plan, not the full feature. Per-user login, JWT/session redesign to
-  carry a user identity, and role enforcement across endpoints are a
-  separate, larger, breaking change — not started, not scheduled as part
-  of this work. See `MOD-025-DESIGN.md` for the design (data model, auth
-  flow, migration plan, open questions) if/when that work is taken on —
-  design only, nothing in it is implemented.
+  plan, not the full feature — see "Persona credentials" below for the
+  part of the redesign that IS implemented, and `MOD-025-DESIGN.md` for
+  what still isn't (role enforcement across endpoints).
+
+### Persona credentials (MOD-025 Stage 1)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/auth/persona-credential` | session | Body: `{ personaId, newPassword, currentPassword? }`. Enroll or change a persona's password. `currentPassword` required only if that persona already has one enrolled. `400 INVALID_PASSWORD` if under 8 or over 72 chars; `401 INVALID_CURRENT_PASSWORD` on a wrong current password. |
+| DELETE | `/api/auth/persona-credential/:id` | session | Un-enrolls — reverts to PIN-only for that persona. Also clears any active lockout on that persona. |
+| POST | `/api/auth/persona-login` | session | Body: `{ personaId, password }`. Step 2 of the layered login flow: requires an existing household session (step 1, the PIN), issues a **new** session that additionally names the persona (revokes the household-only session it replaces). `400 NO_PERSONA_CREDENTIAL` if that persona hasn't enrolled one. `401 INVALID_PERSONA_PASSWORD` on a wrong password; `429 RATE_LIMITED` with `retryAfterMinutes` once locked. |
+
+**Zero enforcement, by design (Stage 1 only).** None of this changes what
+any endpoint permits — a session with a `personaId` attached and a
+session without one can do exactly the same things today. What Stage 1
+adds is the ability to prove which persona you are; role enforcement
+that actually uses that fact is a separate, not-yet-built step (see
+`MOD-025-DESIGN.md`'s "Role enforcement" section for the planned matrix).
+
+**Password storage never reaches a client.** Every response that
+includes a household's `persone` array (`GET /api/household`, login/
+register, `PUT .../ruolo`, `GET /api/backup`, `GET /api/widget`) strips
+`persone[].auth` down to a single `hasCredential: boolean` via
+`sanitizePersonaForClient` in `server/index.js`. This sanitization
+happens **only at the response boundary** — `req.household.persone`
+itself stays unsanitized internally, specifically because the `ruolo`
+endpoint reads-modifies-writes the whole `persone` array, and a
+sanitized read round-tripped into that write would silently delete
+every enrolled persona's credential the next time anyone changed any
+role. If you're touching either endpoint, keep that separation.
+
+**Rate limiting** mirrors the household PIN's own two-layer pattern
+(`personaLoginLimiter` above + a persistent lockout) — keyed on
+`persona:<householdId>:<personaId>` in the same `login_locks` collection
+the PIN lockout uses, not a new mechanism. 10 wrong passwords locks that
+specific persona for 10 minutes, regardless of source IP; other personas
+and the household PIN itself are unaffected.
 
 ## Transactions — `/api/transactions*`
 

@@ -419,6 +419,53 @@ export async function updatePersonaRuolo(personaId, ruolo) {
   return json.persone;
 }
 
+// ─── Persona credentials (MOD-025 Stage 1) ───
+// Fully optional, per-persona — see server/validation.js's
+// validatePersonaPassword comment and docs/MOD-025-DESIGN.md. Enrolling
+// a credential does not change how anyone logs in by default; it only
+// makes personaLogin (below) possible for that persona.
+export async function enrollPersonaCredential(personaId, newPassword, currentPassword) {
+  const res = await fetch(`${API_BASE}/api/auth/persona-credential`, {
+    method: "POST", headers: authHeaders(), credentials: "include",
+    body: JSON.stringify({ personaId, newPassword, currentPassword }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, persone: json.persone };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return json.persone;
+}
+
+export async function removePersonaCredential(personaId) {
+  const res = await fetch(`${API_BASE}/api/auth/persona-credential/${personaId}`, {
+    method: "DELETE", headers: authHeaders(), credentials: "include",
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, persone: json.persone };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return json.persone;
+}
+
+// Step 2 of the layered login flow — requires an existing household
+// session (already logged in via the PIN). Replaces the current session
+// with one that additionally names this persona.
+export async function personaLogin(personaId, password) {
+  const res = await fetch(`${API_BASE}/api/auth/persona-login`, {
+    method: "POST", headers: authHeaders(), credentials: "include",
+    body: JSON.stringify({ personaId, password }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  return json.personaId;
+}
+
 export async function fetchExchangeRates() {
   const res = await fetch(`${API_BASE}/api/exchange-rates`, { headers: authHeaders(), credentials: "include" });
   if (!res.ok) throw new Error("Errore tassi di cambio");

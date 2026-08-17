@@ -11,7 +11,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
 import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits, minorUnitsOf } from "../src/lib/money.js";
 dotenv.config();
@@ -120,9 +120,13 @@ const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 let activeTokensCol; // set in connectDB
 
-function signToken(householdId) {
+// personaId (MOD-025 Stage 1) is optional — omitted entirely (not even
+// null) when absent, so a token issued without persona-login is
+// byte-for-byte the same shape it's always been.
+function signToken(householdId, personaId = null) {
   const jti = randomUUID();
-  const token = jwt.sign({ householdId, jti }, JWT_SECRET, { expiresIn: "90d" });
+  const payload = personaId ? { householdId, personaId, jti } : { householdId, jti };
+  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "90d" });
   return { token, jti };
 }
 async function storeToken(jti, householdId) {
@@ -138,6 +142,26 @@ function pinLookupKey(pin) {
   return createHmac("sha256", JWT_SECRET).update(pin).digest("hex");
 }
 async function hashPin(pin) { return bcrypt.hash(pin, 10); }
+
+// ─── Persona credentials (MOD-025 Stage 1) ───
+// A persona's password hash lives in persone[].auth.passwordHash — never
+// meant to leave the server. req.household.persone (and every other
+// internal in-memory copy) stays RAW/unsanitized on purpose: the
+// PUT .../ruolo endpoint reads persone, patches one field, and writes the
+// whole array back — if that read were sanitized, the write would
+// silently erase every enrolled persona's credential the next time
+// ANYONE changed ANY persona's role. Sanitization happens only at the
+// point a response is actually serialized, via this helper, applied
+// per-response-site rather than at the source, specifically to keep the
+// read and write paths from sharing a value that's wrong for one of them.
+function sanitizePersonaForClient(p) {
+  if (!p || typeof p !== "object") return p;
+  const { auth, ...rest } = p;
+  return { ...rest, hasCredential: !!(auth && auth.method) };
+}
+function sanitizePersone(persone) {
+  return (persone || []).map(sanitizePersonaForClient);
+}
 
 // Yahoo Finance disabled
 
@@ -808,6 +832,18 @@ const registerLimiter = rateLimit({
   message: { error: { code: "RATE_LIMITED", message: "Troppi account creati, riprova tra un'ora" } },
 });
 
+// MOD-025 Stage 1: outer bound only — a single source hammering the
+// endpoint at all, generous like loginLimiter. The real defense is the
+// persistent, escalating login_locks lockout inside the handler itself
+// (same checkLock/recordFail/clearLock the household PIN uses), keyed
+// per-persona so it survives a restart and can't be reset by rotating IPs.
+const personaLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: { code: "RATE_LIMITED", message: "Troppi tentativi di accesso, riprova tra 15 minuti" } },
+});
+
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5, // #8: 5 attempts per 15 min — wrong secret = locked out fast
@@ -948,7 +984,7 @@ async function requireHousehold(req, res, next) {
   let payload;
   try { payload = jwt.verify(rawToken, JWT_SECRET, { algorithms: ["HS256"] }); }
   catch { return sendError(res, 401, "INVALID_TOKEN", "Token non valido"); }
-  const { householdId: hid, jti } = payload;
+  const { householdId: hid, jti, personaId } = payload;
   if (!jti) return sendError(res, 401, "INVALID_TOKEN", "Token non valido");
   try {
     const [household, active] = await Promise.all([
@@ -960,7 +996,12 @@ async function requireHousehold(req, res, next) {
     if (household.requiresPinChange && !PIN_CHANGE_EXEMPT.includes(req.path)) {
       return sendError(res, 403, "PIN_CHANGE_REQUIRED", "Cambio PIN richiesto prima di continuare");
     }
-    req.household = household; req.householdId = hid; req.jti = jti; next();
+    // MOD-025 Stage 1: personaId is set only for a session that went
+    // through persona-login on top of the household PIN — absent for
+    // every session today, and for any persona that never enrolled a
+    // credential. Nothing currently reads it to gate anything (that's
+    // Stage 2); it's attached here so it's available when that lands.
+    req.household = household; req.householdId = hid; req.jti = jti; req.personaId = personaId || null; next();
   } catch (e) { sendError(res, 500, "INTERNAL_ERROR", "Errore autenticazione"); }
 }
 
@@ -1013,7 +1054,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     await storeToken(jti, household.householdId);
     audit("login_success", { householdId: household.householdId, ip, deviceId });
     res.cookie("token", token, COOKIE_OPTS);
-    res.json({ ...household });
+    res.json({ ...household, persone: sanitizePersone(household.persone) });
   } catch (e) { logger.error("login_failed", { requestId: req.requestId, error: e.message }); sendError(res, 500, "INTERNAL_ERROR", "Errore login"); }
 });
 
@@ -1081,7 +1122,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     await storeToken(jti, householdId);
     audit("register", { householdId, ip: clientIp(req) });
     res.cookie("token", token, COOKIE_OPTS);
-    res.status(201).json({ householdId, nome, persone: personeFormatted });
+    res.status(201).json({ householdId, nome, persone: sanitizePersone(personeFormatted) });
   } catch (e) {
     if (e.code === 11000 && e.message?.includes("pinLookup")) return sendError(res, 409, "PIN_ALREADY_IN_USE", "PIN già in uso, scegline un altro");
     if (e.code === 11000 && e.message?.includes("email")) return sendError(res, 409, "EMAIL_ALREADY_IN_USE", "Email già collegata a un altro gruppo");
@@ -1182,7 +1223,7 @@ app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
     await storeToken(jti, household.householdId);
     audit("pin_reset_completed", { householdId: household.householdId, ip: clientIp(req) });
     res.cookie("token", token, COOKIE_OPTS);
-    res.json({ id: household.householdId, nome: household.nome, persone: household.persone });
+    res.json({ id: household.householdId, nome: household.nome, persone: sanitizePersone(household.persone) });
   } catch (e) {
     if (e.code === 11000) return sendError(res, 409, "PIN_ALREADY_IN_USE", "PIN già in uso, scegline un altro");
     logger.error("forgot_pin_confirm_failed", { requestId: req.requestId, error: e.message });
@@ -1237,7 +1278,7 @@ app.delete("/api/auth/household", requireHousehold, async (req, res) => {
 
 // ─── GET household info ───
 app.get("/api/household", requireHousehold, (req, res) => {
-  res.json({ id: req.household.id, nome: req.household.nome, persone: req.household.persone, hasRecoveryEmail: !!req.household.email, valutaBase: req.household.valutaBase || "EUR" });
+  res.json({ id: req.household.id, nome: req.household.nome, persone: sanitizePersone(req.household.persone), hasRecoveryEmail: !!req.household.email, valutaBase: req.household.valutaBase || "EUR" });
 });
 
 // ─── Base currency ───
@@ -1276,7 +1317,100 @@ app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, asyn
     const updatedPersone = persone.map(p => p.id === req.params.id ? { ...p, ruolo } : p);
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
     audit("persona_role_changed", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: req.params.id, ruolo } });
-    res.json({ persone: updatedPersone });
+    res.json({ persone: sanitizePersone(updatedPersone) }); // updatedPersone (unsanitized) is what got written to the DB — only the response is sanitized
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// ─── Persona credentials (MOD-025 Stage 1) ───
+// Enroll/change a persona's own password. Requires the household PIN
+// (already enforced by requireHousehold) PLUS — if this persona already
+// has a credential — that credential too, so knowing only the shared PIN
+// is never enough to silently take over an already-enrolled identity.
+// Zero enforcement: any PIN-holder can enroll/change ANY persona's
+// credential when that persona has none yet (first-time setup on a
+// shared device, one household member setting it up for another) — the
+// "themselves or an admin" restriction from the design doc is Stage 2
+// material once role enforcement exists to express it.
+app.post("/api/auth/persona-credential", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const { personaId, newPassword, currentPassword } = req.body || {};
+    if (!personaId || typeof personaId !== "string") return sendError(res, 400, "MISSING_FIELDS", "personaId obbligatorio");
+    const persone = req.household.persone || [];
+    const target = persone.find(p => p.id === personaId);
+    if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
+
+    let validatedPassword;
+    try { validatedPassword = validatePersonaPassword(newPassword); }
+    catch (ve) { if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields); throw ve; }
+
+    if (target.auth?.method === "password") {
+      if (!currentPassword || !(await bcrypt.compare(currentPassword, target.auth.passwordHash))) {
+        return sendError(res, 401, "INVALID_CURRENT_PASSWORD", "Password attuale non corretta");
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(validatedPassword, 10);
+    const updatedPersone = persone.map(p => p.id === personaId
+      ? { ...p, auth: { method: "password", passwordHash, enrolledAt: new Date() } }
+      : p);
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    audit("persona_credential_enrolled", { householdId: req.householdId, ip: clientIp(req), detail: { personaId } }); // never the password/hash
+    res.json({ persone: sanitizePersone(updatedPersone) });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+app.delete("/api/auth/persona-credential/:id", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    const persone = req.household.persone || [];
+    const target = persone.find(p => p.id === req.params.id);
+    if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
+    const updatedPersone = persone.map(p => p.id === req.params.id ? { ...p, auth: null } : p);
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    await clearLock(`persona:${req.householdId}:${req.params.id}`); // an un-enrolled persona shouldn't stay locked from a credential that no longer exists
+    audit("persona_credential_removed", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: req.params.id } });
+    res.json({ persone: sanitizePersone(updatedPersone) });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// Step 2 of the layered login flow (see MOD-025-DESIGN.md) — requires an
+// existing household session (the PIN, step 1), issues a NEW session that
+// additionally names which persona this is. Rate limiting mirrors the
+// household PIN's own two-layer pattern: personaLoginLimiter as a blunt
+// IP-keyed outer bound, plus the same persistent login_locks lockout the
+// PIN uses, keyed per-persona so an attacker rotating IPs/devices still
+// hits it and a lockout on one persona never affects any other persona or
+// the household PIN itself.
+app.post("/api/auth/persona-login", personaLoginLimiter, requireHousehold, async (req, res) => {
+  try {
+    const { personaId, password } = req.body || {};
+    if (!personaId || typeof personaId !== "string") return sendError(res, 400, "MISSING_FIELDS", "personaId obbligatorio");
+    const lockKey = `persona:${req.householdId}:${personaId}`;
+    const lock = await checkLock(lockKey);
+    if (lock?.lockedUntil) {
+      const mins = Math.ceil((lock.lockedUntil - new Date()) / 60000);
+      audit("persona_login_blocked", { householdId: req.householdId, ip: clientIp(req), success: false, detail: { personaId, lockedMinutes: mins } });
+      return sendError(res, 429, "RATE_LIMITED", `Accesso bloccato. Riprova tra ${mins} minuti.`, { retryAfterMinutes: mins });
+    }
+
+    const target = (req.household.persone || []).find(p => p.id === personaId);
+    if (!target || target.auth?.method !== "password") {
+      return sendError(res, 400, "NO_PERSONA_CREDENTIAL", "Questa persona non ha una credenziale configurata");
+    }
+
+    const valid = typeof password === "string" && await bcrypt.compare(password, target.auth.passwordHash);
+    if (!valid) {
+      const nowLocked = await recordFail(lockKey);
+      audit("persona_login_fail", { householdId: req.householdId, ip: clientIp(req), success: false, detail: { personaId, locked: nowLocked } });
+      return sendError(res, 401, "INVALID_PERSONA_PASSWORD", "Password non corretta");
+    }
+
+    await clearLock(lockKey);
+    const { token, jti } = signToken(req.householdId, personaId);
+    await storeToken(jti, req.householdId);
+    await revokeToken(req.jti); // the household-only session this replaces
+    audit("persona_login_success", { householdId: req.householdId, ip: clientIp(req), detail: { personaId } });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.json({ personaId });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
@@ -1954,7 +2088,7 @@ app.get("/api/backup", requireHousehold, async (req, res) => {
       formato: "balance-tracker-backup",
       versione: 1,
       creato: new Date().toISOString(),
-      household: { nome: req.household.nome, persone: req.household.persone, categorieUscita: req.household.categorieUscita || null },
+      household: { nome: req.household.nome, persone: sanitizePersone(req.household.persone), categorieUscita: req.household.categorieUscita || null },
       transactions: transactions.map(strip),
       accounts: accounts.map(strip),
       goals: goals.map(strip),
@@ -2199,7 +2333,7 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
       patrimonio: sumAmounts([totConti, totInvestimenti]),
       conti,
       contiCompleti: accounts.map(c => ({ id: c._id.toString(), nome: c.nome, icona: c.icona || "🏦" })),
-      persone: household.persone || [],
+      persone: sanitizePersone(household.persone),
       categorie: household.categorieUscita || WIDGET_DEFAULT_CATEGORIE,
       investimenti: roundAmount(totInvestimenti),
       speseMese,

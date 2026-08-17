@@ -39,6 +39,16 @@ export function validateRuolo(raw) {
   return raw;
 }
 
+// A persona password is a real (non-digit-only) credential, unlike the
+// household PIN — 8 chars minimum (72 is bcrypt's own input cap, silently
+// truncated beyond that, so reject rather than accept-and-truncate).
+export function validatePersonaPassword(raw) {
+  if (typeof raw !== "string" || raw.length < 8 || raw.length > 72) {
+    throw new ValidationError("INVALID_PASSWORD", "La password deve essere di almeno 8 caratteri", {});
+  }
+  return raw;
+}
+
 // Percentage-point tolerance for split totals. Generous enough for 3-way
 // splits like 33.33 + 33.33 + 33.34 = 100.00, tight enough that 40 + 40
 // (=80) is still rejected instead of silently normalized.

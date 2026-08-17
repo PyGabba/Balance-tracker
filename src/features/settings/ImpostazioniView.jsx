@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo } from "../../api.js";
+import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential } from "../../api.js";
 import { LANGUAGES, t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -32,6 +32,48 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
       toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
     } finally {
       setRuoloBusy(false);
+    }
+  }
+
+  // MOD-025 Stage 1: fully optional per-persona password. Enrolling one
+  // doesn't change how anyone logs in by default — see MOD-025-DESIGN.md.
+  const [editingCredId, setEditingCredId] = useState(null);
+  const [credCurrentInput, setCredCurrentInput] = useState("");
+  const [credNewInput, setCredNewInput] = useState("");
+  const [credBusy, setCredBusy] = useState(false);
+
+  function startEditCred(personaId) {
+    setEditingCredId(personaId);
+    setCredCurrentInput("");
+    setCredNewInput("");
+  }
+
+  async function handleCredSave(persona) {
+    setCredBusy(true);
+    try {
+      const updated = await enrollPersonaCredential(
+        persona.id, credNewInput, persona.hasCredential ? credCurrentInput : undefined
+      );
+      setPersoneLocal(updated);
+      setEditingCredId(null);
+      toast(t(lang, "toast.credentialSaved"), "success");
+    } catch (e) {
+      toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
+    } finally {
+      setCredBusy(false);
+    }
+  }
+
+  async function handleCredRemove(personaId) {
+    setCredBusy(true);
+    try {
+      const updated = await removePersonaCredential(personaId);
+      setPersoneLocal(updated);
+      setEditingCredId(null);
+    } catch (e) {
+      toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
+    } finally {
+      setCredBusy(false);
     }
   }
 
@@ -261,28 +303,72 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
         )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {personeLocal.map(p => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#252538", borderRadius: 20, padding: "6px 6px 6px 12px" }}>
-              <span style={{ fontSize: 18 }}>{p.emoji}</span>
-              <span style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{p.nome}</span>
-              {editingRuoloId === p.id ? (
-                <select
-                  autoFocus
-                  disabled={ruoloBusy}
-                  value={p.ruolo || "member"}
-                  onChange={e => handleRuoloChange(p.id, e.target.value)}
-                  onBlur={() => setEditingRuoloId(null)}
-                  style={{ background: "#12121a", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 11, padding: "3px 6px", colorScheme: "dark" }}
-                >
-                  {HOUSEHOLD_ROLES.map(r => <option key={r} value={r}>{t(lang, `settings.role.${r}`)}</option>)}
-                </select>
-              ) : (
+            <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#252538", borderRadius: 20, padding: "6px 6px 6px 12px" }}>
+                <span style={{ fontSize: 18 }}>{p.emoji}</span>
+                <span style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{p.nome}</span>
+                {editingRuoloId === p.id ? (
+                  <select
+                    autoFocus
+                    disabled={ruoloBusy}
+                    value={p.ruolo || "member"}
+                    onChange={e => handleRuoloChange(p.id, e.target.value)}
+                    onBlur={() => setEditingRuoloId(null)}
+                    style={{ background: "#12121a", border: "1px solid #6C5CE7", borderRadius: 8, color: "#eee", fontSize: 11, padding: "3px 6px", colorScheme: "dark" }}
+                  >
+                    {HOUSEHOLD_ROLES.map(r => <option key={r} value={r}>{t(lang, `settings.role.${r}`)}</option>)}
+                  </select>
+                ) : (
+                  <button
+                    onClick={() => setEditingRuoloId(p.id)}
+                    title={t(lang, "settings.roleNotEnforcedHint")}
+                    style={{ background: "#12121a", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 10, fontWeight: 700, padding: "3px 8px", cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3 }}
+                  >
+                    {t(lang, `settings.role.${p.ruolo || "member"}`)}
+                  </button>
+                )}
                 <button
-                  onClick={() => setEditingRuoloId(p.id)}
-                  title={t(lang, "settings.roleNotEnforcedHint")}
-                  style={{ background: "#12121a", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 10, fontWeight: 700, padding: "3px 8px", cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3 }}
+                  onClick={() => editingCredId === p.id ? setEditingCredId(null) : startEditCred(p.id)}
+                  title={p.hasCredential ? t(lang, "settings.credentialChange") : t(lang, "settings.credentialSet")}
+                  style={{ background: "none", border: "none", color: p.hasCredential ? "#4ECDC4" : "#555", cursor: "pointer", fontSize: 13, padding: "3px 4px" }}
                 >
-                  {t(lang, `settings.role.${p.ruolo || "member"}`)}
+                  {p.hasCredential ? "🔐" : "🔓"}
                 </button>
+              </div>
+
+              {editingCredId === p.id && (
+                <div style={{ background: "#111119", border: "1px solid #6C5CE733", borderRadius: 12, padding: 10, minWidth: 220 }}>
+                  <div style={{ fontSize: 10, color: "#a78bfa", marginBottom: 6 }}>
+                    {p.hasCredential ? t(lang, "settings.credentialChange") : t(lang, "settings.credentialSet")} — {p.nome}
+                  </div>
+                  {p.hasCredential && (
+                    <input
+                      type="password" placeholder={t(lang, "settings.credentialCurrent")}
+                      value={credCurrentInput} onChange={e => setCredCurrentInput(e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 6, fontSize: 12, padding: "6px 8px", background: "#1a1a28" }}
+                    />
+                  )}
+                  <input
+                    type="password" placeholder={t(lang, "settings.credentialNew")} autoFocus={!p.hasCredential}
+                    value={credNewInput} onChange={e => setCredNewInput(e.target.value)}
+                    style={{ ...inputStyle, marginBottom: 8, fontSize: 12, padding: "6px 8px", background: "#1a1a28" }}
+                  />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      disabled={credBusy || credNewInput.length < 8}
+                      onClick={() => handleCredSave(p)}
+                      style={{ flex: 1, padding: "6px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: credNewInput.length < 8 ? 0.5 : 1 }}
+                    >{t(lang, "common.save")}</button>
+                    {p.hasCredential && (
+                      <button
+                        disabled={credBusy}
+                        onClick={() => handleCredRemove(p.id)}
+                        style={{ padding: "6px 10px", background: "none", border: "1px solid #FF6B6B44", borderRadius: 8, color: "#FF6B6B", fontSize: 11, cursor: "pointer" }}
+                      >{t(lang, "settings.credentialRemove")}</button>
+                    )}
+                    <button onClick={() => setEditingCredId(null)} style={{ padding: "6px 10px", background: "none", border: "1px solid #333", borderRadius: 8, color: "#888", fontSize: 11, cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
               )}
             </div>
           ))}

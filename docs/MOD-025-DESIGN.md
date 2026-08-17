@@ -1,10 +1,17 @@
-# MOD-025 full redesign — design doc (not implemented)
+# MOD-025 full redesign — design doc
 
-Status: **design only, nothing in this document is built**. The
-foundation half of MOD-025 (`persone[].ruolo`, advisory-only, no
-enforcement) is already merged — see "Household member roles" in
-`API.md`. This document is the plan for the remaining, breaking half:
-real per-user identity, with role checks that actually mean something.
+Status: **Stage 1 is implemented** — schema (`persone[].auth`), the
+three endpoints (`persona-credential` enroll/remove, `persona-login`),
+rate limiting/lockout, and response sanitization described below. See
+"Persona credentials (MOD-025 Stage 1)" in `API.md` for the actual
+shipped behavior — that's the authoritative reference now, this
+document is the plan it was built from. **Stage 2 (role enforcement)
+and everything under "Role enforcement" below is still design only,
+not built.**
+
+The foundation half of MOD-025 (`persone[].ruolo`, advisory-only, no
+enforcement) shipped earlier — see "Household member roles" in
+`API.md`.
 
 **Decisions locked in** (previously open questions, now resolved):
 password-first (passkey as a later enrollment option, not blocking);
@@ -144,7 +151,7 @@ for households/requests that haven't adopted per-persona auth). No
 schema migration needed — additive field, same pattern as every
 `*MinorUnits` companion field from MOD-016.
 
-## New/changed endpoints
+## New/changed endpoints — implemented as described, see API.md
 
 - `POST /api/auth/persona-login` — body `{ personaId, password }` (or a
   WebAuthn assertion for passkey), issues a session with `personaId`
@@ -234,18 +241,33 @@ server restart/deploy:
   potentially locking themselves out faster — same tradeoff the PIN
   lockout already accepts today).
 
-## Testing plan (once implementation starts)
+## Testing plan
 
-- Every row in the role-enforcement matrix: allowed for the right role,
-  403 for the wrong one, unchanged behavior when `personaId` is absent.
-- Enrollment requires the existing credential (can't silently
-  reassign someone else's identity).
-- Session issued by persona-login carries `personaId`; session issued
-  by household-only login doesn't.
-- Revoking one persona's credential doesn't affect any other persona's
-  session or the household PIN.
-- A household with zero personas enrolled behaves identically to today
-  across the full existing test suite (regression gate).
+Stage 1 — done, see `server/api.persona-auth.test.js`:
+
+- Enrollment requires the existing credential to change an
+  already-enrolled one; first-time enrollment doesn't (can't silently
+  reassign someone else's identity, but also isn't gatekept when
+  there's nothing to reassign yet).
+- Session issued by persona-login carries `personaId` and replaces the
+  household-only session it came from.
+- Revoking a persona's credential clears its lockout and reverts login
+  to `NO_PERSONA_CREDENTIAL`, without touching any other persona.
+- Lockout triggers after repeated wrong passwords and blocks even the
+  correct password until cleared; independent per persona.
+- No response (`GET /household`, `GET /backup`, `PUT .../ruolo`, etc.)
+  ever includes `passwordHash` in the JSON body — checked directly
+  against the serialized response, not just the documented shape —
+  while the raw hash still exists in the database (proving
+  sanitization is response-only, not data loss).
+- A household with zero personas enrolled behaves identically to
+  today across a dedicated regression check.
+
+Stage 2 (not built) — planned, not yet written:
+
+- Every row in the (not-yet-implemented) role-enforcement matrix:
+  allowed for the right role, 403 for the wrong one, unchanged
+  behavior when `personaId` is absent.
 
 ## Decisions (formerly open questions)
 

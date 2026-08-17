@@ -578,6 +578,90 @@ paths:
         "400": { description: Invalid role, or an attempt to demote/remove the last owner. }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /auth/persona-credential:
+    post:
+      summary: Enroll or change a persona's password (MOD-025 Stage 1)
+      description: >
+        currentPassword is required only if this persona already has a
+        credential enrolled. Zero enforcement — any household session can
+        do this for any persona, same trust boundary as every other
+        endpoint today. See "Persona credentials (MOD-025 Stage 1)" in
+        API.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personaId, newPassword]
+              properties:
+                personaId: { type: string }
+                newPassword: { type: string, minLength: 8, maxLength: 72 }
+                currentPassword: { type: string }
+      responses:
+        "200":
+          description: Enrolled/updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persone: { type: array, items: { $ref: "#/components/schemas/TripPartecipante" } }
+        "400": { description: Missing personaId, or newPassword outside 8-72 chars. }
+        "401": { description: currentPassword didn't match the existing credential. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /auth/persona-credential/{id}:
+    delete:
+      summary: Un-enroll a persona's credential (MOD-025 Stage 1)
+      description: Reverts that persona to PIN-only. Also clears any active lockout on it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  persone: { type: array, items: { $ref: "#/components/schemas/TripPartecipante" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /auth/persona-login:
+    post:
+      summary: Log in as a specific persona (MOD-025 Stage 1, step 2 of the layered flow)
+      description: >
+        Requires an existing household session (step 1, the PIN). Issues
+        a new session naming this persona and revokes the household-only
+        session it replaces. Zero enforcement — see API.md; this proves
+        identity, it doesn't yet gate anything.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [personaId, password]
+              properties:
+                personaId: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personaId: { type: string }
+        "400": { description: "This persona has no credential enrolled (NO_PERSONA_CREDENTIAL)." }
+        "401": { description: Wrong password. }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /household/valuta:
     put:
       summary: Change the household's base currency
