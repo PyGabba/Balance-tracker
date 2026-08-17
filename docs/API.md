@@ -612,16 +612,14 @@ independently-riskier stages, and only the first is done:
   completely unchanged: `importo` is still what every response returns
   and what a client sends; `importoMinorUnits` is optional and ignorable.
   Zero coordinated deploy required, zero external-integration risk.
-- **Stage B (not started, not scheduled): breaking cutover.** Making
+- **Stage B (design only, not implemented): breaking cutover.** Making
   `importoMinorUnits` the *persisted, canonical* field — dropping decimal
   `importo` from the API/DB entirely — is a real breaking API change: it
   needs a coordinated frontend+backend deploy, and it breaks any external
   widget/Shortcuts integration still parsing `importo` from a response.
-  Doing that now would be solving a problem Stage A already solves
-  (floating-point drift in financial arithmetic) for no additional benefit
-  today. If Stage B is ever undertaken, it's its own migration/release
-  gated on the same backup-first discipline as migration 001, not a
-  continuation of this one.
+  See `MOD-016-STAGE-B-DESIGN.md` for the plan (expand→migrate→contract
+  phasing, a telemetry-gated cutover instead of a calendar guess, and a
+  rollback path for each phase) — design only, nothing in it is built.
 
 Confidence that Stage A didn't change any calculated result: every
 function converted was already covered by pre-existing tests pinning
