@@ -11,7 +11,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword, validatePositiveNumber, validateNonNegativeNumber, validateEnum, POSITION_TIPI, GOAL_CONTRIBUTION_TYPES } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
 import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits, minorUnitsOf } from "../src/lib/money.js";
 dotenv.config();
@@ -129,14 +129,22 @@ function signToken(householdId, personaId = null) {
   const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "90d" });
   return { token, jti };
 }
-async function storeToken(jti, householdId) {
-  await activeTokensCol.insertOne({ jti, householdId, createdAt: new Date() });
+async function storeToken(jti, householdId, personaId = null) {
+  const doc = { jti, householdId, createdAt: new Date() };
+  if (personaId) doc.personaId = personaId; // omitted (not null) for household-only sessions, mirroring signToken's payload shape
+  await activeTokensCol.insertOne(doc);
 }
 async function revokeToken(jti) {
   await activeTokensCol.deleteOne({ jti });
 }
-async function revokeAllTokens(householdId) {
-  await activeTokensCol.deleteMany({ householdId });
+async function revokeAllTokens(householdId, session) {
+  await activeTokensCol.deleteMany({ householdId }, session ? { session } : undefined);
+}
+// Kills every session issued for this persona (credential removed/changed) —
+// without this, a stolen or ex-member session survives on its own JWT
+// expiry (up to 90 days) instead of dying the moment the credential does.
+async function revokeTokensForPersona(householdId, personaId) {
+  await activeTokensCol.deleteMany({ householdId, personaId });
 }
 function pinLookupKey(pin) {
   return createHmac("sha256", JWT_SECRET).update(pin).digest("hex");
@@ -256,7 +264,7 @@ const COOKIE_OPTS = {
   path: "/",
 };
 
-let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol, idempotencyCol;
+let db, mongoClient, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, tripsCol, exchangeRatesCol, idempotencyCol;
 // `mongoUri`/`dbName` default to the module-level env-derived values (the
 // production path) but can be overridden — this is what lets tests point
 // the exact same app at a disposable mongodb-memory-server instance instead
@@ -264,6 +272,7 @@ let db, transactionsCol, householdsCol, quotesCol, blacklistCol, auditCol, trips
 // (MOD-014).
 async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
   const client = new MongoClient(mongoUri); await client.connect();
+  mongoClient = client;
   db = client.db(dbName);
   transactionsCol = db.collection("transactions");
   householdsCol = db.collection("households");
@@ -342,6 +351,7 @@ async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
   await blacklistCol.createIndex({ key: 1 }, { unique: true });
   await activeTokensCol.createIndex({ jti: 1 }, { unique: true });
   await activeTokensCol.createIndex({ householdId: 1 });
+  await activeTokensCol.createIndex({ householdId: 1, personaId: 1 }, { sparse: true });
   await activeTokensCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: TOKEN_TTL_SECONDS });
   // One-time migration: flag all existing households to require a 6-digit PIN change
   await householdsCol.updateMany(
@@ -544,7 +554,7 @@ async function applyValutaTransazione(doc, importoInput, valutaInput, householdV
   }
   doc.valuta = valuta;
   doc.importoOriginale = importoInput;
-  doc.importoOriginaleMinorUnits = toMinorUnits(importoInput); // MOD-016
+  doc.importoOriginaleMinorUnits = toMinorUnits(importoInput, valuta); // MOD-016 — original currency's own precision, not base's
   doc.tassoCambio = rate;
   if (stale) doc.tassoCambioObsoleto = true; // explicit stale-rate flag (MOD-005) — surfaced to the client rather than hidden
   doc.importo = roundAmount(importoInput * rate, base);
@@ -664,12 +674,12 @@ export async function svuotaCestinoScaduto() {
 // Balances accumulate in integer minor units (MOD-016), not raw floats —
 // a trip with many expenses is exactly the kind of long running sum where
 // float drift would otherwise compound before the final rounding.
-function calcolaSettleViaggioServer(trip) {
+function calcolaSettleViaggioServer(trip, valutaBase = "EUR") {
   const balancesMinor = {};
   for (const e of trip.expenses || []) {
     if (e.splits && e.splits.length > 0) {
       const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
-      const importoMinor = minorUnitsOf(e); // MOD-016 contract phase
+      const importoMinor = minorUnitsOf(e, "importo", valutaBase); // MOD-016 contract phase
       for (const s of e.splits) {
         if (s.personaId !== e.pagatoDa) {
           const owedMinor = Math.round(importoMinor * (s.quota / totalQ));
@@ -690,13 +700,52 @@ function calcolaSettleViaggioServer(trip) {
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
     const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
-    if (payMinor > 1) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+    if (payMinor > 1) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor, valutaBase) });
     debtors[i].balMinor -= payMinor;
     creditors[j].balMinor -= payMinor;
     if (debtors[i].balMinor < 1) i++;
     if (creditors[j].balMinor < 1) j++;
   }
   return settlements;
+}
+
+// Inserts each settlement leg as its own "saldo" transaction, keyed
+// deterministically (tripId + leg index) so re-running after a partial
+// failure/crash just no-ops on legs already inserted instead of duplicating
+// them. Shared by the scheduled auto-close job and the on-demand manual
+// settle endpoint — both need the exact same idempotent insert behavior.
+async function insertSettlementLegs(tripId, householdId, tripNome, settlements, valutaBase, nameOf) {
+  const oggi = new Date().toISOString().slice(0, 10);
+  let allInserted = true;
+  for (let i = 0; i < settlements.length; i++) {
+    const s = settlements[i];
+    const settlementKey = settlementTransactionKey(tripId, i);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await transactionsCol.insertOne({
+        householdId,
+        tipo: "saldo",
+        importo: s.importo,
+        importoMinorUnits: toMinorUnits(s.importo, valutaBase), // MOD-016
+        categoria: "saldo_viaggio",
+        descrizione: `Saldo viaggio: ${tripNome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
+        data: oggi,
+        pagatoDa: s.da,
+        ricevutoDa: s.a,
+        settlementKey,
+        createdAt: new Date(),
+      });
+    } catch (err) {
+      if (err?.code === 11000) {
+        logger.info("trip_settlement_leg_already_inserted", { tripId, settlementKey });
+      } else {
+        logger.error("trip_settlement_leg_insert_failed", { tripId, settlementKey, error: err?.message });
+        allInserted = false;
+        break; // stop here — caller decides whether to leave the trip in "settling" for a retry
+      }
+    }
+  }
+  return allInserted;
 }
 
 let tripAutoCloseRunning = false;
@@ -744,46 +793,18 @@ export async function chiudiViaggiScaduti() {
       );
       if (!claimed) continue; // already claimed/resumed by another instance/tick since the query above
 
+      // eslint-disable-next-line no-await-in-loop
+      const claimedHousehold = await householdsCol.findOne({ householdId: claimed.householdId }, { projection: { valutaBase: 1 } });
+      const claimedValutaBase = claimedHousehold?.valutaBase || "EUR";
       const nameOf = (id) => (claimed.partecipanti || []).find(p => p.id === id)?.nome || id;
-      const settlements = calcolaSettleViaggioServer(claimed);
-      let allInserted = true;
-      for (let i = 0; i < settlements.length; i++) {
-        const s = settlements[i];
-        // Deterministic per-leg key: a crash-and-resume retry recomputes
-        // the exact same settlements array from the exact same trip data
-        // (the trip is locked in "settling" the whole time, so nothing
-        // about it can change underneath this), so leg i always gets the
-        // same key — the unique index is what makes re-inserting it a
-        // harmless no-op instead of a duplicate.
-        const settlementKey = settlementTransactionKey(_id.toString(), i);
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await transactionsCol.insertOne({
-            householdId: claimed.householdId,
-            tipo: "saldo",
-            importo: s.importo,
-            importoMinorUnits: toMinorUnits(s.importo), // MOD-016
-            categoria: "saldo_viaggio",
-            descrizione: `Saldo viaggio: ${claimed.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
-            data: oggi,
-            pagatoDa: s.da,
-            ricevutoDa: s.a,
-            settlementKey,
-            createdAt: new Date(),
-          });
-        } catch (err) {
-          if (err?.code === 11000) {
-            // Already inserted by an earlier attempt before a crash — this
-            // is the resume path working correctly, not an error.
-            logger.info("trip_settlement_leg_already_inserted", { tripId: _id.toString(), settlementKey });
-          } else {
-            errors++;
-            logger.error("trip_settlement_leg_insert_failed", { tripId: _id.toString(), settlementKey, error: err?.message });
-            allInserted = false;
-            break; // stop here, stay in "settling" — the next tick resumes from wherever this left off
-          }
-        }
-      }
+      const settlements = calcolaSettleViaggioServer(claimed, claimedValutaBase);
+      // Deterministic per-leg key (tripId + index): a crash-and-resume retry
+      // recomputes the exact same settlements array from the exact same
+      // trip data (locked in "settling" the whole time), so this call is a
+      // harmless no-op for any leg already inserted before the crash.
+      // eslint-disable-next-line no-await-in-loop
+      const allInserted = await insertSettlementLegs(_id.toString(), claimed.householdId, claimed.nome, settlements, claimedValutaBase, nameOf);
+      if (!allInserted) errors++; // stay in "settling" — the next tick resumes from wherever this left off
       if (allInserted) {
         // eslint-disable-next-line no-await-in-loop
         await tripsCol.updateOne({ _id }, { $set: { settled: true, settlementStatus: "settled", autoSettled: true, updatedAt: new Date() } });
@@ -801,6 +822,31 @@ export async function chiudiViaggiScaduti() {
   } finally {
     recordJobRun("tripSettlement", { failed: jobFailed, error: jobError });
     tripAutoCloseRunning = false;
+  }
+}
+
+// ─── Multi-document atomicity (MOD-010-ish) ───
+// A handful of writes touch several collections/documents as one logical
+// operation (household deletion, an account's references being detached
+// across transactions+goals, manual price overrides being replaced
+// wholesale) — without a transaction, a crash or network drop midway
+// through leaves the database in a state that's neither the old one nor
+// the new one (e.g. a household deleted but its transactions still
+// present, or account references half-detached). Requires the target
+// MongoDB to be a replica set — a single *single-node* replica set is
+// enough, this isn't asking for a cluster (`mongod --replSet rs0` +
+// one-time `rs.initiate()`; MongoDB Atlas is already one by default). A
+// standalone instance rejects `startSession`/transactions outright, which
+// surfaces immediately as a 500 on the first delete rather than silently
+// falling back to non-atomic behavior.
+async function withTransaction(fn) {
+  const session = mongoClient.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await fn(session); });
+    return result;
+  } finally {
+    await session.endSession();
   }
 }
 
@@ -1217,16 +1263,40 @@ app.post("/api/auth/forgot-pin/confirm", forgotPinLimiter, async (req, res) => {
     const household = await householdsCol.findOne({ email });
     if (!household) return sendError(res, 400, "INVALID_RESET_CODE", "Codice non valido o scaduto");
 
-    const reset = await db.collection("pinResets").findOne({ householdId: household.householdId });
-    if (!reset || reset.expiresAt < new Date()) return sendError(res, 400, "INVALID_RESET_CODE", "Codice non valido o scaduto");
-    if (reset.attempts >= 5) {
-      await db.collection("pinResets").deleteOne({ _id: reset._id });
-      return sendError(res, 429, "TOO_MANY_ATTEMPTS", "Troppi tentativi. Richiedi un nuovo codice.");
+    // Reserve an attempt atomically BEFORE the (slow, ~10 rounds bcrypt)
+    // comparison — reading attempts, checking it, and incrementing it as
+    // three separate steps let N concurrent requests all read the same
+    // pre-increment value and all pass the check, so the 5-attempt cap
+    // could be blown past under concurrency (not IP-bound: a distributed
+    // attacker isn't limited by forgotPinLimiter either). Folding the
+    // check into the $inc's filter makes MongoDB itself the single point
+    // of truth — only requests that land on a still-available slot get
+    // reset back, and every one of them sees a distinct attempts value.
+    const reset = await db.collection("pinResets").findOneAndUpdate(
+      { householdId: household.householdId, expiresAt: { $gt: new Date() }, attempts: { $lt: 5 } },
+      { $inc: { attempts: 1 } },
+      { returnDocument: "before" }
+    );
+    if (!reset) {
+      // Either no active/unexpired code, or attempts are already exhausted
+      // — a second read here (outside the hot path, no race-sensitive
+      // decision depends on it) just distinguishes which error to show.
+      // Deliberately NOT deleted here: a fresh /forgot-pin/request already
+      // clears any prior doc for this household before inserting a new
+      // one, and the expiresAt TTL index reaps it either way — eager
+      // deletion here would just make every capped-out request AFTER the
+      // first one fall through to "no doc found" and report the wrong,
+      // more permissive-sounding error (INVALID_RESET_CODE instead of
+      // TOO_MANY_ATTEMPTS).
+      const existing = await db.collection("pinResets").findOne({ householdId: household.householdId });
+      if (existing && existing.attempts >= 5) {
+        return sendError(res, 429, "TOO_MANY_ATTEMPTS", "Troppi tentativi. Richiedi un nuovo codice.");
+      }
+      return sendError(res, 400, "INVALID_RESET_CODE", "Codice non valido o scaduto");
     }
 
     const valid = await bcrypt.compare(code, reset.codeHash);
     if (!valid) {
-      await db.collection("pinResets").updateOne({ _id: reset._id }, { $inc: { attempts: 1 } });
       return sendError(res, 400, "INVALID_RESET_CODE", "Codice non corretto");
     }
 
@@ -1280,16 +1350,21 @@ app.delete("/api/auth/household", requireHousehold, requireRole("owner"), async 
       : household.pin === pin;
     if (!pinValid) return sendError(res, 401, "INVALID_PIN", "PIN non corretto");
 
-    // Delete all data for this household
-    await transactionsCol.deleteMany({ householdId: req.householdId });
-    await db.collection("positions").deleteMany({ householdId: req.householdId });
-    await db.collection("goals").deleteMany({ householdId: req.householdId });
-    await db.collection("accounts").deleteMany({ householdId: req.householdId });
-    await tripsCol.deleteMany({ householdId: req.householdId });
-    await quotesCol.deleteMany({ householdId: req.householdId });
-    await db.collection("pinResets").deleteMany({ householdId: req.householdId });
-    await revokeAllTokens(req.householdId);
-    await householdsCol.deleteOne({ householdId: req.householdId });
+    // Delete all data for this household — one transaction, so a crash or
+    // network drop partway through can never leave e.g. the household gone
+    // but its transactions still present (or vice versa).
+    const hid = req.householdId;
+    await withTransaction(async (session) => {
+      await transactionsCol.deleteMany({ householdId: hid }, { session });
+      await db.collection("positions").deleteMany({ householdId: hid }, { session });
+      await db.collection("goals").deleteMany({ householdId: hid }, { session });
+      await db.collection("accounts").deleteMany({ householdId: hid }, { session });
+      await tripsCol.deleteMany({ householdId: hid }, { session });
+      await quotesCol.deleteMany({ householdId: hid }, { session });
+      await db.collection("pinResets").deleteMany({ householdId: hid }, { session });
+      await revokeAllTokens(hid, session);
+      await householdsCol.deleteOne({ householdId: hid }, { session });
+    });
     audit("household_delete", { householdId: req.householdId, ip: clientIp(req) });
     res.clearCookie("token", { path: "/", httpOnly: true, secure: IS_PROD, sameSite: "strict" });
     res.json({ ok: true });
@@ -1302,10 +1377,33 @@ app.get("/api/household", requireHousehold, (req, res) => {
 });
 
 // ─── Base currency ───
+// Every base-currency amount in the household (transaction importo, account
+// saldoIniziale, goal target/currentAmount, trip expenses) is stored as a
+// bare number with NO per-record currency marker — the household's
+// valutaBase is the only thing that says what that number means. Changing
+// valutaBase after any such record exists would silently reinterpret every
+// past amount as the new currency (a EUR balance becomes "the same number
+// of JPY") without moving a single unit of value — a real data-corruption
+// bug, not a display quirk, so switching is only allowed while the
+// household is still empty of financial history. (Positions are exempt:
+// each one already carries its own `valuta` field, independent of the
+// household's.)
+async function householdHasFinancialData(householdId) {
+  const [tx, acc, goal, trip] = await Promise.all([
+    transactionsCol.findOne({ householdId }, { projection: { _id: 1 } }),
+    db.collection("accounts").findOne({ householdId }, { projection: { _id: 1 } }),
+    db.collection("goals").findOne({ householdId }, { projection: { _id: 1 } }),
+    tripsCol.findOne({ householdId, "expenses.0": { $exists: true } }, { projection: { _id: 1 } }),
+  ]);
+  return !!(tx || acc || goal || trip);
+}
 app.put("/api/household/valuta", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const valuta = sanitizeValuta(req.body?.valutaBase);
     if (!valuta) return sendError(res, 400, "INVALID_CURRENCY", "Valuta non supportata");
+    if (valuta !== (req.household.valutaBase || "EUR") && await householdHasFinancialData(req.householdId)) {
+      return sendError(res, 409, "CURRENCY_LOCKED", "Non è possibile cambiare valuta base: sono già presenti transazioni, conti, obiettivi o spese di viaggio. Cambiare valuta reinterpreterebbe gli importi esistenti senza convertirli.");
+    }
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { valutaBase: valuta, updatedAt: new Date() } });
     res.json({ valutaBase: valuta });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
@@ -1375,6 +1473,10 @@ app.post("/api/auth/persona-credential", writeLimiter, requireHousehold, async (
       ? { ...p, auth: { method: "password", passwordHash, enrolledAt: new Date() } }
       : p);
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    // A password CHANGE (not first-time enroll) must kill every session
+    // issued under the old password — otherwise a compromised session
+    // survives its own remediation.
+    if (target.auth?.method === "password") await revokeTokensForPersona(req.householdId, personaId);
     audit("persona_credential_enrolled", { householdId: req.householdId, ip: clientIp(req), detail: { personaId } }); // never the password/hash
     res.json({ persone: sanitizePersone(updatedPersone) });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
@@ -1388,6 +1490,7 @@ app.delete("/api/auth/persona-credential/:id", writeLimiter, requireHousehold, a
     const updatedPersone = persone.map(p => p.id === req.params.id ? { ...p, auth: null } : p);
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
     await clearLock(`persona:${req.householdId}:${req.params.id}`); // an un-enrolled persona shouldn't stay locked from a credential that no longer exists
+    await revokeTokensForPersona(req.householdId, req.params.id); // kill every session issued under the now-removed credential
     audit("persona_credential_removed", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: req.params.id } });
     res.json({ persone: sanitizePersone(updatedPersone) });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
@@ -1427,7 +1530,7 @@ app.post("/api/auth/persona-login", personaLoginLimiter, requireHousehold, async
 
     await clearLock(lockKey);
     const { token, jti } = signToken(req.householdId, personaId);
-    await storeToken(jti, req.householdId);
+    await storeToken(jti, req.householdId, personaId);
     await revokeToken(req.jti); // the household-only session this replaces
     audit("persona_login_success", { householdId: req.householdId, ip: clientIp(req), detail: { personaId } });
     res.cookie("token", token, COOKIE_OPTS);
@@ -1529,7 +1632,7 @@ app.post("/api/transactions", writeLimiter, requireHousehold, requireRole("membe
 
     let validated;
     try {
-      validated = validateTransactionInput(b, { householdPersonIds, accountIds });
+      validated = validateTransactionInput(b, { householdPersonIds, accountIds, valutaBase: req.household.valutaBase || "EUR" });
     } catch (ve) {
       if (ve instanceof ValidationError) return res.status(400).json({ error: { code: ve.code, message: ve.message, fields: ve.fields } });
       throw ve;
@@ -1629,7 +1732,7 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, requireRole("me
 
     let update;
     try {
-      update = validateTransactionInput(req.body, { householdPersonIds, accountIds, partial: true, existing });
+      update = validateTransactionInput(req.body, { householdPersonIds, accountIds, partial: true, existing, valutaBase: req.household.valutaBase || "EUR" });
     } catch (ve) {
       if (ve instanceof ValidationError) return res.status(400).json({ error: { code: ve.code, message: ve.message, fields: ve.fields } });
       throw ve;
@@ -1698,7 +1801,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
       if (!shares.length) continue;
       const totalQ = shares.reduce((s, sh) => s + (sh.quota || 0), 0);
       if (totalQ <= 0) continue;
-      const importoMinor = minorUnitsOf(t); // MOD-016 contract phase
+      const importoMinor = minorUnitsOf(t, "importo", req.household.valutaBase || "EUR"); // MOD-016 contract phase
       for (const sh of shares) {
         if (sh.personaId === payer) continue;
         const owedMinor = Math.round(importoMinor * (sh.quota / totalQ));
@@ -1709,7 +1812,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
 
     // Settlements reduce balances
     for (const s of saldi) {
-      const importoMinor = minorUnitsOf(s); // MOD-016 contract phase
+      const importoMinor = minorUnitsOf(s, "importo", req.household.valutaBase || "EUR"); // MOD-016 contract phase
       addAmountMinor(s.pagatoDa, +importoMinor);
       addAmountMinor(s.ricevutoDa, -importoMinor);
     }
@@ -1727,7 +1830,7 @@ app.get("/api/stats/debiti", requireHousehold, async (req, res) => {
     let i = 0, j = 0;
     while (i < debtors.length && j < creditors.length) {
       const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
-      debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+      debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor, req.household.valutaBase || "EUR") });
       debtors[i].balMinor   -= payMinor;
       creditors[j].balMinor -= payMinor;
       if (debtors[i].balMinor   < 1) i++;
@@ -1867,17 +1970,32 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
     if (!b.ticker || !b.quantita || !b.prezzoAcquisto) return sendError(res, 400, "MISSING_FIELDS", "Campi obbligatori: ticker, quantita, prezzoAcquisto");
     const ticker = b.ticker.toUpperCase().trim();
     if (!/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) return sendError(res, 400, "INVALID_TICKER", "Ticker non valido (max 20 caratteri alfanumerici)");
+    const valuta = b.valuta || "EUR";
+    let quantita, prezzoAcquisto, tipo;
+    try {
+      quantita = validatePositiveNumber(b.quantita, "quantita"); // share count, not a currency amount — no precision rounding
+      // Not validateAmount: that rounds to the currency's minor-unit
+      // precision (2dp for EUR), which would silently truncate a
+      // deliberately more-precise per-share price (e.g. crypto). Only the
+      // finite+positive check is wanted here — same as before, just
+      // enforced instead of letting NaN/Infinity through.
+      prezzoAcquisto = validatePositiveNumber(b.prezzoAcquisto, "prezzoAcquisto");
+      tipo = validateEnum(b.tipo || "buy", POSITION_TIPI, "tipo");
+    } catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
+    }
     const doc = {
       householdId: req.householdId,
       ticker,
       nome: sanitizeText(b.nome || ticker, 100),
-      quantita: parseFloat(b.quantita),
-      prezzoAcquisto: parseFloat(b.prezzoAcquisto),
-      prezzoAcquistoMinorUnits: toMinorUnits(parseFloat(b.prezzoAcquisto)), // MOD-016
+      quantita,
+      prezzoAcquisto,
+      prezzoAcquistoMinorUnits: toMinorUnits(prezzoAcquisto, valuta), // MOD-016
       dataAcquisto: b.dataAcquisto || new Date().toISOString().slice(0, 10),
-      valuta: b.valuta || "EUR",
+      valuta,
       note: sanitizeText(b.note, 500),
-      tipo: b.tipo || "buy", // buy or sell
+      tipo,
       createdAt: new Date(),
     };
     const result = await db.collection("positions").insertOne(doc);
@@ -1916,19 +2034,26 @@ app.put("/api/positions/prices", requireHousehold, async (req, res) => {
     const entries = Object.entries(manualPrices);
     if (entries.length > 200)
       return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali");
-    // Remove all existing manual prices for this household, then upsert validated ones
-    await quotesCol.deleteMany({ householdId: req.householdId, manualPrice: { $exists: true } });
-    for (const [rawTicker, rawPrice] of entries) {
-      const ticker = String(rawTicker).toUpperCase().trim();
-      if (!TICKER_RE.test(ticker)) continue; // skip malformed keys
-      const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
-      if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
-      await quotesCol.updateOne(
-        { ticker, householdId: req.householdId },
-        { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
-        { upsert: true }
-      );
-    }
+    // Remove all existing manual prices for this household, then upsert
+    // validated ones — one transaction, so a crash after the delete but
+    // before every upsert has run can never leave the household with
+    // fewer manual prices than it started with (previously: gone for
+    // good, since the delete had already committed on its own).
+    await withTransaction(async (session) => {
+      await quotesCol.deleteMany({ householdId: req.householdId, manualPrice: { $exists: true } }, { session });
+      for (const [rawTicker, rawPrice] of entries) {
+        const ticker = String(rawTicker).toUpperCase().trim();
+        if (!TICKER_RE.test(ticker)) continue; // skip malformed keys
+        const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
+        if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
+        // eslint-disable-next-line no-await-in-loop
+        await quotesCol.updateOne(
+          { ticker, householdId: req.householdId },
+          { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
+          { upsert: true, session }
+        );
+      }
+    });
     res.json({ ok: true });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
@@ -1959,16 +2084,29 @@ app.post("/api/goals", writeLimiter, requireHousehold, requireRole("member"), as
     if (b.contoId && !(await isHouseholdAccount(b.contoId, req.householdId))) {
       return sendError(res, 400, "UNKNOWN_ACCOUNT", "Conto non valido", { contoId: b.contoId });
     }
+    const valutaBase = req.household.valutaBase || "EUR";
+    let targetAmount, currentAmount, contributionType, contributionValue;
+    try {
+      targetAmount = validatePositiveNumber(b.targetAmount, "targetAmount");
+      currentAmount = b.currentAmount !== undefined ? validateNonNegativeNumber(b.currentAmount, "currentAmount") : 0;
+      contributionType = validateEnum(b.contributionType || "manual", GOAL_CONTRIBUTION_TYPES, "contributionType");
+      contributionValue = contributionType !== "manual" && b.contributionValue !== undefined
+        ? validateNonNegativeNumber(b.contributionValue, "contributionValue")
+        : 0;
+    } catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
+    }
     const doc = {
       householdId: req.householdId,
       nome: sanitizeText(b.nome, 100),
-      targetAmount: parseFloat(b.targetAmount),
-      targetAmountMinorUnits: toMinorUnits(parseFloat(b.targetAmount)), // MOD-016
+      targetAmount,
+      targetAmountMinorUnits: toMinorUnits(targetAmount, valutaBase), // MOD-016
       targetDate: b.targetDate || null,
-      currentAmount: parseFloat(b.currentAmount) || 0,
-      currentAmountMinorUnits: toMinorUnits(parseFloat(b.currentAmount) || 0), // MOD-016
-      contributionType: b.contributionType || "manual",
-      contributionValue: b.contributionType !== "manual" ? parseFloat(b.contributionValue) || 0 : 0,
+      currentAmount,
+      currentAmountMinorUnits: toMinorUnits(currentAmount, valutaBase), // MOD-016
+      contributionType,
+      contributionValue,
       autoAdd: b.autoAdd === true,
       contoId: b.contoId || null,
       createdAt: new Date(),
@@ -1992,18 +2130,23 @@ app.put("/api/goals/:id", writeLimiter, requireHousehold, requireRole("member"),
       return sendError(res, 400, "UNKNOWN_ACCOUNT", "Conto non valido", { contoId: b.contoId });
     }
     const update = {};
-    if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 100);
-    if (b.targetAmount !== undefined) {
-      update.targetAmount = parseFloat(b.targetAmount);
-      update.targetAmountMinorUnits = toMinorUnits(update.targetAmount); // MOD-016
+    try {
+      if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 100);
+      if (b.targetAmount !== undefined) {
+        update.targetAmount = validatePositiveNumber(b.targetAmount, "targetAmount");
+        update.targetAmountMinorUnits = toMinorUnits(update.targetAmount, req.household.valutaBase || "EUR"); // MOD-016
+      }
+      if (b.targetDate !== undefined) update.targetDate = b.targetDate;
+      if (b.currentAmount !== undefined) {
+        update.currentAmount = validateNonNegativeNumber(b.currentAmount, "currentAmount");
+        update.currentAmountMinorUnits = toMinorUnits(update.currentAmount, req.household.valutaBase || "EUR"); // MOD-016
+      }
+      if (b.contributionType !== undefined) update.contributionType = validateEnum(b.contributionType, GOAL_CONTRIBUTION_TYPES, "contributionType");
+      if (b.contributionValue !== undefined) update.contributionValue = validateNonNegativeNumber(b.contributionValue, "contributionValue");
+    } catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
     }
-    if (b.targetDate !== undefined) update.targetDate = b.targetDate;
-    if (b.currentAmount !== undefined) {
-      update.currentAmount = parseFloat(b.currentAmount);
-      update.currentAmountMinorUnits = toMinorUnits(update.currentAmount); // MOD-016
-    }
-    if (b.contributionType !== undefined) update.contributionType = b.contributionType;
-    if (b.contributionValue !== undefined) update.contributionValue = parseFloat(b.contributionValue);
     if (b.autoAdd !== undefined) update.autoAdd = b.autoAdd === true;
     if (b.contoId !== undefined) update.contoId = b.contoId || null;
     if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
@@ -2044,7 +2187,7 @@ app.post("/api/accounts", writeLimiter, requireHousehold, requireRole("member"),
       nome: sanitizeText(b.nome, 60),
       icona: sanitizeText(b.icona, 8) || "🏦",
       saldoIniziale: Number.isFinite(saldoIniziale) ? saldoIniziale : 0,
-      saldoInizialeMinorUnits: toMinorUnits(Number.isFinite(saldoIniziale) ? saldoIniziale : 0), // MOD-016
+      saldoInizialeMinorUnits: toMinorUnits(Number.isFinite(saldoIniziale) ? saldoIniziale : 0, req.household.valutaBase || "EUR"), // MOD-016
       createdAt: new Date(),
     };
     const result = await db.collection("accounts").insertOne(doc);
@@ -2067,7 +2210,7 @@ app.put("/api/accounts/:id", writeLimiter, requireHousehold, requireRole("member
       const v = parseFloat(b.saldoIniziale);
       if (!Number.isFinite(v)) return sendError(res, 400, "INVALID_FIELD", "saldoIniziale non valido");
       update.saldoIniziale = v;
-      update.saldoInizialeMinorUnits = toMinorUnits(v); // MOD-016
+      update.saldoInizialeMinorUnits = toMinorUnits(v, req.household.valutaBase || "EUR"); // MOD-016
     }
     if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
@@ -2079,13 +2222,22 @@ app.put("/api/accounts/:id", writeLimiter, requireHousehold, requireRole("member
 app.delete("/api/accounts/:id", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
-    const r = await db.collection("accounts").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovato");
-    // Detach the deleted account from its transactions and goals (they stay, unassigned)
-    await transactionsCol.updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
-    await transactionsCol.updateMany({ householdId: req.householdId, contoDa: req.params.id }, { $set: { contoDa: null } });
-    await transactionsCol.updateMany({ householdId: req.householdId, contoA: req.params.id }, { $set: { contoA: null } });
-    await db.collection("goals").updateMany({ householdId: req.householdId, contoId: req.params.id }, { $set: { contoId: null } });
+    const hid = req.householdId;
+    const accId = req.params.id;
+    // One transaction: deleting the account but crashing before its
+    // references are detached would leave transactions/goals pointing at
+    // an account id that no longer exists.
+    const deletedCount = await withTransaction(async (session) => {
+      const r = await db.collection("accounts").deleteOne({ _id: new ObjectId(accId), householdId: hid }, { session });
+      if (r.deletedCount === 0) return 0;
+      // Detach the deleted account from its transactions and goals (they stay, unassigned)
+      await transactionsCol.updateMany({ householdId: hid, contoId: accId }, { $set: { contoId: null } }, { session });
+      await transactionsCol.updateMany({ householdId: hid, contoDa: accId }, { $set: { contoDa: null } }, { session });
+      await transactionsCol.updateMany({ householdId: hid, contoA: accId }, { $set: { contoA: null } }, { session });
+      await db.collection("goals").updateMany({ householdId: hid, contoId: accId }, { $set: { contoId: null } }, { session });
+      return r.deletedCount;
+    });
+    if (deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovato");
     res.json({ deleted: true });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
@@ -2125,6 +2277,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
     const b = req.body;
     if (!b || b.formato !== "balance-tracker-backup") return sendError(res, 400, "INVALID_BACKUP_FORMAT", "File non riconosciuto come backup");
     const hid = req.householdId;
+    const valutaBase = req.household.valutaBase || "EUR";
     const asArray = (x) => Array.isArray(x) ? x : [];
     const clean = (d) => { const o = { ...d }; delete o.id; delete o._id; o.householdId = hid; return o; };
     const counts = { transactions: 0, accounts: 0, goals: 0, trips: 0, positions: 0, manualPrices: 0 };
@@ -2136,7 +2289,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
       doc.nome = sanitizeText(String(doc.nome || "Conto"), 60);
       doc.icona = sanitizeText(String(doc.icona || "🏦"), 8);
       doc.saldoIniziale = Number.isFinite(parseFloat(doc.saldoIniziale)) ? parseFloat(doc.saldoIniziale) : 0;
-      doc.saldoInizialeMinorUnits = toMinorUnits(doc.saldoIniziale); // MOD-016
+      doc.saldoInizialeMinorUnits = toMinorUnits(doc.saldoIniziale, valutaBase); // MOD-016
       doc.restoredAt = new Date();
       const r = await db.collection("accounts").insertOne(doc);
       if (a.id) contoIdMap[a.id] = r.insertedId.toString();
@@ -2148,8 +2301,8 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
     for (const g of asArray(b.goals)) {
       const doc = clean(g);
       doc.contoId = remap(doc.contoId);
-      if (Number.isFinite(parseFloat(doc.targetAmount))) doc.targetAmountMinorUnits = toMinorUnits(parseFloat(doc.targetAmount)); // MOD-016
-      if (Number.isFinite(parseFloat(doc.currentAmount))) doc.currentAmountMinorUnits = toMinorUnits(parseFloat(doc.currentAmount)); // MOD-016
+      if (Number.isFinite(parseFloat(doc.targetAmount))) doc.targetAmountMinorUnits = toMinorUnits(parseFloat(doc.targetAmount), valutaBase); // MOD-016
+      if (Number.isFinite(parseFloat(doc.currentAmount))) doc.currentAmountMinorUnits = toMinorUnits(parseFloat(doc.currentAmount), valutaBase); // MOD-016
       doc.restoredAt = new Date();
       await db.collection("goals").insertOne(doc);
       counts.goals++;
@@ -2162,7 +2315,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
       const doc = clean(t);
       if (Array.isArray(doc.expenses)) {
         doc.expenses = doc.expenses.map(e =>
-          typeof e.importo === "number" ? { ...e, importoMinorUnits: toMinorUnits(e.importo) } : e
+          typeof e.importo === "number" ? { ...e, importoMinorUnits: toMinorUnits(e.importo, valutaBase) } : e
         );
       }
       doc.restoredAt = new Date();
@@ -2173,7 +2326,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
     // 4. Positions
     for (const p of asArray(b.positions)) {
       const doc = clean(p);
-      if (Number.isFinite(parseFloat(doc.prezzoAcquisto))) doc.prezzoAcquistoMinorUnits = toMinorUnits(parseFloat(doc.prezzoAcquisto)); // MOD-016
+      if (Number.isFinite(parseFloat(doc.prezzoAcquisto))) doc.prezzoAcquistoMinorUnits = toMinorUnits(parseFloat(doc.prezzoAcquisto), doc.valuta || "EUR"); // MOD-016
       doc.restoredAt = new Date();
       await db.collection("positions").insertOne(doc);
       counts.positions++;
@@ -2198,7 +2351,7 @@ app.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, res)
       if (!validTipi.includes(doc.tipo)) continue;
       if (!Number.isFinite(parseFloat(doc.importo))) continue;
       doc.importo = parseFloat(doc.importo);
-      doc.importoMinorUnits = toMinorUnits(doc.importo); // MOD-016 — recomputed, not trusted from a possibly stale/absent backup field
+      doc.importoMinorUnits = toMinorUnits(doc.importo, valutaBase); // MOD-016 — recomputed, not trusted from a possibly stale/absent backup field
       doc.descrizione = sanitizeText(doc.descrizione);
       doc.contoId = remap(doc.contoId);
       doc.contoDa = remap(doc.contoDa);
@@ -2434,7 +2587,7 @@ app.post("/api/widget/transaction", widgetWriteLimiter, async (req, res) => {
       householdId: hid,
       tipo: b.tipo,
       importo,
-      importoMinorUnits: toMinorUnits(importo), // MOD-016
+      importoMinorUnits: toMinorUnits(importo, household.valutaBase || "EUR"), // MOD-016
       categoria,
       descrizione: sanitizeText(String(b.descrizione || "Da widget"), 140),
       data,
@@ -2580,11 +2733,52 @@ app.put("/api/trips/:id", writeLimiter, requireHousehold, requireRole("member"),
     if (t.startDate !== undefined) update.startDate = t.startDate;
     if (t.endDate !== undefined) update.endDate = t.endDate;
     if (t.partecipanti !== undefined) update.partecipanti = sanitizePartecipanti(t.partecipanti);
-    if (t.settled !== undefined) update.settled = t.settled === true;
+    // `settled` is deliberately NOT settable here — it's a financial
+    // invariant (a trip is only settled once real settlement transactions
+    // exist), not a plain field. See POST /api/trips/:id/settle, which is
+    // the only path that can set it, and never unsets it.
     if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
     await tripsCol.updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
     res.json({ ok: true });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// The only path that can mark a trip settled — computes settlements
+// server-side (never trusts client-supplied numbers), atomically claims the
+// trip the same way the scheduled auto-close job does (so the two can never
+// race each other into double-inserting settlement legs), and only flips
+// `settled` once every leg is actually recorded. One-directional: there is
+// no "unsettle" — see the comment on PUT /api/trips/:id.
+app.post("/api/trips/:id/settle", writeLimiter, requireHousehold, requireRole("member"), async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
+    const _id = new ObjectId(req.params.id);
+    const now = new Date();
+    const claimed = await tripsCol.findOneAndUpdate(
+      { _id, householdId: req.householdId, settled: false, settlementStatus: { $in: [null, "open"] } },
+      { $set: { settlementStatus: "settling", settlingStartedAt: now, updatedAt: now } },
+      { returnDocument: "after" }
+    );
+    if (!claimed) {
+      const existing = await tripsCol.findOne({ _id, householdId: req.householdId }, { projection: { settled: 1, settlementStatus: 1 } });
+      if (!existing) return sendError(res, 404, "NOT_FOUND", "Viaggio non trovato");
+      if (existing.settled) return sendError(res, 400, "TRIP_SETTLED", "Viaggio già chiuso");
+      return sendError(res, 409, "TRIP_SETTLEMENT_IN_PROGRESS", "Chiusura viaggio già in corso, riprova tra poco");
+    }
+
+    const valutaBase = req.household.valutaBase || "EUR";
+    const nameOf = (id) => (claimed.partecipanti || []).find(p => p.id === id)?.nome || id;
+    const settlements = calcolaSettleViaggioServer(claimed, valutaBase);
+    const allInserted = await insertSettlementLegs(req.params.id, req.householdId, claimed.nome, settlements, valutaBase, nameOf);
+    if (!allInserted) {
+      // Trip stays in "settling" — safe to retry (already-inserted legs are
+      // idempotently skipped), or the auto-close job resumes it once stale.
+      return sendError(res, 500, "SETTLEMENT_INCOMPLETE", "Chiusura viaggio non completata, riprova");
+    }
+    await tripsCol.updateOne({ _id }, { $set: { settled: true, settlementStatus: "settled", updatedAt: new Date() } });
+    audit("trip_settled_manual", { householdId: req.householdId, ip: clientIp(req), detail: { tripId: req.params.id } });
+    res.json({ ok: true, settlements });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
@@ -2636,7 +2830,7 @@ app.post("/api/trips/:id/expenses", writeLimiter, requireHousehold, requireRole(
 
     let expense;
     try {
-      expense = buildTripExpense(req.body, trip);
+      expense = buildTripExpense(req.body, trip, req.household.valutaBase || "EUR");
     } catch (ve) {
       if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
       throw ve;
@@ -2718,6 +2912,24 @@ async function findTripByShareToken(token) {
   return trip;
 }
 
+// A share-link token proves "this caller may act on this trip" — it does
+// NOT say which participant they are. Without a separate per-guest
+// identity, any link holder could put any participant's id in `pagatoDa`
+// and log expenses "paid by" someone else, corrupting settlement math.
+// This token is issued once at join time, scoped to (tripId, personaId),
+// and is what the expense endpoint trusts instead of the request body.
+function signGuestTripToken(tripId, personaId) {
+  return jwt.sign({ tripId, personaId }, JWT_SECRET, { expiresIn: `${TRIP_SHARE_TOKEN_TTL_DAYS}d` });
+}
+function verifyGuestTripToken(token, tripId) {
+  if (!token || typeof token !== "string") return null;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    if (payload.tripId !== tripId) return null; // scoped to the trip it was issued for — not reusable across trips
+    return payload.personaId;
+  } catch { return null; }
+}
+
 function stripTripForGuest(trip) {
   const id = trip._id.toString();
   return {
@@ -2750,13 +2962,14 @@ app.post("/api/trips/shared/:token/join", tripShareWriteLimiter, async (req, res
     const id = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     if (!id) return sendError(res, 400, "INVALID_FIELD", "Nome non valido");
 
+    const tripId = trip._id.toString();
     const esistente = (trip.partecipanti || []).find(p => p.id === id);
-    if (esistente) return res.json(esistente); // stesso nome già presente: rientra come lo stesso ospite
+    if (esistente) return res.json({ ...esistente, guestToken: signGuestTripToken(tripId, esistente.id) }); // stesso nome già presente: rientra come lo stesso ospite
 
     const colors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9"];
     const nuovo = { id, nome, emoji: "👤", colore: colors[(trip.partecipanti || []).length % colors.length] };
     await tripsCol.updateOne({ _id: trip._id }, { $push: { partecipanti: nuovo }, $set: { updatedAt: new Date() } });
-    res.status(201).json(nuovo);
+    res.status(201).json({ ...nuovo, guestToken: signGuestTripToken(tripId, nuovo.id) });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
@@ -2768,9 +2981,22 @@ app.post("/api/trips/shared/:token/expenses", tripShareWriteLimiter, async (req,
     if (!trip) return sendError(res, 404, "NOT_FOUND", "Link non valido, scaduto o revocato");
     if (trip.settled) return sendError(res, 400, "TRIP_SETTLED", "Viaggio già chiuso");
 
+    // The share token only proves "may access this trip" — it says nothing
+    // about WHICH participant is calling. pagatoDa must come from the
+    // per-guest token issued at join time, never from the request body,
+    // or any link holder could log expenses "paid by" any other
+    // participant and manipulate settlement math.
+    const guestPersonaId = verifyGuestTripToken(req.body?.guestToken, trip._id.toString());
+    if (!guestPersonaId) return sendError(res, 401, "GUEST_IDENTITY_REQUIRED", "Sessione ospite non valida: unisciti nuovamente al viaggio");
+
+    // Guest requests aren't household-authenticated (no req.household), so
+    // valutaBase has to be looked up from the trip's owning household —
+    // trip expenses are always stored in that household's base currency.
+    const owningHousehold = await householdsCol.findOne({ householdId: trip.householdId }, { projection: { valutaBase: 1 } });
+
     let expense;
     try {
-      expense = buildTripExpense(req.body, trip);
+      expense = buildTripExpense({ ...req.body, pagatoDa: guestPersonaId }, trip, owningHousehold?.valutaBase || "EUR");
     } catch (ve) {
       if (ve instanceof ValidationError) {
         // Friendlier message for the one case a guest is actually likely to

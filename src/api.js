@@ -938,6 +938,18 @@ export async function deleteTripExpense(tripId, expenseId) {
 }
 
 // ─── Trip share links (owner side, authenticated) ───
+// Settlement is server-computed (never client-supplied numbers) and isn't a
+// plain field update, so it's a dedicated endpoint rather than
+// updateTrip({ settled: true }) — see the comment on PUT /api/trips/:id.
+export async function settleTrip(tripId) {
+  const res = await fetch(`${API_BASE}/api/trips/${tripId}/settle`, { method: "POST", headers: authHeaders(), credentials: "include" });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, String(res.status)));
+  const trip = (await getCachedEntities(syncCtx, "trips")).find(t => t.id === tripId);
+  if (trip) await cacheEntityOnly(syncCtx, "trips", { ...trip, settled: true });
+  return json;
+}
+
 export async function createTripShareLink(tripId) {
   const res = await fetch(`${API_BASE}/api/trips/${tripId}/share`, { method: "POST", headers: authHeaders(), credentials: "include" });
   if (!res.ok) throw new Error(errorMessageFrom(await res.json().catch(() => ({})), String(res.status)));

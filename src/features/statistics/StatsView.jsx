@@ -5,7 +5,7 @@ import { getAllPersone } from "../../lib/appHelpers.js";
 import { DonutChart, MiniChart } from "../../components/ui/Charts.jsx";
 import { GoalGauge } from "../goals/GoalGauge.jsx";
 
-export function StatsView({ transazioni, persone, meseOffset, categorie, goals, lang = "it" }) {
+export function StatsView({ transazioni, persone, meseOffset, categorie, goals, valutaBase = "EUR", lang = "it" }) {
   const oggi = new Date();
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = mese(meseVis.getMonth()) + " " + meseVis.getFullYear();
@@ -20,7 +20,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
     ...p,
     speso: usciteMese.filter(t => t.pagatoDa === p.id).reduce((s, t) => s + t.importo, 0),
   }));
-  const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
+  const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone, valutaBase); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
 
   // ─── Frequency analysis (must be before Trends) ───
   const numTransazioni = usciteMese.length;
@@ -94,7 +94,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
 
   // Previsione prossimo mese — media mobile sugli ultimi 3 mesi completi,
   // sempre relativa a "oggi" (non al mese che l'utente sta visualizzando).
-  const forecast = forecastNextMonthExpenses(transazioni, categorie, oggi, 3);
+  const forecast = forecastNextMonthExpenses(transazioni, categorie, oggi, 3, valutaBase);
   const nextMonthDate = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 1);
 
   return (

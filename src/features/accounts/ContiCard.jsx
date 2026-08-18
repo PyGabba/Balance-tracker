@@ -4,7 +4,7 @@ import { formattaValuta } from "../../lib/format.js";
 import { calcolaSaldiConti } from "../../lib/finance.js";
 import { toast } from "../../components/Toast.jsx";
 
-export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, lang = "it" }) {
+export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, valutaBase = "EUR", lang = "it" }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
   const [nome, setNome] = useState("");
@@ -14,7 +14,7 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
   const ICONE = ["🏦", "💳", "💵", "🐖", "📱", "💰"];
 
   // Saldo (person-to-person) transactions are intentionally excluded.
-  const saldi = calcolaSaldiConti(conti, transazioni);
+  const saldi = calcolaSaldiConti(conti, transazioni, valutaBase);
   const totale = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
   // Amount earmarked in savings goals linked to each account
   const accantonati = {};

@@ -52,6 +52,15 @@ describe("calcolaDebitiMatrix", () => {
     ], persone);
     expect(debiti).toEqual([{ da: "l", a: "g", importo: 70 }]);
   });
+
+  // Regression: same 100x scale bug as calcolaSaldiConti — a JPY household's
+  // debts must come back in whole yen, not cents.
+  it("¥ (valuta a zero decimali): debito calcolato senza fattore 100x spurio", () => {
+    const debiti = calcolaDebitiMatrix([
+      { tipo: "uscita", importo: 1000, importoMinorUnits: 1000, pagatoDa: "g", splits: [{ personaId: "g", quota: 50 }, { personaId: "l", quota: 50 }] },
+    ], persone, "JPY");
+    expect(debiti).toEqual([{ da: "l", a: "g", importo: 500 }]);
+  });
 });
 
 describe("calcolaSaldiConti", () => {
@@ -83,6 +92,19 @@ describe("calcolaSaldiConti", () => {
     ]);
     expect(s.b).toBe(1010); // solo il lato esistente del trasferimento
     expect(s.c).toBe(50);
+  });
+
+  // Regression: with a zero-decimal currency (e.g. JPY), importoMinorUnits
+  // IS the whole-yen amount (precision 0) — reading it back without passing
+  // valutaBase used to default to 2-decimal precision and divide by 100,
+  // turning ¥1000 into ¥10.
+  it("¥ (valuta a zero decimali): importoMinorUnits già intero non viene diviso per 100", () => {
+    const s = calcolaSaldiConti(
+      [{ id: "b", saldoIniziale: 0 }],
+      [{ tipo: "entrata", importo: 1000, importoMinorUnits: 1000, contoId: "b" }],
+      "JPY"
+    );
+    expect(s.b).toBe(1000);
   });
 });
 

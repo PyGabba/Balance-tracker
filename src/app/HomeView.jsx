@@ -20,7 +20,7 @@ const DEFAULT_PERSONE = [
   { id: "persona2", nome: "Persona 2", emoji: "👤", colore: "#0984E3" },
 ];
 
-export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {}, lang = "it" }) {
+export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {}, valutaBase = "EUR", lang = "it" }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
@@ -62,8 +62,8 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [meseOffset, search, filtri, tuttiIMesi]);
   const txVisibili = txOrdinate.slice(0, visibleCount);
 
-  const debitiGlobale = calcolaDebitiMatrix(transazioni, persone);
-  const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
+  const debitiGlobale = calcolaDebitiMatrix(transazioni, persone, valutaBase);
+  const debitiMese = calcolaDebitiMatrix(txMese.filter(t => t.tipo !== "saldo"), persone, valutaBase); // saldi esclusi: pagano debiti di mesi precedenti e creerebbero debiti inversi fittizi nella vista mensile
   const allPeople = getAllPersone(transazioni, persone);
   const p1 = persone[0] || DEFAULT_PERSONE[0];
   const p2 = persone[1] || DEFAULT_PERSONE[1];
@@ -128,7 +128,7 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
 
       {/* Patrimonio (net worth) card */}
       {(conti.length > 0 || positions.length > 0) && (() => {
-        const saldi = calcolaSaldiConti(conti, transazioni);
+        const saldi = calcolaSaldiConti(conti, transazioni, valutaBase);
         const totConti = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
         const { valore: totInvestimenti } = calcolaValorePortfolio(positions, manualPrices);
         const patrimonio = totConti + totInvestimenti;
@@ -164,7 +164,7 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
       })()}
 
       {/* Debt card */}
-      <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} lang={lang} />
+      <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} valutaBase={valutaBase} lang={lang} />
 
       <DebtSummary meseVis={meseVis} debitiMese={debitiMese} debitiGlobale={debitiGlobale} allPeople={allPeople} transazioni={transazioni} onDelete={onDelete} onSettle={onSettle} lang={lang} />
 

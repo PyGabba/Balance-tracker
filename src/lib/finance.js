@@ -9,10 +9,10 @@ import { fromMinorUnits, minorUnitsOf } from "./money.js";
 // Bilanci accumulati in unità minori intere (MOD-016), non float grezzi —
 // una casa con molte transazioni è esattamente il caso in cui l'errore in
 // virgola mobile si accumulerebbe prima dell'arrotondamento finale.
-export function calcolaDebitiMatrix(transazioni, persone) {
+export function calcolaDebitiMatrix(transazioni, persone, valutaBase = "EUR") {
   const balancesMinor = {};
   for (const t of transazioni) {
-    const importoMinor = minorUnitsOf(t);
+    const importoMinor = minorUnitsOf(t, "importo", valutaBase);
     if (t.tipo === "saldo") {
       if (!t.pagatoDa || !t.ricevutoDa) continue;
       // Trip settlements are record-only: the underlying trip expenses never
@@ -66,7 +66,7 @@ export function calcolaDebitiMatrix(transazioni, persone) {
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
     const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
-    debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+    debiti.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor, valutaBase) });
     debtors[i].balMinor   -= payMinor;
     creditors[j].balMinor -= payMinor;
     if (debtors[i].balMinor   < 1) i++;
@@ -77,13 +77,15 @@ export function calcolaDebitiMatrix(transazioni, persone) {
 
 // Saldi dei conti: saldo iniziale + entrate − uscite assegnate + giroconti.
 // Accumulato in unità minori intere (MOD-016) per lo stesso motivo di sopra.
-export function calcolaSaldiConti(conti, transazioni) {
+// Conti e transazioni sono sempre nella valuta base della casa (nessun campo
+// valuta proprio), quindi valutaBase governa la precisione di entrambi.
+export function calcolaSaldiConti(conti, transazioni, valutaBase = "EUR") {
   const saldiMinor = {};
   // saldoIniziale is optional (defaults to 0) — minorUnitsOf doesn't
   // itself default a missing decimal field, so that has to happen first.
-  for (const c of conti) saldiMinor[c.id] = minorUnitsOf({ ...c, saldoIniziale: c.saldoIniziale || 0 }, "saldoIniziale");
+  for (const c of conti) saldiMinor[c.id] = minorUnitsOf({ ...c, saldoIniziale: c.saldoIniziale || 0 }, "saldoIniziale", valutaBase);
   for (const t of transazioni) {
-    const importoMinor = minorUnitsOf(t);
+    const importoMinor = minorUnitsOf(t, "importo", valutaBase);
     if (t.tipo === "trasferimento") {
       if (t.contoDa && saldiMinor[t.contoDa] !== undefined) saldiMinor[t.contoDa] -= importoMinor;
       if (t.contoA && saldiMinor[t.contoA] !== undefined) saldiMinor[t.contoA] += importoMinor;
@@ -94,7 +96,7 @@ export function calcolaSaldiConti(conti, transazioni) {
     else if (t.tipo === "uscita") saldiMinor[t.contoId] -= importoMinor;
   }
   const saldi = {};
-  for (const id of Object.keys(saldiMinor)) saldi[id] = fromMinorUnits(saldiMinor[id]);
+  for (const id of Object.keys(saldiMinor)) saldi[id] = fromMinorUnits(saldiMinor[id], valutaBase);
   return saldi;
 }
 
@@ -114,7 +116,7 @@ export function calcolaValorePortfolio(positions, manualPrices) {
     // authoritative value rather than reconverting the decimal every time;
     // converted back to decimal since quantita is inherently fractional
     // and cost-per-share isn't itself a whole-cent quantity.
-    const prezzo = fromMinorUnits(minorUnitsOf(p, "prezzoAcquisto"));
+    const prezzo = fromMinorUnits(minorUnitsOf(p, "prezzoAcquisto", p.valuta || "EUR"), p.valuta || "EUR");
     if (p.tipo === "sell") {
       const avg = h.quantita > 0.0001 ? h.costoTotale / h.quantita : 0;
       const q = Math.min(p.quantita, h.quantita);
@@ -186,12 +188,12 @@ export function contaFiltriAttivi(filtri = {}) {
   return n;
 }
 
-export function calcolaSettleViaggio(trip) {
+export function calcolaSettleViaggio(trip, valutaBase = "EUR") {
   const balancesMinor = {};
   for (const e of trip.expenses) {
     if (e.splits && e.splits.length > 0) {
       const totalQ = e.splits.reduce((s, sc) => s + sc.quota, 0);
-      const importoMinor = minorUnitsOf(e);
+      const importoMinor = minorUnitsOf(e, "importo", valutaBase);
       for (const s of e.splits) {
         if (s.personaId !== e.pagatoDa) {
           const owedMinor = Math.round(importoMinor * (s.quota / totalQ));
@@ -212,7 +214,7 @@ export function calcolaSettleViaggio(trip) {
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
     const payMinor = Math.min(debtors[i].balMinor, creditors[j].balMinor);
-    if (payMinor > 1) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor) });
+    if (payMinor > 1) settlements.push({ da: debtors[i].id, a: creditors[j].id, importo: fromMinorUnits(payMinor, valutaBase) });
     debtors[i].balMinor -= payMinor;
     creditors[j].balMinor -= payMinor;
     if (debtors[i].balMinor < 1) i++;
@@ -225,7 +227,7 @@ export function calcolaSettleViaggio(trip) {
 // mesi COMPLETI (il mese in corso è escluso perché parziale — includerlo
 // abbasserebbe artificialmente la media). Include anche una ripartizione per
 // categoria, calcolata con la stessa media sulle stesse categorie.
-export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Date(), months = 3) {
+export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Date(), months = 3, valutaBase = "EUR") {
   const monthKeys = [];
   for (let i = 1; i <= months; i++) {
     const d = new Date(oggi.getFullYear(), oggi.getMonth() - i, 1);
@@ -240,7 +242,7 @@ export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Dat
     if (t.tipo !== "uscita" || !t.data) continue;
     const key = t.data.slice(0, 7);
     if (!(key in totalsByMonthMinor)) continue;
-    const importoMinor = minorUnitsOf(t);
+    const importoMinor = minorUnitsOf(t, "importo", valutaBase);
     totalsByMonthMinor[key] += importoMinor;
     const cat = t.categoria || "altro";
     categoryTotalsByMonthMinor[key][cat] = (categoryTotalsByMonthMinor[key][cat] || 0) + importoMinor;
@@ -251,14 +253,14 @@ export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Dat
   if (monthsUsed === 0) return { forecast: 0, monthsUsed: 0, perCategory: [] };
 
   const sumTotalMinor = monthsWithData.reduce((s, k) => s + totalsByMonthMinor[k], 0);
-  const forecast = fromMinorUnits(Math.round(sumTotalMinor / monthsUsed));
+  const forecast = fromMinorUnits(Math.round(sumTotalMinor / monthsUsed), valutaBase);
 
   const catIds = new Set();
   for (const k of monthsWithData) for (const cid of Object.keys(categoryTotalsByMonthMinor[k])) catIds.add(cid);
 
   const perCategory = [...catIds].map(id => {
     const sumMinor = monthsWithData.reduce((s, k) => s + (categoryTotalsByMonthMinor[k][id] || 0), 0);
-    const valore = fromMinorUnits(Math.round(sumMinor / monthsUsed));
+    const valore = fromMinorUnits(Math.round(sumMinor / monthsUsed), valutaBase);
     const cat = categorie.find(c => c.id === id);
     return { id, nome: cat?.nome || id, emoji: cat?.emoji || "📦", colore: cat?.colore || "#888", valore };
   }).filter(c => c.valore > 0).sort((a, b) => b.valore - a.valore);

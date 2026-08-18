@@ -4,7 +4,14 @@
 // used in production, just pointed at a throwaway URI/db name instead of a
 // real MongoDB deployment. No Docker, no network dependency beyond the
 // one-time mongod binary download the first time this runs on a machine.
-import { MongoMemoryServer } from "mongodb-memory-server";
+//
+// A single-node REPLICA SET, not a standalone instance: multi-document
+// transactions (household deletion, account-reference detachment, manual
+// price replacement — see withTransaction in index.js) are rejected
+// outright by a standalone mongod, so testing that behavior at all
+// requires this. Production MongoDB must be a replica set for the same
+// reason — a single-node one is enough, this isn't asking for a cluster.
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { app, connectDB } from "./index.js";
 
 const TEST_DB_NAME = "balance_tracker_test";
@@ -13,7 +20,7 @@ let mongod;
 let client;
 
 export async function startTestServer() {
-  mongod = await MongoMemoryServer.create();
+  mongod = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   client = await connectDB(mongod.getUri(), TEST_DB_NAME);
   return app;
 }

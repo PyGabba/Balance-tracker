@@ -26,7 +26,11 @@ export function TripGuestView({ token }) {
       setTrip(data);
       try {
         const saved = JSON.parse(localStorage.getItem(lsKey) || "null");
-        if (saved && (data.partecipanti || []).some(p => p.id === saved.id)) setMe(saved);
+        // guestToken is what proves identity to the expenses endpoint — an
+        // identity saved before that existed has none, so treat it as
+        // stale and fall back to the join form rather than a broken state
+        // where "already joined" is shown but every expense submit fails.
+        if (saved?.guestToken && (data.partecipanti || []).some(p => p.id === saved.id)) setMe(saved);
       } catch {}
     } catch (e) {
       setError(e.message || t(lang, "guest.invalidLink"));

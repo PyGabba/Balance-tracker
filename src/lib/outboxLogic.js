@@ -37,6 +37,43 @@ export function makeOperation({ entityType, entityId, operation, payload, househ
 const unsent = (op) => op.attempts === 0;
 const sameEntity = (op, newOp) => op.entityType === newOp.entityType && op.entityId === newOp.entityId;
 
+// When an unsent create is dropped (the entity it would have created never
+// existed as far as the server knows), its temp id can NEVER get a
+// real-id alias — nothing will ever call recordIdAlias for it. Any other
+// still-queued operation whose payload references that temp id (e.g. a
+// transaction's contoId pointing at an account created — then deleted —
+// in the same offline session) would otherwise sit in isOpReady's
+// unresolvedRef limbo forever, since the reference it's waiting on can
+// never resolve.
+//
+// A trip expense is structurally incapable of existing without its trip
+// (there's no standalone /api/tripExpenses — the URL itself is
+// /api/trips/:tripId/expenses), so an unsent tripExpenses op referencing
+// the dead id cascades away with it, exactly like the parent create being
+// dropped. Any other reference (accounts, the only other cross-entity
+// temp-id reference in this app — contoId/contoDa/contoA on transactions,
+// contoId on goals) is optional at the API level, so the dangling
+// reference is just cleared instead of losing the whole operation.
+function cascadeRemoveTempId(outboxOps, deadTempId) {
+  const survivors = [];
+  const toCascade = [];
+  let changed = false;
+  for (const op of outboxOps) {
+    const references = op.payload ? Object.values(op.payload).some(v => v === deadTempId) : false;
+    if (!references) { survivors.push(op); continue; }
+    changed = true;
+    if (op.entityType === "tripExpenses" && unsent(op)) {
+      toCascade.push(op.entityId); // its own temp id may in turn be referenced elsewhere
+      continue;
+    }
+    const payload = { ...op.payload };
+    for (const [k, v] of Object.entries(payload)) if (v === deadTempId) payload[k] = null;
+    survivors.push({ ...op, payload });
+  }
+  if (!changed) return outboxOps;
+  return toCascade.reduce((ops, id) => cascadeRemoveTempId(ops, id), survivors);
+}
+
 /**
  * Applied every time a new write is queued. Keeps the outbox minimal and
  * resolves same-entity ordering locally instead of ever sending
@@ -45,7 +82,9 @@ const sameEntity = (op, newOp) => op.entityType === newOp.entityType && op.entit
  *  - update folded into a still-unsent update for the same entity
  *  - delete of an entity whose create was never sent removes both — there
  *    is nothing to sync, the entity never existed as far as the server
- *    knows
+ *    knows — and cascades that removal to anything else in the outbox
+ *    that referenced it (see cascadeRemoveTempId above), so no other
+ *    operation is left permanently waiting on an id that will never exist
  *  - delete of an otherwise-known entity drops any queued updates for it
  *    (moot) and queues the delete
  */
@@ -67,7 +106,7 @@ export function compactEnqueue(outboxOps, newOp) {
   if (newOp.operation === "delete") {
     const pendingCreate = outboxOps.find(op => sameEntity(op, newOp) && op.operation === "create" && unsent(op));
     if (pendingCreate) {
-      return outboxOps.filter(op => !sameEntity(op, newOp));
+      return cascadeRemoveTempId(outboxOps.filter(op => !sameEntity(op, newOp)), newOp.entityId);
     }
     return [...outboxOps.filter(op => !(sameEntity(op, newOp) && op.operation === "update")), newOp];
   }

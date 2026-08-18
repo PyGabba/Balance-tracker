@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchTripCategories, saveTripCategories, fetchTrips, addTrip, deleteTrip, addTripExpense, deleteTripExpense, addTransaction, updateTrip, createTripShareLink, revokeTripShareLink } from "../../api.js";
+import { fetchTripCategories, saveTripCategories, fetchTrips, addTrip, deleteTrip, addTripExpense, deleteTripExpense, settleTrip, createTripShareLink, revokeTripShareLink } from "../../api.js";
 import { calcolaSettleViaggio } from "../../lib/finance.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
@@ -7,7 +7,7 @@ import { toast } from "../../components/Toast.jsx";
 import { inputStyle } from "../../components/ui/styles.js";
 import { TripExpenseForm } from "./TripExpenseForm.jsx";
 
-export function ViaggiView({ persone, lang = "it" }) {
+export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -156,19 +156,10 @@ export function ViaggiView({ persone, lang = "it" }) {
     if (!confirm(`${t(lang, "viaggi.confirmSettlePrefix")} "${trip.nome}" ${t(lang, "viaggi.confirmSettleSuffix")}\n${riepilogo}`)) return;
     setSettlingId(trip.id);
     try {
-      const oggi = new Date().toISOString().slice(0, 10);
-      for (const s of settlements) {
-        await addTransaction({
-          tipo: "saldo",
-          importo: s.importo,
-          categoria: "saldo_viaggio",
-          descrizione: `Saldo viaggio: ${trip.nome} (${nameOf(s.da)} → ${nameOf(s.a)})`,
-          data: oggi,
-          pagatoDa: s.da,
-          ricevutoDa: s.a,
-        });
-      }
-      await updateTrip(trip.id, { settled: true });
+      // Server computes and inserts the settlement transactions itself
+      // (never trusts client-side numbers) and only then marks the trip
+      // settled — see POST /api/trips/:id/settle.
+      await settleTrip(trip.id);
       setTrips(trips.map(t => t.id === trip.id ? { ...t, settled: true } : t));
     } catch (e) {
       toast(`${t(lang, "toast.errorSavePrefix")} ${e.message}`, "error");
@@ -204,7 +195,7 @@ export function ViaggiView({ persone, lang = "it" }) {
     setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
   }
 
-  const calculateSettle = calcolaSettleViaggio;
+  const calculateSettle = (trip) => calcolaSettleViaggio(trip, valutaBase);
 
   const allColors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
   const tripColors = {};

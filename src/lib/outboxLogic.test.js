@@ -75,6 +75,46 @@ describe("compactEnqueue", () => {
     const result = compactEnqueue([c1], u2);
     expect(result).toEqual([c1, u2]);
   });
+
+  // Regression: deleting an entity whose create was never sent drops both
+  // (the entity never existed as far as the server knows) — but its temp
+  // id can then never get a real-id alias. Anything ELSE in the outbox
+  // still referencing that id would otherwise wait forever (isOpReady's
+  // unresolvedRef can never resolve). See cascadeRemoveTempId.
+  it("clears a dangling reference (contoId) on another op when the account it points at is deleted before syncing", () => {
+    const accCreate = op({ entityType: "accounts", operation: "create", entityId: "local:acc1", payload: { nome: "Conto" } });
+    const txCreate = op({ entityType: "transactions", operation: "create", entityId: "local:tx1", payload: { importo: 10, contoId: "local:acc1" } });
+    const accDelete = op({ entityType: "accounts", operation: "delete", entityId: "local:acc1", payload: null });
+
+    const result = compactEnqueue([accCreate, txCreate], accDelete);
+    // The account's own create+delete pair is gone (nothing to sync)...
+    expect(result.find(o => o.entityType === "accounts")).toBeUndefined();
+    // ...and the transaction survives, but its dangling contoId is cleared
+    // instead of being left pointing at an id that will never exist.
+    const survivingTx = result.find(o => o.entityId === "local:tx1");
+    expect(survivingTx).toBeTruthy();
+    expect(survivingTx.payload).toEqual({ importo: 10, contoId: null });
+  });
+
+  it("cascades the removal to a still-unsent tripExpenses create when its parent trip is deleted before syncing", () => {
+    const tripCreate = op({ entityType: "trips", operation: "create", entityId: "local:trip1", payload: { nome: "Weekend" } });
+    const expenseCreate = op({ entityType: "tripExpenses", operation: "create", entityId: "local:exp1", payload: { importo: 20, tripId: "local:trip1" } });
+    const tripDelete = op({ entityType: "trips", operation: "delete", entityId: "local:trip1", payload: null });
+
+    const result = compactEnqueue([tripCreate, expenseCreate], tripDelete);
+    // A trip expense can't exist without its trip — both the trip AND the
+    // expense that was waiting on it are gone, not left stuck forever.
+    expect(result).toEqual([]);
+  });
+
+  it("does not touch operations for unrelated entities during a cascade", () => {
+    const accCreate = op({ entityType: "accounts", operation: "create", entityId: "local:acc1", payload: { nome: "Conto" } });
+    const accDelete = op({ entityType: "accounts", operation: "delete", entityId: "local:acc1", payload: null });
+    const unrelatedTx = op({ entityType: "transactions", operation: "create", entityId: "local:tx2", payload: { importo: 5, contoId: "acc-real-id" } });
+
+    const result = compactEnqueue([accCreate, unrelatedTx], accDelete);
+    expect(result).toEqual([unrelatedTx]);
+  });
 });
 
 describe("sortForSync", () => {

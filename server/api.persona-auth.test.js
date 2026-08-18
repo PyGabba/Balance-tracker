@@ -148,6 +148,65 @@ describe("persona login lockout + credential removal (isolated household)", () =
   });
 });
 
+describe("persona session revocation", () => {
+  // Regression: removing/changing a persona's credential must kill any
+  // session already issued for that persona (active_tokens.personaId),
+  // not just block future logins — otherwise a stolen or ex-member session
+  // stays valid until its JWT's own 90-day expiry.
+  let householdAgent, personaId, personaCookie;
+
+  beforeAll(async () => {
+    const reg = await request(app).post("/api/auth/register")
+      .send({ nome: "Session Revocation Household", persone: ["Target"], pin: "471982" });
+    householdAgent = request.agent(app);
+    await householdAgent.post("/api/auth/login").send({ pin: "471982" });
+    personaId = reg.body.persone[0].id;
+    await householdAgent.post("/api/auth/persona-credential").send({ personaId, newPassword: "original-password-1" });
+  });
+
+  it("credential removal revokes an already-issued persona session", async () => {
+    // persona-login (step 2) requires an existing household-PIN session
+    // (step 1) — same two-layer login the app itself does.
+    const loginAgent = request.agent(app);
+    await loginAgent.post("/api/auth/login").send({ pin: "471982" });
+    const login = await loginAgent.post("/api/auth/persona-login").send({ personaId, password: "original-password-1" });
+    expect(login.status).toBe(200);
+    personaCookie = login.headers["set-cookie"];
+
+    // The persona session works before removal.
+    const before = await request(app).get("/api/household").set("Cookie", personaCookie);
+    expect(before.status).toBe(200);
+
+    const del = await householdAgent.delete(`/api/auth/persona-credential/${personaId}`);
+    expect(del.status).toBe(200);
+
+    // Same JWT, same jti — now dead, even though it hasn't expired.
+    const after = await request(app).get("/api/household").set("Cookie", personaCookie);
+    expect(after.status).toBe(401);
+    expect(after.body.error.code).toBe("SESSION_EXPIRED");
+  });
+
+  it("changing a persona's password revokes prior sessions issued under the old one", async () => {
+    await householdAgent.post("/api/auth/persona-credential").send({ personaId, newPassword: "second-password-1" });
+    const loginAgent = request.agent(app);
+    await loginAgent.post("/api/auth/login").send({ pin: "471982" });
+    const login = await loginAgent.post("/api/auth/persona-login").send({ personaId, password: "second-password-1" });
+    expect(login.status).toBe(200);
+    const cookie = login.headers["set-cookie"];
+
+    const before = await request(app).get("/api/household").set("Cookie", cookie);
+    expect(before.status).toBe(200);
+
+    const change = await householdAgent.post("/api/auth/persona-credential")
+      .send({ personaId, newPassword: "third-password-1", currentPassword: "second-password-1" });
+    expect(change.status).toBe(200);
+
+    const after = await request(app).get("/api/household").set("Cookie", cookie);
+    expect(after.status).toBe(401);
+    expect(after.body.error.code).toBe("SESSION_EXPIRED");
+  });
+});
+
 describe("zero enforcement (MOD-025 Stage 1 guarantee)", () => {
   it("every existing endpoint still works exactly as before for a household with zero personas enrolled", async () => {
     const reg = await request(app).post("/api/auth/register")

@@ -101,6 +101,37 @@ export function validateAmount(raw, currency) {
   return roundAmount(n, currency);
 }
 
+// ─── Shared numeric/enum validators (positions, goals) ───
+// The transaction validator above rejects NaN/Infinity via
+// Number.isFinite; positions and goals used to just `parseFloat()` their
+// numeric fields with no such check, letting "abc" (→ NaN) or "Infinity"
+// (→ Infinity) reach storage and then contaminate every portfolio/goal
+// aggregate downstream. Same discipline, generalized for fields that
+// aren't currency amounts (quantita — no currency-precision rounding
+// applies) or that are allowed to be zero (currentAmount).
+export function validatePositiveNumber(raw, fieldName) {
+  const n = typeof raw === "number" ? raw : parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new ValidationError("INVALID_FIELD", `${fieldName} non valido`, { [fieldName]: raw });
+  }
+  return n;
+}
+export function validateNonNegativeNumber(raw, fieldName) {
+  const n = typeof raw === "number" ? raw : parseFloat(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new ValidationError("INVALID_FIELD", `${fieldName} non valido`, { [fieldName]: raw });
+  }
+  return n;
+}
+export function validateEnum(raw, allowed, fieldName) {
+  if (!allowed.includes(raw)) {
+    throw new ValidationError("INVALID_FIELD", `${fieldName} non valido`, { [fieldName]: raw, allowed });
+  }
+  return raw;
+}
+export const POSITION_TIPI = ["buy", "sell"];
+export const GOAL_CONTRIBUTION_TYPES = ["manual", "percent", "fixed"];
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function validateDateStr(raw) {
   if (typeof raw !== "string" || !DATE_RE.test(raw)) {
@@ -240,7 +271,7 @@ export function validateRicorrenza(r) {
  * tassoCambio) is intentionally NOT handled here — see applyValutaTransazione
  * in index.js (MOD-005), which needs the live exchange-rate table.
  */
-export function validateTransactionInput(body, { householdPersonIds = [], accountIds = new Set(), partial = false, existing = null } = {}) {
+export function validateTransactionInput(body, { householdPersonIds = [], accountIds = new Set(), partial = false, existing = null, valutaBase = "EUR" } = {}) {
   const b = body || {};
   const doc = {};
   const get = (key) => (b[key] !== undefined ? b[key] : (partial ? existing?.[key] : undefined));
@@ -250,9 +281,14 @@ export function validateTransactionInput(body, { householdPersonIds = [], accoun
   // alongside the decimal one, going forward — otherwise new writes would
   // fall behind the one-time migration that backfilled it for existing
   // data, and the companion field would silently stop being trustworthy.
+  // `importo` is always stored in the household's base currency (foreign
+  // amounts are converted at write time by applyValutaTransazione), so the
+  // minor-units precision must follow valutaBase, not a hardcoded 2 — a
+  // JPY/KRW/etc. household would otherwise have every amount stored 100x
+  // off.
   if (!partial || b.importo !== undefined) {
     doc.importo = validateAmount(get("importo"));
-    doc.importoMinorUnits = toMinorUnits(doc.importo);
+    doc.importoMinorUnits = toMinorUnits(doc.importo, valutaBase);
   }
   if (!partial || b.data !== undefined) doc.data = validateDateStr(get("data"));
 
@@ -320,7 +356,7 @@ export function validateTransactionInput(body, { householdPersonIds = [], accoun
 // since trip guests joined via a share link are deliberately NOT household
 // members — and, if splits are given, quotas must sum to 100 within
 // tolerance rather than being silently dropped.
-export function buildTripExpense(body, trip) {
+export function buildTripExpense(body, trip, valutaBase = "EUR") {
   const b = body || {};
   const partecipantiIds = new Set((trip.partecipanti || []).map(p => p.id));
   if (!isKnownParticipant(b.pagatoDa, partecipantiIds)) {
@@ -334,7 +370,9 @@ export function buildTripExpense(body, trip) {
     id: randomUUID(),
     pagatoDa: b.pagatoDa,
     importo,
-    importoMinorUnits: toMinorUnits(importo), // MOD-016
+    // Trip expenses have no currency of their own — always the owning
+    // household's base currency (MOD-016).
+    importoMinorUnits: toMinorUnits(importo, valutaBase), // MOD-016
     descrizione: sanitizeText(b.descrizione, 200),
     categoria: sanitizeText(b.categoria, 50) || "altro",
     data,

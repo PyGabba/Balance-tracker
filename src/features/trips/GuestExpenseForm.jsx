@@ -21,6 +21,7 @@ export function GuestExpenseForm({ trip, me, token, categorie, onAdded, lang = "
       await addSharedTripExpense(token, {
         importo: val, descrizione: descrizione.trim(), categoria,
         pagatoDa: me.id, data: new Date().toISOString().slice(0, 10), splits,
+        guestToken: me.guestToken, // server derives pagatoDa from this, not from the field above
       });
       setImporto(""); setDescrizione(""); setCategoria("altro");
       await onAdded();
