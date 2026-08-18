@@ -45,6 +45,22 @@ export function validatePersonaPassword(raw) {
   return raw;
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Optional — a persona only needs this to use the standalone email+password
+// login (no household PIN first); the PIN-then-persona-login flow never
+// needed an identifier since the household session already picks the
+// persona list to choose from. Globally unique across ALL households (see
+// the persone.auth.email index in index.js) since this is the ONLY thing
+// that identifies which household/persona a standalone login belongs to.
+export function validatePersonaEmailOptional(raw) {
+  if (raw == null || raw === "") return null;
+  const email = String(raw).trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) {
+    throw new ValidationError("INVALID_EMAIL", "Email non valida", { email: raw });
+  }
+  return email;
+}
+
 // Percentage-point tolerance for split totals. Generous enough for 3-way
 // splits like 33.33 + 33.33 + 33.34 = 100.00, tight enough that 40 + 40
 // (=80) is still rejected instead of silently normalized.

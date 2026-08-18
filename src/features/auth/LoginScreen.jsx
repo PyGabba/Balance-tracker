@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { login, register, changePin, requestPinReset, confirmPinReset } from "../../api.js";
+import { login, loginWithPassword, register, changePin, requestPinReset, confirmPinReset } from "../../api.js";
 import { t, detectGuestLang } from "../../lib/i18n.js";
 import { labelStyle, inputStyle } from "../../components/ui/styles.js";
 import { PinDots, NumPad } from "../../components/ui/PinInput.jsx";
@@ -7,6 +7,12 @@ import { PinDots, NumPad } from "../../components/ui/PinInput.jsx";
 export function LoginScreen({ onLogin }) {
   const [lang] = useState(() => detectGuestLang());
   const [mode, setMode] = useState("login"); // "login" | "register" | "change-pin"
+  // Which credential the "login" mode's UI collects — independent of
+  // `mode` above (register/change-pin still always use the PIN numpad).
+  // Password login is opt-in per persona (needs a credential email set in
+  // settings, see PersonaSwitcher/ImpostazioniView) — a household that
+  // never uses it just never has a reason to tap this toggle.
+  const [loginMethod, setLoginMethod] = useState("pin"); // "pin" | "password"
 
   // Login state — numpad
   const [pin, setPin] = useState("");
@@ -14,6 +20,27 @@ export function LoginScreen({ onLogin }) {
   const [loginLoading, setLoginLoading] = useState(false);
   const [pinShake, setPinShake] = useState(false);
   const PIN_LEN = 6; // lunghezza minima di riferimento per i puntini (non aziona più l'auto-submit)
+
+  // Login state — email + password (standalone, no PIN)
+  const [pwEmail, setPwEmail] = useState("");
+  const [pwPassword, setPwPassword] = useState("");
+  const [pwErrore, setPwErrore] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+
+  async function handlePasswordLogin() {
+    if (!pwEmail.trim() || !pwPassword) return;
+    setPwLoading(true);
+    setPwErrore("");
+    try {
+      const result = await loginWithPassword(pwEmail.trim(), pwPassword);
+      if (result.requiresPinChange) setMode("change-pin");
+      else onLogin();
+    } catch (err) {
+      setPwErrore(err.message || t(lang, "login.invalidCredentials"));
+    } finally {
+      setPwLoading(false);
+    }
+  }
 
   // Register state
   const [regNome, setRegNome] = useState("");
@@ -250,53 +277,99 @@ export function LoginScreen({ onLogin }) {
 
         {mode === "login" ? (
           <>
-            <div style={{ textAlign: "center", color: "#888", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>
-              {loginLoading ? t(lang, "login.loggingIn") : t(lang, "login.enterPin")}
+            {/* PIN / Password toggle — same visual pattern as the
+                login/register toggle above, just for which credential this
+                screen collects. */}
+            <div style={{ display: "flex", background: "#1a1a28", borderRadius: 12, padding: 4, marginBottom: 20 }}>
+              {[["pin", t(lang, "login.methodPin")], ["password", t(lang, "login.methodPassword")]].map(([m, label]) => (
+                <button key={m} onClick={() => { setLoginMethod(m); setLoginErrore(""); setPwErrore(""); }} style={{
+                  flex: 1, padding: "8px", border: "none", borderRadius: 9, cursor: "pointer",
+                  fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700,
+                  background: loginMethod === m ? "#6C5CE733" : "transparent",
+                  color: loginMethod === m ? "#a78bfa" : "#666", transition: "all 0.2s",
+                }}>{label}</button>
+              ))}
             </div>
-            {loginSubtitle && (
-              <div style={{ textAlign: "center", color: "#6C5CE7", fontSize: 11, marginTop: 4, letterSpacing: 0.3 }}>
-                {loginSubtitle}
-              </div>
-            )}
 
-            <PinDots value={pin} maxLen={Math.max(PIN_LEN, pin.length)} shake={pinShake} />
+            {loginMethod === "pin" ? (
+              <>
+                <div style={{ textAlign: "center", color: "#888", fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>
+                  {loginLoading ? t(lang, "login.loggingIn") : t(lang, "login.enterPin")}
+                </div>
+                {loginSubtitle && (
+                  <div style={{ textAlign: "center", color: "#6C5CE7", fontSize: 11, marginTop: 4, letterSpacing: 0.3 }}>
+                    {loginSubtitle}
+                  </div>
+                )}
 
-            {loginErrore && (
-              <div style={{ textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
-                {loginErrore}
-              </div>
-            )}
+                <PinDots value={pin} maxLen={Math.max(PIN_LEN, pin.length)} shake={pinShake} />
 
-            <NumPad onDigit={onDigit} onDelete={onDelete} disabled={loginLoading} />
+                {loginErrore && (
+                  <div style={{ textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+                    {loginErrore}
+                  </div>
+                )}
 
-            {/* Spazio sempre riservato: mostrare/nascondere il pulsante con
-                opacity invece di montarlo/smontarlo evita che il tastierino
-                si sposti mentre l'utente sta ancora digitando il PIN. */}
-            {(() => {
-              const showAccedi = pin.length >= 4 && pin.length < 8;
-              return (
-                <div style={{ minHeight: 72 }}>
-                  <button
-                    onClick={() => submitRef.current(pin)}
-                    disabled={loginLoading || !showAccedi}
-                    style={{
-                      ...sBtn, marginTop: 20, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff",
-                      opacity: showAccedi ? (loginLoading ? 0.6 : 1) : 0,
-                      pointerEvents: showAccedi ? "auto" : "none",
-                      transition: "opacity 0.2s ease",
-                    }}
-                  >
-                    {loginLoading ? t(lang, "login.loggingInShort") : t(lang, "login.login")}
+                <NumPad onDigit={onDigit} onDelete={onDelete} disabled={loginLoading} />
+
+                {/* Spazio sempre riservato: mostrare/nascondere il pulsante con
+                    opacity invece di montarlo/smontarlo evita che il tastierino
+                    si sposti mentre l'utente sta ancora digitando il PIN. */}
+                {(() => {
+                  const showAccedi = pin.length >= 4 && pin.length < 8;
+                  return (
+                    <div style={{ minHeight: 72 }}>
+                      <button
+                        onClick={() => submitRef.current(pin)}
+                        disabled={loginLoading || !showAccedi}
+                        style={{
+                          ...sBtn, marginTop: 20, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff",
+                          opacity: showAccedi ? (loginLoading ? 0.6 : 1) : 0,
+                          pointerEvents: showAccedi ? "auto" : "none",
+                          transition: "opacity 0.2s ease",
+                        }}
+                      >
+                        {loginLoading ? t(lang, "login.loggingInShort") : t(lang, "login.login")}
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                <div style={{ textAlign: "center", marginTop: 4 }}>
+                  <button onClick={openForgotPin} style={{ background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", textDecoration: "underline" }}>
+                    {t(lang, "login.forgotPin")}
                   </button>
                 </div>
-              );
-            })()}
+              </>
+            ) : (
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>{t(lang, "login.emailLabel")}</label>
+                  <input type="email" inputMode="email" autoFocus value={pwEmail}
+                    onChange={e => { setPwEmail(e.target.value); setPwErrore(""); }}
+                    onKeyDown={e => e.key === "Enter" && handlePasswordLogin()}
+                    placeholder={t(lang, "login.emailPlaceholder")} style={smallInput} />
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <label style={labelStyle}>{t(lang, "login.passwordLabel")}</label>
+                  <input type="password" value={pwPassword}
+                    onChange={e => { setPwPassword(e.target.value); setPwErrore(""); }}
+                    onKeyDown={e => e.key === "Enter" && handlePasswordLogin()}
+                    placeholder={t(lang, "login.passwordPlaceholder")} style={smallInput} />
+                </div>
 
-            <div style={{ textAlign: "center", marginTop: 4 }}>
-              <button onClick={openForgotPin} style={{ background: "none", border: "none", color: "#666", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", textDecoration: "underline" }}>
-                {t(lang, "login.forgotPin")}
-              </button>
-            </div>
+                {pwErrore && (
+                  <div style={{ textAlign: "center", color: "#FF6B6B", fontSize: 13, fontWeight: 600, marginTop: 10 }}>
+                    {pwErrore}
+                  </div>
+                )}
+
+                <button onClick={handlePasswordLogin} disabled={pwLoading || !pwEmail.trim() || !pwPassword} style={{
+                  ...sBtn, background: "linear-gradient(135deg, #6C5CE7, #a855f7)", color: "#fff",
+                  opacity: (pwLoading || !pwEmail.trim() || !pwPassword) ? 0.6 : 1,
+                }}>{pwLoading ? t(lang, "login.loggingInShort") : t(lang, "login.loginWithPassword")}</button>
+              </>
+            )}
           </>
         ) : regSuccesso ? (
           <div style={{ textAlign: "center", padding: 20 }}>

@@ -40,19 +40,27 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
   const [editingCredId, setEditingCredId] = useState(null);
   const [credCurrentInput, setCredCurrentInput] = useState("");
   const [credNewInput, setCredNewInput] = useState("");
+  const [credEmailInput, setCredEmailInput] = useState("");
   const [credBusy, setCredBusy] = useState(false);
 
-  function startEditCred(personaId) {
-    setEditingCredId(personaId);
+  function startEditCred(persona) {
+    setEditingCredId(persona.id);
     setCredCurrentInput("");
     setCredNewInput("");
+    setCredEmailInput(persona.credentialEmail || "");
   }
 
   async function handleCredSave(persona) {
     setCredBusy(true);
     try {
+      // Only send email if it actually changed from what's already saved —
+      // an untouched field shouldn't risk a spurious EMAIL_ALREADY_IN_USE
+      // (e.g. re-saving a password without re-typing the email that's
+      // already this same persona's own).
+      const emailChanged = credEmailInput.trim() !== (persona.credentialEmail || "");
       const updated = await enrollPersonaCredential(
-        persona.id, credNewInput, persona.hasCredential ? credCurrentInput : undefined
+        persona.id, credNewInput, persona.hasCredential ? credCurrentInput : undefined,
+        emailChanged ? credEmailInput.trim() : undefined
       );
       setPersoneLocal(updated);
       setEditingCredId(null);
@@ -328,7 +336,7 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
                   </button>
                 )}
                 <button
-                  onClick={() => editingCredId === p.id ? setEditingCredId(null) : startEditCred(p.id)}
+                  onClick={() => editingCredId === p.id ? setEditingCredId(null) : startEditCred(p)}
                   title={p.hasCredential ? t(lang, "settings.credentialChange") : t(lang, "settings.credentialSet")}
                   style={{ background: "none", border: "none", color: p.hasCredential ? "#4ECDC4" : "#555", cursor: "pointer", fontSize: 13, padding: "3px 4px" }}
                 >
@@ -351,8 +359,14 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
                   <input
                     type="password" placeholder={t(lang, "settings.credentialNew")} autoFocus={!p.hasCredential}
                     value={credNewInput} onChange={e => setCredNewInput(e.target.value)}
-                    style={{ ...inputStyle, marginBottom: 8, fontSize: 12, padding: "6px 8px", background: "#1a1a28" }}
+                    style={{ ...inputStyle, marginBottom: 6, fontSize: 12, padding: "6px 8px", background: "#1a1a28" }}
                   />
+                  <input
+                    type="email" placeholder={t(lang, "settings.credentialEmail")}
+                    value={credEmailInput} onChange={e => setCredEmailInput(e.target.value)}
+                    style={{ ...inputStyle, marginBottom: 4, fontSize: 12, padding: "6px 8px", background: "#1a1a28" }}
+                  />
+                  <div style={{ fontSize: 9, color: "#666", marginBottom: 8 }}>{t(lang, "settings.credentialEmailHint")}</div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button
                       disabled={credBusy || credNewInput.length < 8}

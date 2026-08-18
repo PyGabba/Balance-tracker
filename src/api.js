@@ -424,10 +424,16 @@ export async function updatePersonaRuolo(personaId, ruolo) {
 // validatePersonaPassword comment and docs/MOD-025-DESIGN.md. Enrolling
 // a credential does not change how anyone logs in by default; it only
 // makes personaLogin (below) possible for that persona.
-export async function enrollPersonaCredential(personaId, newPassword, currentPassword) {
+// `email` is optional — only needed if this persona wants the standalone
+// email+password login (see personaLoginByPassword below) on top of the
+// existing PIN-then-password flow. Omit it to leave whatever's already set
+// untouched; pass "" to explicitly clear it.
+export async function enrollPersonaCredential(personaId, newPassword, currentPassword, email) {
+  const body = { personaId, newPassword, currentPassword };
+  if (email !== undefined) body.email = email;
   const res = await fetch(`${API_BASE}/api/auth/persona-credential`, {
     method: "POST", headers: authHeaders(), credentials: "include",
-    body: JSON.stringify({ personaId, newPassword, currentPassword }),
+    body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
@@ -476,6 +482,30 @@ export async function personaLogin(personaId, password) {
 
 export function getActivePersonaId() {
   return currentHousehold?.activePersonaId || null;
+}
+
+// Standalone alternative to login(pin) — the login page's "password" tab.
+// Establishes a full session in one step (no PIN first), for a persona
+// that opted in with a credential email. Unlike login(), there's no
+// offline-cache fallback: the client never has a PIN to match a cached
+// session against on this path, so it's online-only.
+export async function loginWithPassword(email, password) {
+  const res = await fetch(`${API_BASE}/api/auth/persona-login-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, password }),
+    signal: AbortSignal.timeout(20000),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Accesso fallito"));
+  const { token: _token, ...sessionData } = json; // token is in httpOnly cookie
+  currentHousehold = { ...sessionData, activePersonaId: sessionData.personaId };
+  saveSession(currentHousehold);
+  savePersistentSession(currentHousehold);
+  apiAvailable = true;
+  startAutoSync(syncCtx);
+  return currentHousehold;
 }
 
 export async function fetchExchangeRates() {

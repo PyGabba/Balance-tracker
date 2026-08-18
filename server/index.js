@@ -11,7 +11,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword, validatePositiveNumber, validateNonNegativeNumber, validateEnum, POSITION_TIPI, GOAL_CONTRIBUTION_TYPES } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword, validatePersonaEmailOptional, validatePositiveNumber, validateNonNegativeNumber, validateEnum, POSITION_TIPI, GOAL_CONTRIBUTION_TYPES } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
 import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits, minorUnitsOf } from "../src/lib/money.js";
 dotenv.config();
@@ -165,7 +165,11 @@ async function hashPin(pin) { return bcrypt.hash(pin, 10); }
 function sanitizePersonaForClient(p) {
   if (!p || typeof p !== "object") return p;
   const { auth, ...rest } = p;
-  return { ...rest, hasCredential: !!(auth && auth.method) };
+  // email is intentionally surfaced (not just a boolean) — the settings UI
+  // needs to show it back so whoever enrolled it can see/remember what to
+  // log in with; it's the same visibility level hasCredential already has
+  // (any PIN holder can already see who has a password set at all).
+  return { ...rest, hasCredential: !!(auth && auth.method), credentialEmail: auth?.email || null };
 }
 function sanitizePersone(persone) {
   return (persone || []).map(sanitizePersonaForClient);
@@ -343,6 +347,15 @@ async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
   await householdsCol.createIndex({ pin: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ pinLookup: 1 }, { unique: true, sparse: true });
   await householdsCol.createIndex({ email: 1 }, { unique: true, sparse: true });
+  // Multikey index on an embedded array field — MongoDB enforces the
+  // uniqueness constraint per indexed VALUE across the whole collection
+  // (every household's persone array), not just within one document, so
+  // this is what makes "email identifies exactly one persona, globally"
+  // an actual guarantee rather than just an app-level convention. sparse:
+  // true so the many persone with no auth.email at all don't collide with
+  // each other (a non-existent field isn't indexed at all, let alone as a
+  // shared "undefined").
+  await householdsCol.createIndex({ "persone.auth.email": 1 }, { unique: true, sparse: true });
   await db.collection("pinResets").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   await householdsCol.createIndex({ householdId: 1 }, { unique: true });
   try { await locksCol.dropIndex("ip_1"); } catch {}
@@ -1452,14 +1465,22 @@ app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, requ
 // material once role enforcement exists to express it.
 app.post("/api/auth/persona-credential", writeLimiter, requireHousehold, async (req, res) => {
   try {
-    const { personaId, newPassword, currentPassword } = req.body || {};
+    const { personaId, newPassword, currentPassword, email } = req.body || {};
     if (!personaId || typeof personaId !== "string") return sendError(res, 400, "MISSING_FIELDS", "personaId obbligatorio");
     const persone = req.household.persone || [];
     const target = persone.find(p => p.id === personaId);
     if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
 
-    let validatedPassword;
-    try { validatedPassword = validatePersonaPassword(newPassword); }
+    let validatedPassword, validatedEmail;
+    try {
+      validatedPassword = validatePersonaPassword(newPassword);
+      // Optional — lets this persona use the standalone email+password
+      // login (no PIN first) in addition to the existing PIN-then-password
+      // flow. `email` omitted from the request entirely keeps whatever was
+      // already set (e.g. a plain password change); an explicit empty
+      // string clears it (validatePersonaEmailOptional treats "" as null).
+      validatedEmail = email !== undefined ? validatePersonaEmailOptional(email) : (target.auth?.email || null);
+    }
     catch (ve) { if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields); throw ve; }
 
     if (target.auth?.method === "password") {
@@ -1469,10 +1490,15 @@ app.post("/api/auth/persona-credential", writeLimiter, requireHousehold, async (
     }
 
     const passwordHash = await bcrypt.hash(validatedPassword, 10);
-    const updatedPersone = persone.map(p => p.id === personaId
-      ? { ...p, auth: { method: "password", passwordHash, enrolledAt: new Date() } }
-      : p);
-    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    const auth = { method: "password", passwordHash, enrolledAt: new Date() };
+    if (validatedEmail) auth.email = validatedEmail; // omitted (not null) to match the sparse unique index's expectations
+    const updatedPersone = persone.map(p => p.id === personaId ? { ...p, auth } : p);
+    try {
+      await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    } catch (e) {
+      if (e.code === 11000) return sendError(res, 409, "EMAIL_ALREADY_IN_USE", "Email già collegata a un altro account");
+      throw e;
+    }
     // A password CHANGE (not first-time enroll) must kill every session
     // issued under the old password — otherwise a compromised session
     // survives its own remediation.
@@ -1535,6 +1561,66 @@ app.post("/api/auth/persona-login", personaLoginLimiter, requireHousehold, async
     audit("persona_login_success", { householdId: req.householdId, ip: clientIp(req), detail: { personaId } });
     res.cookie("token", token, COOKIE_OPTS);
     res.json({ personaId });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// ─── Standalone email+password login — no household PIN first ───
+// Unlike persona-login above (step 2 ON TOP OF an existing PIN session,
+// MOD-025 Stage 1), this is a single-step alternative entry point: the
+// login page lets a user pick "PIN" or "password", and this is what the
+// password tab calls. It only works for a persona that opted in by
+// setting a credential email (see POST /api/auth/persona-credential) —
+// the email is the only thing that identifies which household/persona a
+// bare password belongs to, since there's no PIN-established household
+// context to search within.
+//
+// Same generic-failure-message discipline as the household PIN login:
+// unknown email and wrong password return the identical error/status, so
+// this can't be used to enumerate which emails have an account.
+const personaPasswordLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: { code: "RATE_LIMITED", message: "Troppi tentativi di accesso, riprova tra 15 minuti" } },
+});
+app.post("/api/auth/persona-login-password", personaPasswordLoginLimiter, async (req, res) => {
+  try {
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const { password } = req.body || {};
+    if (!email || !password) return sendError(res, 400, "MISSING_FIELDS", "Email e password obbligatorie");
+
+    // Locked per-email (not per-persona/household, which aren't known yet)
+    // — still persistent/escalating like every other lockout in this app,
+    // and still survives an attacker rotating IPs.
+    const lockKey = `persona-pw:${email}`;
+    const lock = await checkLock(lockKey);
+    if (lock?.lockedUntil) {
+      const mins = Math.ceil((lock.lockedUntil - new Date()) / 60000);
+      audit("persona_password_login_blocked", { ip: clientIp(req), success: false, detail: { lockedMinutes: mins } });
+      return sendError(res, 429, "RATE_LIMITED", `Accesso bloccato. Riprova tra ${mins} minuti.`, { retryAfterMinutes: mins });
+    }
+
+    const household = await householdsCol.findOne({ "persone.auth.email": email });
+    const target = household?.persone?.find(p => p.auth?.email === email);
+    const valid = !!target && typeof password === "string" && await bcrypt.compare(password, target.auth.passwordHash);
+    if (!valid) {
+      const nowLocked = await recordFail(lockKey);
+      audit("persona_password_login_fail", { ip: clientIp(req), success: false, detail: { locked: nowLocked } });
+      return sendError(res, 401, "INVALID_CREDENTIALS", "Email o password non corretti");
+    }
+
+    await clearLock(lockKey);
+    const { token, jti } = signToken(household.householdId, target.id);
+    await storeToken(jti, household.householdId, target.id);
+    audit("persona_password_login_success", { householdId: household.householdId, ip: clientIp(req), detail: { personaId: target.id } });
+    res.cookie("token", token, COOKIE_OPTS);
+    res.json({
+      householdId: household.householdId,
+      nome: household.nome,
+      persone: sanitizePersone(household.persone),
+      requiresPinChange: household.requiresPinChange || false,
+      personaId: target.id,
+    });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
