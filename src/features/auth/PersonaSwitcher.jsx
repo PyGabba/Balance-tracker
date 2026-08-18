@@ -52,10 +52,12 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
       </button>
 
       {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "#0006", zIndex: 20 }} />
-          <div style={{
-            position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 21, width: 240,
+        <div onClick={() => setOpen(false)} style={{
+          position: "fixed", inset: 0, background: "#0006", zIndex: 20,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: "100%", maxWidth: 280,
             background: "#1a1a28", border: "1px solid #6C5CE744", borderRadius: 14, padding: 12,
             boxShadow: "0 8px 32px #0008",
           }}>
@@ -103,7 +105,7 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
