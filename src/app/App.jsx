@@ -15,6 +15,7 @@ import { ViaggiView } from "../features/trips/ViaggiView.jsx";
 import { TripGuestView } from "../features/trips/TripGuestView.jsx";
 import { PortfolioView } from "../features/portfolio/PortfolioView.jsx";
 import { MonthBar } from "../components/ui/MonthBar.jsx";
+import { PullToRefresh } from "../components/PullToRefresh.jsx";
 import { StatsView } from "../features/statistics/StatsView.jsx";
 import { ExportView } from "../features/settings/ExportView.jsx";
 import { ImpostazioniView } from "../features/settings/ImpostazioniView.jsx";
@@ -338,10 +339,6 @@ export default function FinanzaApp() {
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
           }}>⚙</button>
-          <button onClick={() => window.location.reload()} title={t(lang, "header.reload")} style={{
-            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-            color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
-          }}>↻</button>
           <button onClick={handleLogout} title={t(lang, "header.logout")} style={{
             background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
             color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
@@ -354,8 +351,9 @@ export default function FinanzaApp() {
       {showMonthBar && (
         <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
       )}
-      {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
+      {/* Scrollable content — pulling down past the top reloads, replacing
+          the old explicit reload button (MOD: pull-to-refresh) */}
+      <PullToRefresh onRefresh={() => window.location.reload()} style={{ flex: 1, paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} lang={lang} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} valutaBase={valutaBase} lang={lang} />}
@@ -377,7 +375,7 @@ export default function FinanzaApp() {
             onLangChange={handleLangChange}
           />
         )}
-      </div>
+      </PullToRefresh>
       <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} lang={lang} />
     </div>
   );
