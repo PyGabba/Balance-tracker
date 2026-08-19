@@ -119,17 +119,17 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
             <span style={{ fontSize: 12, color: activePerson.colore || "#a78bfa", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>{t(lang, "stats.yourStats")}</span>
           </div>
           <div style={{ display: "flex", gap: 10, marginBottom: personalPerCategoria.length > 0 ? 16 : 0 }}>
-            <div style={{ flex: 1, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
+            <div style={{ flex: 1, minWidth: 0, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
               <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.income")}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(personalEntrate)}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", marginTop: 4, overflowWrap: "break-word" }}>{formattaValuta(personalEntrate)}</div>
             </div>
-            <div style={{ flex: 1, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
+            <div style={{ flex: 1, minWidth: 0, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
               <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.expenses")}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(personalUscite)}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4, overflowWrap: "break-word" }}>{formattaValuta(personalUscite)}</div>
             </div>
-            <div style={{ flex: 1, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
+            <div style={{ flex: 1, minWidth: 0, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
               <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.yourBalance")}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: personalSaldo >= 0 ? "#4ECDC4" : "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{personalSaldo >= 0 ? "+" : ""}{formattaValuta(personalSaldo)}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: personalSaldo >= 0 ? "#4ECDC4" : "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4, overflowWrap: "break-word" }}>{personalSaldo >= 0 ? "+" : ""}{formattaValuta(personalSaldo)}</div>
             </div>
           </div>
           {personalPerCategoria.length > 0 && (
