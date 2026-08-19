@@ -129,7 +129,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
             </div>
             <div style={{ flex: 1, minWidth: 0, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
               <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.yourBalance")}</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: personalSaldo >= 0 ? "#4ECDC4" : "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4, overflowWrap: "break-word" }}>{personalSaldo >= 0 ? "+" : ""}{formattaValuta(personalSaldo)}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: personalSaldo >= 0 ? "#4ECDC4" : "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4, whiteSpace: "nowrap" }}>{personalSaldo >= 0 ? "+" : ""}{formattaValuta(personalSaldo)}</div>
             </div>
           </div>
           {personalPerCategoria.length > 0 && (
