@@ -37,7 +37,23 @@ export default function FinanzaApp() {
   // server's JWT is the only real source of truth for this.
   const [activePersonaId, setActivePersonaId] = useState(getActivePersonaId());
   const urlParams = new URLSearchParams(window.location.search);
-  const [tab, setTab] = useState(urlParams.get("action") === "add" ? "aggiungi" : "home");
+  // Reload (including pull-to-refresh, which is a real window.location.reload())
+  // used to always drop back to "home" — a full reload remounts everything,
+  // and useState's initial value only ever ran once, on the FIRST-ever
+  // mount. Persisting the last tab in sessionStorage (cleared when the tab
+  // itself closes, so a fresh app open still starts at home) lets init read
+  // it back. An explicit Shortcuts deep link (?action=add) still wins.
+  const LAST_TAB_KEY = "finanza-last-tab";
+  const VALID_TABS = ["home", "aggiungi", "portfolio", "viaggi", "stats", "export", "impostazioni"];
+  const [tab, setTabState] = useState(() => {
+    if (urlParams.get("action") === "add") return "aggiungi";
+    const saved = sessionStorage.getItem(LAST_TAB_KEY);
+    return VALID_TABS.includes(saved) ? saved : "home";
+  });
+  const setTab = (next) => {
+    setTabState(next);
+    try { sessionStorage.setItem(LAST_TAB_KEY, next); } catch {}
+  };
   const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
   const [initialImporto, setInitialImporto] = useState(urlParams.get("importo") || "");
   const [initialDescrizione, setInitialDescrizione] = useState(urlParams.get("descrizione") || "");
