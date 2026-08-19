@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses } from "./finance.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses, quotaPersonale } from "./finance.js";
 
 const persone = [
   { id: "g", nome: "Gabriele" },
@@ -323,5 +323,39 @@ describe("forecastNextMonthExpenses", () => {
     expect(r.perCategory.map(c => c.id)).toEqual(["casa", "cibo"]);
     expect(r.perCategory[0].valore).toBe(400);
     expect(r.perCategory[0].nome).toBe("Casa");
+  });
+});
+
+describe("quotaPersonale", () => {
+  it("un'uscita senza splits appartiene interamente a chi ha pagato", () => {
+    expect(quotaPersonale({ tipo: "uscita", importo: 50, pagatoDa: "g" }, "g")).toBe(50);
+    expect(quotaPersonale({ tipo: "uscita", importo: 50, pagatoDa: "g" }, "l")).toBe(0);
+  });
+
+  it("un'uscita con splits conta solo la propria quota, non chi ha pagato", () => {
+    const t = { tipo: "uscita", importo: 100, pagatoDa: "g", splits: [{ personaId: "g", quota: 30 }, { personaId: "l", quota: 70 }] };
+    expect(quotaPersonale(t, "g")).toBe(30);
+    expect(quotaPersonale(t, "l")).toBe(70);
+  });
+
+  it("chi non è negli splits ha quota zero anche se ha pagato", () => {
+    const t = { tipo: "uscita", importo: 100, pagatoDa: "g", splits: [{ personaId: "g", quota: 50 }, { personaId: "l", quota: 50 }] };
+    expect(quotaPersonale(t, "ospite")).toBe(0);
+  });
+
+  it("quote che non sommano a 100 vengono normalizzate sul totale reale", () => {
+    const t = { tipo: "uscita", importo: 90, splits: [{ personaId: "g", quota: 33.33 }, { personaId: "l", quota: 33.33 }, { personaId: "m", quota: 33.34 }] };
+    expect(quotaPersonale(t, "g")).toBeCloseTo(30, 1);
+  });
+
+  it("un'entrata appartiene interamente a chi è intestata, mai divisa", () => {
+    expect(quotaPersonale({ tipo: "entrata", importo: 1500, intestataA: "g" }, "g")).toBe(1500);
+    expect(quotaPersonale({ tipo: "entrata", importo: 1500, intestataA: "g" }, "l")).toBe(0);
+    expect(quotaPersonale({ tipo: "entrata", importo: 1500 }, "g")).toBe(0); // non intestata a nessuno
+  });
+
+  it("saldo e trasferimento non sono mai personali", () => {
+    expect(quotaPersonale({ tipo: "saldo", importo: 50, pagatoDa: "g", ricevutoDa: "l" }, "g")).toBe(0);
+    expect(quotaPersonale({ tipo: "trasferimento", importo: 50 }, "g")).toBe(0);
   });
 });

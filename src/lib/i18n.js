@@ -166,6 +166,9 @@ const dict = {
 
     "stats.income": "Entrate",
     "stats.expenses": "Uscite",
+    "stats.yourStats": "Le tue statistiche",
+    "stats.yourBalance": "Il tuo saldo",
+    "stats.yourExpensesByCategory": "Le tue spese per categoria",
     "stats.whoPaid": "Chi ha pagato",
     "stats.owes": "deve",
     "stats.owesToConnector": "a",
@@ -719,6 +722,9 @@ const dict = {
 
     "stats.income": "Income",
     "stats.expenses": "Expenses",
+    "stats.yourStats": "Your stats",
+    "stats.yourBalance": "Your balance",
+    "stats.yourExpensesByCategory": "Your expenses by category",
     "stats.whoPaid": "Who paid",
     "stats.owes": "owes",
     "stats.owesToConnector": "to",

@@ -1,11 +1,11 @@
-import { calcolaDebitiMatrix, forecastNextMonthExpenses } from "../../lib/finance.js";
+import { calcolaDebitiMatrix, forecastNextMonthExpenses, quotaPersonale } from "../../lib/finance.js";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { getAllPersone } from "../../lib/appHelpers.js";
 import { DonutChart, MiniChart } from "../../components/ui/Charts.jsx";
 import { GoalGauge } from "../goals/GoalGauge.jsx";
 
-export function StatsView({ transazioni, persone, meseOffset, categorie, goals, valutaBase = "EUR", lang = "it" }) {
+export function StatsView({ transazioni, persone, meseOffset, categorie, goals, valutaBase = "EUR", activePersonaId = null, lang = "it" }) {
   const oggi = new Date();
   const meseVis = new Date(oggi.getFullYear(), oggi.getMonth() - meseOffset, 1);
   const nomeMese = mese(meseVis.getMonth()) + " " + meseVis.getFullYear();
@@ -15,6 +15,18 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
     + txMese.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
   const perCategoria = categorie.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
+
+  // ─── Personal stats (only when logged in as a specific persona) ───
+  const activePerson = activePersonaId ? persone.find(p => p.id === activePersonaId) : null;
+  const personalUscite = activePerson ? usciteMese.reduce((s, tx) => s + quotaPersonale(tx, activePersonaId), 0) : 0;
+  const personalEntrate = activePerson ? txMese.filter(tx => tx.tipo === "entrata").reduce((s, tx) => s + quotaPersonale(tx, activePersonaId), 0) : 0;
+  const personalSaldo = personalEntrate - personalUscite;
+  const personalPerCategoria = activePerson
+    ? categorie
+        .map(cat => ({ ...cat, valore: usciteMese.filter(tx => tx.categoria === cat.id).reduce((s, tx) => s + quotaPersonale(tx, activePersonaId), 0) }))
+        .filter(c => c.valore > 0.005)
+        .sort((a, b) => b.valore - a.valore)
+    : [];
   const ultimi6 = Array.from({length:6},(_,i)=>{const m=new Date(oggi.getFullYear(),oggi.getMonth()-(5-i),1);return{label:mese(m.getMonth()),valore:transazioni.filter(t=>t.tipo==="uscita"&&new Date(t.data).getMonth()===m.getMonth()&&new Date(t.data).getFullYear()===m.getFullYear()).reduce((s,t)=>s+t.importo,0),colore:"#6C5CE7"};});
   const spesoPerPersona = persone.map(p => ({
     ...p,
@@ -100,6 +112,42 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   return (
     <div>
       <div style={{ padding: "14px 16px 20px" }}>
+      {activePerson && (personalEntrate > 0 || personalUscite > 0) && (
+        <div style={{ background: "#1a1a28", borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${activePerson.colore || "#6C5CE7"}55` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 18 }}>{activePerson.emoji || "👤"}</span>
+            <span style={{ fontSize: 12, color: activePerson.colore || "#a78bfa", letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>{t(lang, "stats.yourStats")}</span>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: personalPerCategoria.length > 0 ? 16 : 0 }}>
+            <div style={{ flex: 1, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.income")}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(personalEntrate)}</div>
+            </div>
+            <div style={{ flex: 1, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.expenses")}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{formattaValuta(personalUscite)}</div>
+            </div>
+            <div style={{ flex: 1, background: "#111119", borderRadius: 14, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.yourBalance")}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: personalSaldo >= 0 ? "#4ECDC4" : "#FF6B6B", fontFamily: "'Space Mono',monospace", marginTop: 4 }}>{personalSaldo >= 0 ? "+" : ""}{formattaValuta(personalSaldo)}</div>
+            </div>
+          </div>
+          {personalPerCategoria.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>{t(lang, "stats.yourExpensesByCategory")}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {personalPerCategoria.slice(0, 5).map(c => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14 }}>{c.emoji}</span>
+                    <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{c.nome}</span>
+                    <span style={{ fontSize: 12, color: "#eee", fontWeight: 600, fontFamily: "'Space Mono',monospace" }}>{formattaValuta(c.valore)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
         <div style={{ flex: 1, background: "#1a1a28", borderRadius: 16, padding: "16px 14px", border: "1px solid #252538" }}>
           <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "stats.income")}</div>

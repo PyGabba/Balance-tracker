@@ -4,6 +4,34 @@
 
 import { fromMinorUnits, minorUnitsOf } from "./money.js";
 
+// ─── Quota personale ("le tue statistiche") ───
+// Quanto di una transazione appartiene a una specifica persona, per le
+// statistiche personali filtrate sulla persona con cui si è loggati
+// (persona-login). Un'uscita SENZA splits è interamente di chi ha
+// pagato — nessun altro ne è responsabile, stessa convenzione del
+// vecchio formato splitPagante in calcolaDebitiMatrix; CON splits, conta
+// solo la propria quota%, indipendentemente da chi ha pagato fisicamente
+// (l'anticipo viene comunque saldato tramite i debiti). Un'entrata
+// appartiene interamente a chi è intestata — non è mai divisa. saldo e
+// trasferimento non sono mai "personali": sono movimenti tra
+// conti/persone, non reddito o spesa proprio.
+export function quotaPersonale(t, personaId) {
+  if (t.tipo === "uscita") {
+    if (Array.isArray(t.splits) && t.splits.length > 0) {
+      const mine = t.splits.find(s => s.personaId === personaId);
+      if (!mine) return 0;
+      const totalQ = t.splits.reduce((s, sp) => s + (sp.quota || 0), 0);
+      if (totalQ <= 0) return 0;
+      return t.importo * (mine.quota / totalQ);
+    }
+    return t.pagatoDa === personaId ? t.importo : 0;
+  }
+  if (t.tipo === "entrata") {
+    return t.intestataA === personaId ? t.importo : 0;
+  }
+  return 0;
+}
+
 // Matrice debiti della casa: da transazioni (uscite con split + saldi) a lista
 // di debiti minimizzata con matching greedy creditori/debitori.
 // Bilanci accumulati in unità minori intere (MOD-016), non float grezzi —
