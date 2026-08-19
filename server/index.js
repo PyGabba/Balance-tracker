@@ -1836,8 +1836,22 @@ app.put("/api/transactions/:id", writeLimiter, requireHousehold, requireRole("me
           throw ce;
         }
       } else {
-        unset.valuta = ""; unset.importoOriginale = ""; unset.tassoCambio = ""; unset.tassoCambioObsoleto = "";
+        unset.valuta = ""; unset.importoOriginale = ""; unset.importoOriginaleMinorUnits = ""; unset.tassoCambio = ""; unset.tassoCambioObsoleto = "";
       }
+    } else if (req.body.valuta === undefined && update.importo !== undefined && existing.valuta) {
+      // Amount-only edit of a transaction that currently has foreign-
+      // currency metadata (valuta/importoOriginale/tassoCambio). The edit
+      // UI (TransactionRow.jsx) always initializes its amount field from
+      // importo — the BASE-currency figure — and never exposes valuta at
+      // all, so a request shaped exactly like this is what every edit of
+      // an FX transaction sends today. Treating the new number as still
+      // "the same foreign amount, unconverted" would leave importoOriginale
+      // and tassoCambio describing a DIFFERENT amount than the one just
+      // saved — an internally contradictory record. The new number was
+      // entered directly in the base currency, same as any other
+      // transaction, so it stops being an FX record: clear the stale
+      // conversion metadata rather than leave it mismatched.
+      unset.valuta = ""; unset.importoOriginale = ""; unset.importoOriginaleMinorUnits = ""; unset.tassoCambio = ""; unset.tassoCambioObsoleto = "";
     }
     update.updatedAt = new Date();
     const setOp = { $set: update };
