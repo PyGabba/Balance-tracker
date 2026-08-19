@@ -245,6 +245,7 @@ export default function FinanzaApp() {
 
   function handleLogin() {
     setAuthed(true);
+    setActivePersonaId(getActivePersonaId()); // password login sets this in api.js's session, but the useState above only read it once at mount
     loadAll();
     loadPositions();
     loadCategorie();
