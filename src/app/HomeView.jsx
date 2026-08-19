@@ -44,10 +44,9 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
     const d = new Date(t.data);
     return d.getMonth() === meseVis.getMonth() && d.getFullYear() === meseVis.getFullYear();
   });
-  const entrateNormali = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
-  // External payer settling a debt = real money received by household
-  const entrateExternaSaldi = txMese.filter(t => t.tipo === "saldo" && !persone.some(p => p.id === t.pagatoDa)).reduce((s, t) => s + t.importo, 0);
-  const entrate = entrateNormali + entrateExternaSaldi;
+  // A "saldo" transaction is debt settlement, not income — matches
+  // StatsView and the widget, which have always counted only tipo:"entrata".
+  const entrate = txMese.filter(t => t.tipo === "entrata").reduce((s, t) => s + t.importo, 0);
   const uscite = txMese.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0);
   const saldo = entrate - uscite;
   const nFiltriAttivi = contaFiltriAttivi(filtri);
