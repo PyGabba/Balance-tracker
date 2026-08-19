@@ -73,7 +73,10 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
             {!selectedId ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {enrollable.map(p => (
-                  <button key={p.id} onClick={() => { setSelectedId(p.id); setError(""); }} style={{
+                  <button key={p.id} onClick={() => {
+                    if (p.id === activePersonaId) { setOpen(false); return; } // already this persona — no need to re-auth
+                    setSelectedId(p.id); setError("");
+                  }} style={{
                     display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
                     background: p.id === activePersonaId ? "#4ECDC422" : "#111119",
                     border: "1px solid " + (p.id === activePersonaId ? "#4ECDC4" : "#252538"),
