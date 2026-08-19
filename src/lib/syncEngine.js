@@ -125,6 +125,11 @@ export async function runSync(ctxProvider) {
   if (!ctx || !ctx.householdId) return;
   if (syncing) return;
   if (!isOnline()) return;
+  // Skip the syncing=true flip (and the badge re-render/layout shift it
+  // causes) when there's nothing queued — the periodic poll would otherwise
+  // toggle the header sync badge on/off every POLL_MS even with an empty
+  // outbox.
+  if ((await getOutboxOps(ctx.householdId)).length === 0) return;
   syncing = true;
   notifyStatus();
   try {
