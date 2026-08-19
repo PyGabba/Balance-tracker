@@ -45,10 +45,15 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
       <button onClick={openPanel} title={t(lang, "personaSwitcher.title")} style={{
         background: active ? "#4ECDC422" : "none", border: active ? "1px solid #4ECDC4" : "1px solid #252538",
         borderRadius: 8, cursor: "pointer", color: active ? "#4ECDC4" : "#888",
-        fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center", gap: 4,
-        fontFamily: "'DM Sans',sans-serif",
+        padding: "4px 8px", display: "flex", alignItems: "center", gap: 4,
+        fontFamily: "'DM Sans',sans-serif", flexShrink: 0, minWidth: 0, maxWidth: 90,
       }}>
-        {active ? <>{active.emoji} {active.nome}</> : "👤"}
+        {active ? (
+          <>
+            <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>{active.emoji}</span>
+            <span style={{ fontSize: 12, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{active.nome}</span>
+          </>
+        ) : <span style={{ fontSize: 12, lineHeight: 1 }}>👤</span>}
       </button>
 
       {open && (

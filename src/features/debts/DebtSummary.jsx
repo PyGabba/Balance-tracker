@@ -15,6 +15,7 @@ export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, tra
   const [settleAmount, setSettleAmount] = useState("");
   const [showStoricoSaldi, setShowStoricoSaldi] = useState(false);
 
+  return (
       <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
         <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>{t(lang, "home.debtBalance")}</div>
         {/* Month debts */}
@@ -130,5 +131,5 @@ export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, tra
           );
         })()}
       </div>
-
+  );
 }
