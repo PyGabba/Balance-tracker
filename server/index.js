@@ -1453,16 +1453,64 @@ app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, requ
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-// ─── Persona credentials (MOD-025 Stage 1) ───
+// ─── Persona credentials (MOD-025 Stage 2) ───
 // Enroll/change a persona's own password. Requires the household PIN
 // (already enforced by requireHousehold) PLUS — if this persona already
 // has a credential — that credential too, so knowing only the shared PIN
 // is never enough to silently take over an already-enrolled identity.
-// Zero enforcement: any PIN-holder can enroll/change ANY persona's
-// credential when that persona has none yet (first-time setup on a
-// shared device, one household member setting it up for another) — the
-// "themselves or an admin" restriction from the design doc is Stage 2
-// material once role enforcement exists to express it.
+// That currentPassword requirement (further down in POST) already fully
+// covers POST for any already-claimed target, regardless of who's
+// asking — only enrolling a still-UNCLAIMED persona stays open to any
+// PIN holder, the intentional Stage 1 bootstrap case.
+//
+// DELETE had no equivalent protection at all, which mattered more than
+// it looks: deleting a persona's credential and then re-enrolling it
+// through the open bootstrap path let ANY household-PIN holder bypass
+// POST's currentPassword check entirely. personaCredentialAuthorized
+// (used by DELETE, below) closes that:
+//
+//  1. personaCredentialRoleAuthorized — allowed by WHO you are:
+//       - a persona can always manage their own credential (self-service);
+//       - an unclaimed persona (nothing to delete) is a no-op either way;
+//       - beyond that, touching an ALREADY-enrolled OTHER persona's
+//         credential requires an attributed admin+ identity, and an
+//         owner/admin target specifically requires the requester
+//         themselves be an owner — an admin can't use this endpoint to
+//         take over another admin or the household's owner.
+//  2. personaCredentialAuthorized — also accepts proof by WHAT you know:
+//       a correct currentPassword for the target (new optional field on
+//       DELETE) is treated as equivalent to being that persona, even on
+//       a plain PIN-only session — mirroring the proof POST has always
+//       required for a password change.
+//
+// Note: this intentionally does NOT let an admin/owner remove someone
+// else's credential and take it over without proving they know the old
+// password, beyond what their admin role already grants on its own —
+// a true "admin reset" is a reasonable follow-up but a separate, larger
+// behavior change, left out of this fix to keep it minimal and reviewable.
+function personaCredentialRoleAuthorized(req, target) {
+  if (req.personaId && req.personaId === target.id) return true; // self-service
+  if (!target.auth) return true; // unclaimed identity: bootstrap, any session
+
+  if (!req.personaId) return false; // PIN-only session touching an already-claimed identity: no
+
+  const requester = (req.household.persone || []).find(p => p.id === req.personaId);
+  const requesterRole = requester?.ruolo || DEFAULT_HOUSEHOLD_ROLE;
+  const targetRole = target.ruolo || DEFAULT_HOUSEHOLD_ROLE;
+
+  if ((ROLE_RANK[requesterRole] ?? 0) < ROLE_RANK.admin) return false; // must be admin or owner
+  if ((targetRole === "owner" || targetRole === "admin") && requesterRole !== "owner") return false; // only an owner touches privileged accounts
+  return true;
+}
+
+async function personaCredentialAuthorized(req, target, currentPassword) {
+  if (personaCredentialRoleAuthorized(req, target)) return true;
+  // Not authorized by identity/role alone — the remaining path is proving
+  // you ARE this persona by supplying their current password.
+  return !!(target.auth?.method === "password" && currentPassword &&
+    await bcrypt.compare(currentPassword, target.auth.passwordHash));
+}
+
 app.post("/api/auth/persona-credential", writeLimiter, requireHousehold, async (req, res) => {
   try {
     const { personaId, newPassword, currentPassword, email } = req.body || {};
@@ -1470,6 +1518,13 @@ app.post("/api/auth/persona-credential", writeLimiter, requireHousehold, async (
     const persone = req.household.persone || [];
     const target = persone.find(p => p.id === personaId);
     if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
+    // No separate role gate here on purpose: the currentPassword check
+    // below already requires proof of identity for any ALREADY-claimed
+    // target regardless of who's asking, so it fully covers this route.
+    // Enrolling an UNCLAIMED persona stays open to any PIN holder — the
+    // intentional Stage 1 bootstrap case. The actual missing protection
+    // was on DELETE (below), since deleting-then-recreating a credential
+    // let anyone bypass the currentPassword check entirely.
 
     let validatedPassword, validatedEmail;
     try {
@@ -1513,6 +1568,9 @@ app.delete("/api/auth/persona-credential/:id", writeLimiter, requireHousehold, a
     const persone = req.household.persone || [];
     const target = persone.find(p => p.id === req.params.id);
     if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
+    if (!(await personaCredentialAuthorized(req, target, req.body?.currentPassword))) {
+      return sendError(res, 403, "INSUFFICIENT_ROLE", "Non puoi rimuovere la credenziale di questa persona");
+    }
     const updatedPersone = persone.map(p => p.id === req.params.id ? { ...p, auth: null } : p);
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
     await clearLock(`persona:${req.householdId}:${req.params.id}`); // an un-enrolled persona shouldn't stay locked from a credential that no longer exists
