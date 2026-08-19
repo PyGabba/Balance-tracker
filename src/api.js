@@ -445,9 +445,10 @@ export async function enrollPersonaCredential(personaId, newPassword, currentPas
   return json.persone;
 }
 
-export async function removePersonaCredential(personaId) {
+export async function removePersonaCredential(personaId, currentPassword) {
   const res = await fetch(`${API_BASE}/api/auth/persona-credential/${personaId}`, {
     method: "DELETE", headers: authHeaders(), credentials: "include",
+    body: JSON.stringify(currentPassword ? { currentPassword } : {}),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));

@@ -75,11 +75,18 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
   async function handleCredRemove(personaId) {
     setCredBusy(true);
     try {
-      const updated = await removePersonaCredential(personaId);
+      // The current-password field is already on screen whenever this
+      // persona has a credential (used above for changing it) — reuse it
+      // here too. Self and admin+ sessions don't need it server-side and
+      // can just leave it blank; a plain PIN-only session removing
+      // someone ELSE's credential does need it, same as changing it does.
+      const updated = await removePersonaCredential(personaId, credCurrentInput || undefined);
       setPersoneLocal(updated);
       setEditingCredId(null);
+      setCredCurrentInput("");
     } catch (e) {
-      toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
+      const needsProof = /non puoi rimuovere/i.test(e.message || "");
+      toast(needsProof ? t(lang, "settings.credentialRemoveNeedsProof") : (e.message || t(lang, "toast.errorSavePrefix")), "error");
     } finally {
       setCredBusy(false);
     }
