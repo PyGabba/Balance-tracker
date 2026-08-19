@@ -136,7 +136,11 @@ describe("removing the credential also revokes standalone-login access", () => {
     expect(login.status).toBe(200);
     const cookie = login.headers["set-cookie"];
 
-    await householdAgent.delete(`/api/auth/persona-credential/${sara}`);
+    // Removing an already-claimed credential now requires proof of
+    // identity — self, admin+, or (as here, on a plain PIN session)
+    // knowing the current password — instead of the bare household PIN
+    // being enough on its own.
+    await householdAgent.delete(`/api/auth/persona-credential/${sara}`).send({ currentPassword: "sara-password-1" });
 
     const after = await request(app).get("/api/household").set("Cookie", cookie);
     expect(after.status).toBe(401);
