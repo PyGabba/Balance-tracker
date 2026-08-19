@@ -12,8 +12,9 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   const txMese = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===meseVis.getMonth()&&d.getFullYear()===meseVis.getFullYear(); });
   const usciteMese = txMese.filter(t => t.tipo === "uscita");
   const totalUscite = usciteMese.reduce((s,t) => s+t.importo, 0);
-  const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
-    + txMese.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
+  // A "saldo" transaction is debt settlement, not income — matches
+  // HomeView and the widget, which both only count tipo:"entrata".
+  const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
   const perCategoria = categorie.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
 
   // ─── Personal stats (only when logged in as a specific persona) ───
@@ -54,8 +55,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   const txMesePrec = transazioni.filter(t => { const d=new Date(t.data); return d.getMonth()===mesePrecedente.getMonth()&&d.getFullYear()===mesePrecedente.getFullYear(); });
   const usciteMesePrec = txMesePrec.filter(t => t.tipo === "uscita");
   const totalUscitePrec = usciteMesePrec.reduce((s,t) => s+t.importo, 0);
-  const totalEntratePrec = txMesePrec.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0)
-    + txMesePrec.filter(t=>t.tipo==="saldo"&&!persone.some(p=>p.id===t.pagatoDa)).reduce((s,t)=>s+t.importo,0);
+  const totalEntratePrec = txMesePrec.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
 
   // Month over month change
   const deltaPct = totalUscitePrec > 0 ? ((totalUscite - totalUscitePrec) / totalUscitePrec * 100) : null;
