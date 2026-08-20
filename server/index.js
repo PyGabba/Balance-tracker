@@ -1189,11 +1189,14 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     // override per-persona via an object's `ruolo` field.
     let personeFormatted;
     try {
+      const usedIds = new Set();
       personeFormatted = persone.map((p, i) => {
         const explicitRuolo = typeof p === "object" ? p.ruolo : null;
         const ruolo = explicitRuolo != null ? validateRuolo(explicitRuolo) : (i === 0 ? "owner" : DEFAULT_HOUSEHOLD_ROLE);
+        const id = personaIdFromNome(typeof p === "string" ? p : p.nome, usedIds);
+        usedIds.add(id);
         return {
-          id: (typeof p === "string" ? p : p.nome).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ""),
+          id,
           nome: typeof p === "string" ? p : p.nome,
           emoji: (typeof p === "object" && p.emoji) ? p.emoji : DEFAULT_EMOJIS[i % DEFAULT_EMOJIS.length],
           colore: PERSONA_COLORS[i % PERSONA_COLORS.length],

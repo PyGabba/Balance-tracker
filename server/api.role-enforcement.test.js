@@ -104,6 +104,17 @@ describe("role enforcement (MOD-025 Stage 2) — attributed sessions", () => {
     expect((await agentGuest.get("/api/household")).status).toBe(200);
   });
 
+  it("a guest cannot create/delete positions or set manual prices; a member can", async () => {
+    expect((await agentGuest.post("/api/positions").send({ ticker: "AAPL", quantita: 1, prezzoAcquisto: 100 })).status).toBe(403);
+    expect((await agentGuest.put("/api/positions/prices").send({ manualPrices: { AAPL: 150 } })).status).toBe(403);
+
+    const created = await agentMember.post("/api/positions").send({ ticker: "AAPL", quantita: 1, prezzoAcquisto: 100 });
+    expect(created.status).toBe(201);
+    expect((await agentGuest.delete(`/api/positions/${created.body.id}`)).status).toBe(403);
+    expect((await agentMember.delete(`/api/positions/${created.body.id}`)).status).toBe(200);
+    expect((await agentMember.put("/api/positions/prices").send({ manualPrices: { AAPL: 150 } })).status).toBe(200);
+  });
+
   it("member cannot change roles or create a widget key; admin can", async () => {
     const memberRuolo = await agentMember.put(`/api/household/persone/${guestId}/ruolo`).send({ ruolo: "member" });
     expect(memberRuolo.status).toBe(403);
@@ -127,11 +138,31 @@ describe("role enforcement (MOD-025 Stage 2) — attributed sessions", () => {
     // implicitly via the ROLE_RANK hierarchy — see requireRole's rank check).
   });
 
+  it("member cannot create/revoke a trip share link; admin can", async () => {
+    const trip = await agentMember.post("/api/trips").send({ nome: "Test Trip" });
+    expect(trip.status).toBe(200);
+    const tripId = trip.body.id;
+
+    const memberShare = await agentMember.post(`/api/trips/${tripId}/share`);
+    expect(memberShare.status).toBe(403);
+    expect(memberShare.body.error.code).toBe("INSUFFICIENT_ROLE");
+
+    const adminShare = await agentAdmin.post(`/api/trips/${tripId}/share`);
+    expect(adminShare.status).toBe(200);
+
+    const memberRevoke = await agentMember.delete(`/api/trips/${tripId}/share`);
+    expect(memberRevoke.status).toBe(403);
+
+    const adminRevoke = await agentAdmin.delete(`/api/trips/${tripId}/share`);
+    expect(adminRevoke.status).toBe(200);
+  });
+
   it("member cannot change the household PIN; admin can", async () => {
     const memberTry = await agentMember.put("/api/auth/pin").send({ newPin: "111222" });
     expect(memberTry.status).toBe(403);
-    // Last test in this block — safe to actually change the PIN here since
-    // nothing downstream depends on the old one.
+    // Last test in this block — changing the PIN revokes every session
+    // token (see PUT /api/auth/pin), so nothing below can reuse agentOwner
+    // /agentAdmin/agentMember/agentGuest after this.
     const adminTry = await agentAdmin.put("/api/auth/pin").send({ newPin: "111222" });
     expect(adminTry.status).toBe(200);
   });
