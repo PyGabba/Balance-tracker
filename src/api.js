@@ -419,6 +419,25 @@ export async function updatePersonaRuolo(personaId, ruolo) {
   return json.persone;
 }
 
+// Adds a new participant to the current household. Always lands at the
+// default role (member) server-side — see server/index.js's comment on
+// the route — granting elevated access stays a separate, explicit
+// updatePersonaRuolo call.
+export async function addPersona(nome, emoji) {
+  const res = await fetch(`${API_BASE}/api/household/persone`, {
+    method: "POST", headers: authHeaders(), credentials: "include",
+    body: JSON.stringify({ nome, emoji }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, persone: json.persone };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return json.persone;
+}
+
 // ─── Persona credentials (MOD-025 Stage 1) ───
 // Fully optional, per-persona — see server/validation.js's
 // validatePersonaPassword comment and docs/MOD-025-DESIGN.md. Enrolling

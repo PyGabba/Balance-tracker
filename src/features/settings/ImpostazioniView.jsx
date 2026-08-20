@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential } from "../../api.js";
+import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential, addPersona } from "../../api.js";
 import { LANGUAGES, t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -21,6 +21,24 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
   useEffect(() => { setPersoneLocal(persone); }, [persone]);
   const [editingRuoloId, setEditingRuoloId] = useState(null);
   const [ruoloBusy, setRuoloBusy] = useState(false);
+
+  const [addNomeInput, setAddNomeInput] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+
+  async function handleAddPersona() {
+    const nome = addNomeInput.trim();
+    if (!nome) return;
+    setAddBusy(true);
+    try {
+      const updated = await addPersona(nome);
+      setPersoneLocal(updated);
+      setAddNomeInput("");
+    } catch (e) {
+      toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
+    } finally {
+      setAddBusy(false);
+    }
+  }
 
   async function handleRuoloChange(personaId, ruolo) {
     setRuoloBusy(true);
@@ -386,6 +404,20 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
               )}
             </div>
           ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <input
+            value={addNomeInput}
+            onChange={e => setAddNomeInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleAddPersona(); }}
+            placeholder={t(lang, "settings.addPersonaPlaceholder")}
+            style={{ ...inputStyle, flex: 1, fontSize: 12, padding: "6px 10px", background: "#12121a" }}
+          />
+          <button
+            disabled={addBusy || !addNomeInput.trim()}
+            onClick={handleAddPersona}
+            style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", opacity: (addBusy || !addNomeInput.trim()) ? 0.5 : 1, whiteSpace: "nowrap" }}
+          >{t(lang, "settings.addPersona")}</button>
         </div>
         <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>{t(lang, "settings.roleNotEnforcedHint")}</div>
       </div>
