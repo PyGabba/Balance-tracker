@@ -15,14 +15,15 @@ import { fromMinorUnits, minorUnitsOf } from "./money.js";
 // appartiene interamente a chi è intestata — non è mai divisa. saldo e
 // trasferimento non sono mai "personali": sono movimenti tra
 // conti/persone, non reddito o spesa proprio.
-export function quotaPersonale(t, personaId) {
+export function quotaPersonale(t, personaId, valutaBase = "EUR") {
   if (t.tipo === "uscita") {
     if (Array.isArray(t.splits) && t.splits.length > 0) {
       const mine = t.splits.find(s => s.personaId === personaId);
       if (!mine) return 0;
       const totalQ = t.splits.reduce((s, sp) => s + (sp.quota || 0), 0);
       if (totalQ <= 0) return 0;
-      return t.importo * (mine.quota / totalQ);
+      const importoMinor = minorUnitsOf(t, "importo", valutaBase);
+      return fromMinorUnits(Math.round(importoMinor * (mine.quota / totalQ)), valutaBase);
     }
     return t.pagatoDa === personaId ? t.importo : 0;
   }
