@@ -19,12 +19,12 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
 
   // ─── Personal stats (only when logged in as a specific persona) ───
   const activePerson = activePersonaId ? persone.find(p => p.id === activePersonaId) : null;
-  const personalUscite = activePerson ? usciteMese.reduce((s, tx) => s + quotaPersonale(tx, activePersonaId), 0) : 0;
-  const personalEntrate = activePerson ? txMese.filter(tx => tx.tipo === "entrata").reduce((s, tx) => s + quotaPersonale(tx, activePersonaId), 0) : 0;
+  const personalUscite = activePerson ? usciteMese.reduce((s, tx) => s + quotaPersonale(tx, activePersonaId, valutaBase), 0) : 0;
+  const personalEntrate = activePerson ? txMese.filter(tx => tx.tipo === "entrata").reduce((s, tx) => s + quotaPersonale(tx, activePersonaId, valutaBase), 0) : 0;
   const personalSaldo = personalEntrate - personalUscite;
   const personalPerCategoria = activePerson
     ? categorie
-        .map(cat => ({ ...cat, valore: usciteMese.filter(tx => tx.categoria === cat.id).reduce((s, tx) => s + quotaPersonale(tx, activePersonaId), 0) }))
+        .map(cat => ({ ...cat, valore: usciteMese.filter(tx => tx.categoria === cat.id).reduce((s, tx) => s + quotaPersonale(tx, activePersonaId, valutaBase), 0) }))
         .filter(c => c.valore > 0.005)
         .sort((a, b) => b.valore - a.valore)
     : [];
