@@ -1499,6 +1499,40 @@ app.post("/api/household/persone", writeLimiter, requireHousehold, requireRole("
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
+// Removes a participant from the household outright — distinct from
+// DELETE .../persona-credential, which only un-enrolls a login and
+// leaves the persona itself in place. Owner-only: this is a step above
+// admin's ability to add someone or change a role, since it can sever
+// someone's access to the household entirely. Existing transactions,
+// splits, etc. that reference this persona's id are left untouched
+// (same as every other place an id can outlive its owner, e.g. a
+// deleted account) — reassigning or scrubbing that history is a
+// separate, larger feature, not implied by removing a member.
+app.delete("/api/household/persone/:id", writeLimiter, requireHousehold, requireRole("owner"), async (req, res) => {
+  try {
+    if (req.personaId && req.personaId === req.params.id) {
+      return sendError(res, 400, "CANNOT_REMOVE_SELF", "Non puoi rimuovere te stesso dalla casa");
+    }
+    const persone = req.household.persone || [];
+    const target = persone.find(p => p.id === req.params.id);
+    if (!target) return sendError(res, 404, "NOT_FOUND", "Persona non trovata");
+    if (persone.length <= 1) return sendError(res, 400, "LAST_PERSONA", "La casa deve avere almeno una persona");
+
+    const targetRuolo = target.ruolo || DEFAULT_HOUSEHOLD_ROLE;
+    const ownerCount = persone.filter(p => (p.ruolo || DEFAULT_HOUSEHOLD_ROLE) === "owner").length;
+    if (targetRuolo === "owner" && ownerCount <= 1) {
+      return sendError(res, 400, "LAST_OWNER", "La casa deve avere almeno un owner", { personaId: req.params.id });
+    }
+
+    const updatedPersone = persone.filter(p => p.id !== req.params.id);
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    await clearLock(`persona:${req.householdId}:${req.params.id}`);
+    await revokeTokensForPersona(req.householdId, req.params.id); // kill every session this persona was logged into
+    audit("persona_removed", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: req.params.id } });
+    res.json({ persone: sanitizePersone(updatedPersone) });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
 // ─── Persona credentials (MOD-025 Stage 2) ───
 // Enroll/change a persona's own password. Requires the household PIN
 // (already enforced by requireHousehold) PLUS — if this persona already

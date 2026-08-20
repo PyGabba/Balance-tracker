@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential, addPersona } from "../../api.js";
+import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential, addPersona, removePersona } from "../../api.js";
 import { LANGUAGES, t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -8,7 +8,7 @@ import { VALUTE_FALLBACK } from "../transactions/helpers.js";
 
 const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
 
-export function ImpostazioniView({ householdName, householdId, persone, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange, lang = "it", onLangChange }) {
+export function ImpostazioniView({ householdName, householdId, persone, activePersonaId, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange, lang = "it", onLangChange }) {
   const [valutaBusy, setValutaBusy] = useState(false);
   const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
 
@@ -24,6 +24,25 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
 
   const [addNomeInput, setAddNomeInput] = useState("");
   const [addBusy, setAddBusy] = useState(false);
+
+  const [removeBusyId, setRemoveBusyId] = useState(null);
+  // Best-effort client-side hint only — the server is the real
+  // authority (owner+, see server/index.js). Shown for a PIN-only
+  // session too, same as every other admin/owner control here.
+  const isOwnerSession = !activePersonaId || personeLocal.find(p => p.id === activePersonaId)?.ruolo === "owner";
+
+  async function handleRemovePersona(persona) {
+    if (!confirm(`${t(lang, "confirm.removePersonaPrefix")} ${persona.nome} ${t(lang, "confirm.removePersonaSuffix")}`)) return;
+    setRemoveBusyId(persona.id);
+    try {
+      const updated = await removePersona(persona.id);
+      setPersoneLocal(updated);
+    } catch (e) {
+      toast(e.message || t(lang, "toast.errorSavePrefix"), "error");
+    } finally {
+      setRemoveBusyId(null);
+    }
+  }
 
   async function handleAddPersona() {
     const nome = addNomeInput.trim();
@@ -360,6 +379,14 @@ export function ImpostazioniView({ householdName, householdId, persone, onDelete
                 >
                   {p.hasCredential ? "🔐" : "🔓"}
                 </button>
+                {isOwnerSession && p.id !== activePersonaId && (
+                  <button
+                    onClick={() => handleRemovePersona(p)}
+                    disabled={removeBusyId === p.id}
+                    title={t(lang, "confirm.removePersonaPrefix")}
+                    style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 13, padding: "3px 4px", opacity: removeBusyId === p.id ? 0.5 : 1 }}
+                  >✕</button>
+                )}
               </div>
 
               {editingCredId === p.id && (
