@@ -382,6 +382,7 @@ export default function FinanzaApp() {
             householdName={householdName}
             householdId={getSession()?.householdId}
             persone={persone}
+            activePersonaId={activePersonaId}
             onDeleted={() => { logout(); setAuthed(false); setTransazioni([]); setTab("home"); }}
             categorie={categorieUscita}
             onCategorieChange={(cats) => { setCategorieUscita(cats); saveCategorie(cats); }}

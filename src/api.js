@@ -438,6 +438,23 @@ export async function addPersona(nome, emoji) {
   return json.persone;
 }
 
+// Removes a participant from the household outright (owner-only
+// server-side) — distinct from removePersonaCredential, which only
+// un-enrolls a login and leaves the persona itself in place.
+export async function removePersona(personaId) {
+  const res = await fetch(`${API_BASE}/api/household/persone/${personaId}`, {
+    method: "DELETE", headers: authHeaders(), credentials: "include",
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorMessageFrom(json, "Errore"));
+  if (currentHousehold) {
+    currentHousehold = { ...currentHousehold, persone: json.persone };
+    saveSession(currentHousehold);
+    savePersistentSession(currentHousehold);
+  }
+  return json.persone;
+}
+
 // ─── Persona credentials (MOD-025 Stage 1) ───
 // Fully optional, per-persona — see server/validation.js's
 // validatePersonaPassword comment and docs/MOD-025-DESIGN.md. Enrolling
