@@ -160,12 +160,19 @@ instead of a cliff.
   admin can promote themselves further; this wasn't tightened beyond
   that, since the last-owner guard already prevents the one genuinely
   unrecoverable case (a household with zero owners).
-- **Positions and trip-share endpoints are NOT gated** — the matrix
+- **Positions and trip-share endpoints are now gated.** The matrix
   only ever listed "transactions, accounts, goals, trips," and
   positions/trip-sharing were deliberately left out of that list
-  rather than assumed into the same tier. They remain permissive for
-  every session, same as before Stage 2, pending an explicit decision
-  to add them.
+  rather than assumed into the same tier — they stayed permissive for
+  every session through Stage 2. That's since been resolved:
+  create/delete positions and the manual price override
+  (`POST/DELETE /api/positions`, `PUT /api/positions/prices`) are
+  `member+`, same tier as transactions/accounts/goals. Creating or
+  revoking a trip share link (`POST/DELETE /api/trips/:id/share`) is
+  `admin+`, matching widget/calendar key create-revoke — a share
+  token is itself a bearer capability granting unauthenticated
+  read/write access to the trip, the same class of secret as those
+  keys, not an ordinary household edit.
 
 This list is a starting point for review, not final — the point of the
 table is that enforcement is scoped and explicit, not "audit every
