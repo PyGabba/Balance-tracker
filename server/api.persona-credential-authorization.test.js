@@ -25,6 +25,17 @@ async function loginAsPersona(agent, personaId, password) {
   expect(res.status).toBe(200);
 }
 
+// persona-login (step 2) replaces the household-only session it's issued on
+// top of (see server/index.js, revokeToken(req.jti) right after minting the
+// persona-scoped one), so once that persona's session is revoked the agent
+// has no valid cookie left at all — not even a household-level one. Redo
+// the full two-step login rather than just persona-login to recover.
+async function reloginAsPersona(agent, personaId, password, pin) {
+  const login = await agent.post("/api/auth/login").send({ pin });
+  expect(login.status).toBe(200);
+  await loginAsPersona(agent, personaId, password);
+}
+
 describe("persona-credential DELETE authorization", () => {
   let agentOwner, agentAdmin, agentMember, agentPinOnly;
   let ownerId, adminId, memberId;
@@ -77,6 +88,11 @@ describe("persona-credential DELETE authorization", () => {
     // Restore it for the tests below.
     const reEnroll = await agentPinOnly.post("/api/auth/persona-credential").send({ personaId: memberId, newPassword: "member-password-1" });
     expect(reEnroll.status).toBe(200);
+
+    // The removal above revoked every session issued for memberId,
+    // including agentMember's own (logged in back in beforeAll) — re-login
+    // it so the tests below that act as the member still have a live session.
+    await reloginAsPersona(agentMember, memberId, "member-password-1", "603817");
   });
 
   it("a member cannot remove another persona's credential — not self, not admin+, no proof offered", async () => {
@@ -110,8 +126,12 @@ describe("persona-credential DELETE authorization", () => {
   it("the owner CAN remove their own, or another admin's, credential", async () => {
     const own = await agentOwner.delete(`/api/auth/persona-credential/${ownerId}`);
     expect(own.status).toBe(200);
-    // Restore for hygiene, in case test order ever changes.
-    await agentOwner.post("/api/auth/persona-credential").send({ personaId: ownerId, newPassword: "owner-password-1" });
+
+    // Removing the owner's own credential revoked agentOwner's own session
+    // (same mechanism as any other persona) — restore it via the still-valid
+    // PIN-only agent, then re-login as the owner before continuing.
+    await agentPinOnly.post("/api/auth/persona-credential").send({ personaId: ownerId, newPassword: "owner-password-1" });
+    await reloginAsPersona(agentOwner, ownerId, "owner-password-1", "603817");
 
     const other = await agentOwner.delete(`/api/auth/persona-credential/${adminId}`);
     expect(other.status).toBe(200);

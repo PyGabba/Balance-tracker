@@ -2131,7 +2131,7 @@ app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, 
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAccess, async (req, res) => {
+app.post("/api/positions", writeLimiter, requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
   try {
     const idemKey = idempotencyKeyFrom(req);
     const claim = await claimIdempotencyKey(req.householdId, idemKey);
@@ -2177,7 +2177,7 @@ app.post("/api/positions", writeLimiter, requireHousehold, requirePortfolioAcces
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/positions/:id", requireHousehold, requirePortfolioAccess, async (req, res) => {
+app.delete("/api/positions/:id", requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const r = await db.collection("positions").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
@@ -2196,7 +2196,7 @@ app.get("/api/positions/prices", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.put("/api/positions/prices", requireHousehold, async (req, res) => {
+app.put("/api/positions/prices", requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const { manualPrices } = req.body || {};
     if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
@@ -3037,7 +3037,7 @@ app.delete("/api/trips/:id/expenses/:expenseId", writeLimiter, requireHousehold,
 // ─── Trip share links: let a guest outside the household join a single trip
 // and log their own expenses, without ever handing out the household PIN.
 // Token-gated like the widget key — capability URL, revocable, scoped to one trip. ───
-app.post("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res) => {
+app.post("/api/trips/:id/share", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     const shareToken = randomBytes(24).toString("base64url");
@@ -3052,7 +3052,7 @@ app.post("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-app.delete("/api/trips/:id/share", writeLimiter, requireHousehold, async (req, res) => {
+app.delete("/api/trips/:id/share", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
     await tripsCol.updateOne(

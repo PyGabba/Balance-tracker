@@ -137,7 +137,11 @@ describe("persona login lockout + credential removal (isolated household)", () =
   }, 20000);
 
   it("un-enrolling clears the lockout along with the credential", async () => {
-    const del = await agent2.delete(`/api/auth/persona-credential/${personaId}`);
+    // A PIN-only session removing an already-claimed persona's credential
+    // needs proof of identity (see api.persona-credential-authorization.test.js) —
+    // supply the current password rather than relying on the session alone.
+    const del = await agent2.delete(`/api/auth/persona-credential/${personaId}`)
+      .send({ currentPassword: "the-real-password-1" });
     expect(del.status).toBe(200);
     expect(del.body.persone.find(p => p.id === personaId).hasCredential).toBe(false);
 
@@ -177,7 +181,10 @@ describe("persona session revocation", () => {
     const before = await request(app).get("/api/household").set("Cookie", personaCookie);
     expect(before.status).toBe(200);
 
-    const del = await householdAgent.delete(`/api/auth/persona-credential/${personaId}`);
+    // A PIN-only session removing an already-claimed persona's credential
+    // needs proof of identity (see api.persona-credential-authorization.test.js).
+    const del = await householdAgent.delete(`/api/auth/persona-credential/${personaId}`)
+      .send({ currentPassword: "original-password-1" });
     expect(del.status).toBe(200);
 
     // Same JWT, same jti — now dead, even though it hasn't expired.
