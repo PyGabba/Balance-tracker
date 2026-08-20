@@ -380,6 +380,23 @@ function sanitizeText(s, maxLen = 500) {
   return String(s).trim().slice(0, maxLen);
 }
 
+// ─── Persona id/appearance defaults (shared by register and the
+// add-persona endpoint below) ───
+const DEFAULT_EMOJIS = ["👤", "👩", "👨", "🧑", "👧", "👦"];
+const PERSONA_COLORS = ["#6C5CE7", "#E84393", "#0984E3", "#00B894", "#FD79A8", "#FDCB6E"];
+
+// Slugifies a name into an id, then disambiguates against ids already
+// taken in this household (e.g. two participants named "Mario") by
+// appending -2, -3, ... — ids are used in URLs (/persone/:id) so they
+// must stay unique within the household even when names collide.
+function personaIdFromNome(nome, existingIds) {
+  const base = nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "") || "persona";
+  if (!existingIds.has(base)) return base;
+  let n = 2;
+  while (existingIds.has(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
 // (sanitizeSplits/sanitizeExtraPersone/sanitizeRicorrenza formerly lived
 // here — superseded by computeValidSplits/validateSplits/
 // validateExtraPersone/validateRicorrenza in ./validation.js, now used
@@ -1165,8 +1182,6 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     const suffix = Math.random().toString(36).slice(2, 7);
     const householdId = `${slug}-${suffix}`;
 
-    const DEFAULT_EMOJIS = ["👤", "👩", "👨", "🧑", "👧", "👦"];
-    const COLORS = ["#6C5CE7", "#E84393", "#0984E3", "#00B894", "#FD79A8", "#FDCB6E"];
     // MOD-025 foundation: the first persona (whoever filled in the
     // registration form) defaults to "owner", everyone else to "member" —
     // a reasonable default, not a security decision (see validateRuolo's
@@ -1181,7 +1196,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
           id: (typeof p === "string" ? p : p.nome).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ""),
           nome: typeof p === "string" ? p : p.nome,
           emoji: (typeof p === "object" && p.emoji) ? p.emoji : DEFAULT_EMOJIS[i % DEFAULT_EMOJIS.length],
-          colore: COLORS[i % COLORS.length],
+          colore: PERSONA_COLORS[i % PERSONA_COLORS.length],
           ruolo,
         };
       });
@@ -1450,6 +1465,37 @@ app.put("/api/household/persone/:id/ruolo", writeLimiter, requireHousehold, requ
     await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
     audit("persona_role_changed", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: req.params.id, ruolo } });
     res.json({ persone: sanitizePersone(updatedPersone) }); // updatedPersone (unsanitized) is what got written to the DB — only the response is sanitized
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// Add a new participant to an already-registered household — the same
+// shape POST /api/auth/register accepts per-persona, just against an
+// existing household instead of at creation time. Gated admin+ (same
+// tier as changing a role, above): adding a member is a household-
+// structural change, not a everyday write. Always lands at the
+// DEFAULT_HOUSEHOLD_ROLE — this endpoint can't be used to mint another
+// owner/admin, that's still PUT .../ruolo's job, kept as a separate step
+// so granting elevated access is always its own explicit, auditable act.
+app.post("/api/household/persone", writeLimiter, requireHousehold, requireRole("admin"), async (req, res) => {
+  try {
+    const nome = sanitizeText(req.body?.nome, 100);
+    if (!nome) return sendError(res, 400, "MISSING_FIELDS", "Campo obbligatorio: nome");
+    const emoji = typeof req.body?.emoji === "string" ? sanitizeText(req.body.emoji, 8) : null;
+
+    const persone = req.household.persone || [];
+    const existingIds = new Set(persone.map(p => p.id));
+    const id = personaIdFromNome(nome, existingIds);
+    const newPersona = {
+      id,
+      nome,
+      emoji: emoji || DEFAULT_EMOJIS[persone.length % DEFAULT_EMOJIS.length],
+      colore: PERSONA_COLORS[persone.length % PERSONA_COLORS.length],
+      ruolo: DEFAULT_HOUSEHOLD_ROLE,
+    };
+    const updatedPersone = [...persone, newPersona];
+    await householdsCol.updateOne({ householdId: req.householdId }, { $set: { persone: updatedPersone, updatedAt: new Date() } });
+    audit("persona_added", { householdId: req.householdId, ip: clientIp(req), detail: { personaId: id } });
+    res.status(201).json({ persone: sanitizePersone(updatedPersone) });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
