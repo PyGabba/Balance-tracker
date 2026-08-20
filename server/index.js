@@ -11,7 +11,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword, validatePersonaEmailOptional, validatePositiveNumber, validateNonNegativeNumber, validateEnum, POSITION_TIPI, GOAL_CONTRIBUTION_TYPES } from "./validation.js";
+import { validateTransactionInput, validateAmount, validateDateStr, computeValidSplits, validateSplits, buildTripExpense, encodeTransactionsCursor, decodeTransactionsCursor, decideIdempotencyClaim, settlementTransactionKey, ValidationError, HOUSEHOLD_ROLES, DEFAULT_HOUSEHOLD_ROLE, validateRuolo, validatePersonaPassword, validatePersonaEmailOptional, validatePositiveNumber, validateNonNegativeNumber, validateEnum, POSITION_TIPI, GOAL_CONTRIBUTION_TYPES, TRANSACTION_TYPES, isPlainId } from "./validation.js";
 import { logger, recordRequestMetric, recordJobRun, getMetricsSnapshot, recordTripEmbeddingStats } from "./logger.js";
 import { roundAmount, sumAmounts, toMinorUnits, fromMinorUnits, minorUnitsOf } from "../src/lib/money.js";
 dotenv.config();
@@ -1710,10 +1710,20 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
   try {
     const { tipo, categoria, pagatoDa, contoId, meseAnno, from, to, cursor } = req.query;
     const filter = { householdId: req.householdId, deletedAt: null };
-    if (tipo) filter.tipo = tipo;
-    if (categoria) filter.categoria = categoria;
-    if (pagatoDa) filter.pagatoDa = pagatoDa;
+    if (tipo) {
+      if (typeof tipo !== "string" || !TRANSACTION_TYPES.includes(tipo)) return sendError(res, 400, "INVALID_FIELD", "Tipo non valido");
+      filter.tipo = tipo;
+    }
+    if (categoria) {
+      if (typeof categoria !== "string") return sendError(res, 400, "INVALID_FIELD", "Categoria non valida");
+      filter.categoria = sanitizeText(categoria, 50);
+    }
+    if (pagatoDa) {
+      if (!isPlainId(pagatoDa)) return sendError(res, 400, "INVALID_FIELD", "pagatoDa non valido");
+      filter.pagatoDa = pagatoDa;
+    }
     if (meseAnno) {
+      if (typeof meseAnno !== "string" || !/^\d{4}-\d{2}$/.test(meseAnno)) return sendError(res, 400, "INVALID_FIELD", "meseAnno non valido");
       const [a, m] = meseAnno.split("-").map(Number);
       filter.data = { $gte: new Date(a, m - 1, 1).toISOString().slice(0, 10), $lte: new Date(a, m, 0).toISOString().slice(0, 10) };
     } else {
@@ -1727,7 +1737,10 @@ app.get("/api/transactions", exportLimiter, requireHousehold, async (req, res) =
     // via $and rather than two top-level $or keys (which MongoDB — and JS
     // object literals — can't express, the second would just clobber the first).
     const andClauses = [];
-    if (contoId) andClauses.push({ $or: [{ contoId }, { contoDa: contoId }, { contoA: contoId }] });
+    if (contoId) {
+      if (!isPlainId(contoId)) return sendError(res, 400, "INVALID_FIELD", "contoId non valido");
+      andClauses.push({ $or: [{ contoId }, { contoDa: contoId }, { contoA: contoId }] });
+    }
     if (cursor) {
       const decoded = decodeTransactionsCursor(cursor);
       if (!decoded) return sendError(res, 400, "INVALID_CURSOR", "Cursore di paginazione non valido");
