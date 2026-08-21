@@ -69,7 +69,7 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
       {conti.map(c => (
         <div key={c.id} onClick={() => editId === c.id ? null : openEdit(c)} style={{
           display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 12, cursor: "pointer",
-          background: editId === c.id ? "#6C5CE711" : "#111119", marginBottom: 6,
+          background: editId === c.id ? "#6C5CE711" : "#120f16", marginBottom: 6,
           border: editId === c.id ? "1px solid #6C5CE755" : "1px solid transparent",
         }}>
           <span style={{ fontSize: 16 }}>{c.icona || "🏦"}</span>
@@ -88,7 +88,7 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
       ))}
 
       {formOpen && (
-        <div style={{ marginTop: 10, padding: 12, background: "#111119", borderRadius: 12, border: "1px solid #6C5CE733" }}>
+        <div style={{ marginTop: 10, padding: 12, background: "#120f16", borderRadius: 12, border: "1px solid #6C5CE733" }}>
           <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
             {editId ? t(lang, "conti.editAccount") : t(lang, "conti.newAccount")}
           </div>

@@ -4,7 +4,7 @@ import { calcolaSettleViaggio } from "../../lib/finance.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
-import { inputStyle } from "../../components/ui/styles.js";
+import { inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { TripExpenseForm } from "./TripExpenseForm.jsx";
 
 export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
@@ -200,25 +200,25 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   const allColors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
   const tripColors = {};
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>{t(lang, "viaggi.loading")}</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: color.textMuted }}>{t(lang, "viaggi.loading")}</div>;
 
   return (
     <div style={{ padding: "20px 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#eee" }}>{t(lang, "viaggi.title")}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary }}>{t(lang, "viaggi.title")}</div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? "#6C5CE7" : "#888", fontSize: 16, padding: "4px 8px" }}>⚙</button>
-          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538", borderRadius: 10, cursor: "pointer", color: showAdd ? "#6C5CE7" : "#888", fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
+          <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? color.accent : color.textMuted, fontSize: 16, padding: "4px 8px" }}>⚙</button>
+          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? `${color.accent}22` : "none", border: showAdd ? `1px solid ${color.accent}` : `1px solid ${color.border}`, borderRadius: 10, cursor: "pointer", color: showAdd ? color.accent : color.textMuted, fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
         </div>
       </div>
 
       {showCatManager && (
-        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 14 }}>{t(lang, "viaggi.categories")}</div>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 20, border: `2px solid ${color.accent}` }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: color.textPrimary, marginBottom: 14 }}>{t(lang, "viaggi.categories")}</div>
           {tripCats.map(c => (
             <div key={c.id}>
               {editingCatId === c.id ? (
-                <div style={{ padding: "10px 0", borderBottom: "1px solid #252538" }}>
+                <div style={{ padding: "10px 0", borderBottom: `1px solid ${color.border}` }}>
                   <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
                     <input value={editForm.emoji || c.emoji} onChange={e => setEditForm(f => ({ ...f, emoji: e.target.value }))}
                       style={{ ...inputStyle, width: 52, textAlign: "center", fontSize: 18, padding: "8px 4px" }} />
@@ -228,17 +228,17 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                       style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
                   </div>
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
-                    <button onClick={() => handleSaveTripCat(c.id)} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
+                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+                    <button onClick={() => handleSaveTripCat(c.id)} style={{ padding: "6px 12px", background: color.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #252538" }}>
+                <div style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${color.border}` }}>
                   <span style={{ fontSize: 16, marginRight: 8 }}>{c.emoji}</span>
-                  <span style={{ flex: 1, color: "#ccc", fontSize: 14 }}>{c.nome}</span>
+                  <span style={{ flex: 1, color: color.textSecondary, fontSize: 14 }}>{c.nome}</span>
                   <div style={{ width: 16, height: 16, borderRadius: 4, background: c.colore, marginRight: 8 }} />
-                  <button onClick={() => { setEditingCatId(c.id); setEditForm(c); }} style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>✏</button>
-                  <button onClick={() => handleDeleteTripCat(c.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>×</button>
+                  <button onClick={() => { setEditingCatId(c.id); setEditForm(c); }} style={{ background: "none", border: "none", color: color.textMuted, cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>✏</button>
+                  <button onClick={() => handleDeleteTripCat(c.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>×</button>
                 </div>
               )}
             </div>
@@ -254,19 +254,19 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: "#888", fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
-                <button onClick={handleAddTripCat} style={{ padding: "6px 12px", background: "#6C5CE7", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
+                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+                <button onClick={handleAddTripCat} style={{ padding: "6px 12px", background: color.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: "1px dashed #333", borderRadius: 10, color: "#666", fontSize: 13, cursor: "pointer" }}>{t(lang, "settings.newCategory")}</button>
+            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: "1px dashed #333", borderRadius: 10, color: color.textMuted, fontSize: 13, cursor: "pointer" }}>{t(lang, "settings.newCategory")}</button>
           )}
         </div>
       )}
 
       {showAdd && (
-        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "2px solid #6C5CE7" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#eee", marginBottom: 12, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.newTrip")}</div>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 20, border: `2px solid ${color.accent}` }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: color.textPrimary, marginBottom: 12, fontFamily: displayFont }}>{t(lang, "viaggi.newTrip")}</div>
           <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder={t(lang, "viaggi.tripNamePlaceholder")} style={{ ...inputStyle, marginBottom: 10 }} />
           <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "viaggi.descriptionPlaceholder")} style={{ ...inputStyle, marginBottom: 10 }} />
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -274,25 +274,25 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} placeholder={t(lang, "viaggi.to")} style={{ ...inputStyle, flex: 1 }} />
           </div>
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>{t(lang, "viaggi.extraParticipantsPrefix")} {persone.length} {t(lang, "viaggi.extraParticipantsSuffix")}</div>
+            <div style={{ fontSize: 11, color: color.textMuted, marginBottom: 6 }}>{t(lang, "viaggi.extraParticipantsPrefix")} {persone.length} {t(lang, "viaggi.extraParticipantsSuffix")}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[...persone.map(p => ({ ...p, isMembro: true })), ...partecipanti].map(p => (
-                <div key={p.id} style={{ padding: "6px 10px", borderRadius: 10, background: p.colore + "22", border: `1px solid ${p.colore}55`, color: p.colore, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+                <div key={p.id} style={{ padding: "6px 10px", borderRadius: 10, background: p.colore + "22", border: `1px solid ${p.colore}55`, color: p.colore, fontSize: 12, fontFamily: displayFont }}>
                   {p.emoji} {p.nome}
                 </div>
               ))}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <input type="text" value={newPersonName} onChange={e => setNewPersonName(e.target.value)} placeholder={t(lang, "viaggi.guestNamePlaceholder")} onKeyDown={e => e.key === "Enter" && addGuest()} style={{ ...inputStyle, flex: 1 }} />
-              <button onClick={addGuest} style={{ padding: "8px 14px", background: "#6C5CE7", border: "none", borderRadius: 10, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "common.add")}</button>
+              <button onClick={addGuest} style={{ padding: "8px 14px", background: color.accent, border: "none", borderRadius: 10, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: displayFont }}>{t(lang, "common.add")}</button>
             </div>
           </div>
-          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "12px", background: nome.trim() ? "#6C5CE7" : "#252538", border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: nome.trim() ? "pointer" : "default" }}>{t(lang, "viaggi.createTrip")}</button>
+          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "12px", background: nome.trim() ? color.accent : color.border, border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: displayFont, cursor: nome.trim() ? "pointer" : "default" }}>{t(lang, "viaggi.createTrip")}</button>
         </div>
       )}
 
       {trips.length === 0 ? (
-        <div style={{ color: "#555", textAlign: "center", padding: 40 }}>{t(lang, "viaggi.noTrips")}<br/>{t(lang, "viaggi.tapToCreate")}</div>
+        <div style={{ color: color.textMuted, textAlign: "center", padding: 40 }}>{t(lang, "viaggi.noTrips")}<br/>{t(lang, "viaggi.tapToCreate")}</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {trips.map(trip => {
@@ -305,52 +305,52 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
             const isSettling = settlingTrip === trip.id;
 
             return (
-              <div key={trip.id} style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538" }}>
+              <div key={trip.id} style={{ background: color.surface, borderRadius: 16, padding: 16, border: `1px solid ${color.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#eee", fontFamily: "'DM Sans',sans-serif" }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: color.textPrimary, fontFamily: displayFont }}>
                       {trip.nome}
                       {trip.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>{trip.autoSettled ? t(lang, "viaggi.autoSettled") : t(lang, "viaggi.settled")}</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: "#666", fontFamily: "'DM Sans',sans-serif" }}>{trip.descrizione}</div>
-                    <div style={{ fontSize: 11, color: "#555", marginTop: 4, fontFamily: "'DM Sans',sans-serif" }}>
+                    <div style={{ fontSize: 12, color: color.textMuted, fontFamily: displayFont }}>{trip.descrizione}</div>
+                    <div style={{ fontSize: 11, color: color.textMuted, marginTop: 4, fontFamily: displayFont }}>
                       {trip.startDate && trip.endDate ? `${trip.startDate} → ${trip.endDate}` : trip.startDate || trip.endDate || ""}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                     {!trip.settled && (
                       trip.shareToken ? (
-                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: "#6C5CE722", border: "1px solid #6C5CE7", borderRadius: 8, color: "#a78bfa", cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: `${color.accent}22`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
                       ) : (
-                        <button onClick={() => handleShareTrip(trip.id)} disabled={shareBusyId === trip.id} title={t(lang, "viaggi.inviteSomeone")} style={{ background: "none", border: "1px solid #252538", borderRadius: 8, color: "#888", cursor: shareBusyId === trip.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                        <button onClick={() => handleShareTrip(trip.id)} disabled={shareBusyId === trip.id} title={t(lang, "viaggi.inviteSomeone")} style={{ background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, cursor: shareBusyId === trip.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
                       )
                     )}
-                    <button onClick={() => handleDeleteTrip(trip.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 18 }}>×</button>
+                    <button onClick={() => handleDeleteTrip(trip.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 18 }}>×</button>
                   </div>
                 </div>
 
                 {trip.shareToken && !trip.settled && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.inviteActive")}</span>
-                    <button onClick={() => handleRevokeShare(trip.id)} disabled={shareBusyId === trip.id} style={{ background: "none", border: "none", color: "#FF6B6B", fontSize: 11, fontWeight: 700, cursor: shareBusyId === trip.id ? "default" : "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.revoke")}</button>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: color.bg, border: `1px solid ${color.border}`, borderRadius: 10, padding: "8px 10px", marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, color: color.textMuted, fontFamily: displayFont }}>{t(lang, "viaggi.inviteActive")}</span>
+                    <button onClick={() => handleRevokeShare(trip.id)} disabled={shareBusyId === trip.id} style={{ background: "none", border: "none", color: color.negative, fontSize: 11, fontWeight: 700, cursor: shareBusyId === trip.id ? "default" : "pointer", fontFamily: displayFont }}>{t(lang, "viaggi.revoke")}</button>
                   </div>
                 )}
 
                 <div style={{ marginBottom: 10 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
-                  <span style={{ fontSize: 11, color: "#666", marginLeft: 6, fontFamily: "'DM Sans',sans-serif" }}>({trip.expenses?.length || 0} {t(lang, "viaggi.expenses")})</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent }}>{formattaValuta(total)}</span>
+                  <span style={{ fontSize: 11, color: color.textMuted, marginLeft: 6, fontFamily: displayFont }}>({trip.expenses?.length || 0} {t(lang, "viaggi.expenses")})</span>
                 </div>
 
                 {!trip.settled && settlements.length > 0 && (
-                  <div style={{ background: "#111119", borderRadius: 12, padding: 12, marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, color: "#888", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.toSettle")}</div>
+                  <div style={{ background: color.bg, borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: color.textMuted, marginBottom: 8, fontFamily: displayFont }}>{t(lang, "viaggi.toSettle")}</div>
                     {settlements.map((s, i) => (
-                      <div key={i} style={{ fontSize: 12, marginBottom: 4, fontFamily: "'DM Sans',sans-serif" }}>
-                        <span style={{ color: tripColors[trip.id][s.da] }}>{nameOf(s.da)}</span> → <span style={{ color: tripColors[trip.id][s.a] }}>{nameOf(s.a)}</span>: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
+                      <div key={i} style={{ fontSize: 12, marginBottom: 4, fontFamily: displayFont }}>
+                        <span style={{ color: tripColors[trip.id][s.da] }}>{nameOf(s.da)}</span> → <span style={{ color: tripColors[trip.id][s.a] }}>{nameOf(s.a)}</span>: <span style={{ fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(s.importo)}</span>
                       </div>
                     ))}
                     <button onClick={() => handleMarkSettled(trip, settlements)} disabled={settlingId === trip.id}
-                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === trip.id ? "#252538" : "#55EFC422", border: "1px solid #55EFC455", borderRadius: 10, color: "#55EFC4", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", cursor: settlingId === trip.id ? "default" : "pointer" }}>
+                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === trip.id ? color.border : "#55EFC422", border: "1px solid #55EFC455", borderRadius: 10, color: "#55EFC4", fontSize: 12, fontWeight: 700, fontFamily: displayFont, cursor: settlingId === trip.id ? "default" : "pointer" }}>
                       {settlingId === trip.id ? t(lang, "viaggi.saving") : t(lang, "viaggi.markSettled")}
                     </button>
                   </div>
@@ -358,19 +358,19 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
 
                 {trip.expenses && trip.expenses.length > 0 && (
                   <div style={{ marginBottom: 10 }}>
-                    <button onClick={() => toggleExpenses(trip.id)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "10px 12px", cursor: "pointer", marginBottom: expandedExpenses[trip.id] ? 6 : 0 }}>
-                      <span style={{ fontSize: 12, color: "#888", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "viaggi.expenses")} ({trip.expenses.length})</span>
-                      <span style={{ fontSize: 11, color: "#6C5CE7", transform: expandedExpenses[trip.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
+                    <button onClick={() => toggleExpenses(trip.id)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: color.bg, border: `1px solid ${color.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", marginBottom: expandedExpenses[trip.id] ? 6 : 0 }}>
+                      <span style={{ fontSize: 12, color: color.textMuted, fontFamily: displayFont }}>{t(lang, "viaggi.expenses")} ({trip.expenses.length})</span>
+                      <span style={{ fontSize: 11, color: color.accent, transform: expandedExpenses[trip.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
                     </button>
                     {expandedExpenses[trip.id] && trip.expenses.map((e, i) => (
-                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538", fontFamily: "'DM Sans',sans-serif" }}>
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${color.border}`, fontFamily: displayFont }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || t(lang, "viaggi.expenseFallback")}</div>
-                          <div style={{ fontSize: 11, color: "#666" }}>{e.categoria} · {e.pagatoDa}</div>
+                          <div style={{ fontSize: 13, color: color.textSecondary }}>{e.descrizione || t(lang, "viaggi.expenseFallback")}</div>
+                          <div style={{ fontSize: 11, color: color.textMuted }}>{e.categoria} · {e.pagatoDa}</div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
-                          {!trip.settled && <button onClick={() => handleDeleteExpense(trip.id, e.id)} style={{ background: "none", border: "none", color: "#FF6B6B", cursor: "pointer", fontSize: 14 }}>×</button>}
+                          <div style={{ fontSize: 13, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent }}>{formattaValuta(e.importo)}</div>
+                          {!trip.settled && <button onClick={() => handleDeleteExpense(trip.id, e.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 14 }}>×</button>}
                         </div>
                       </div>
                     ))}

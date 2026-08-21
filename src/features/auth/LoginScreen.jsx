@@ -220,10 +220,10 @@ export function LoginScreen({ onLogin }) {
   }
 
   const sBtn = { width: "100%", padding: "16px", border: "none", borderRadius: 16, fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginTop: 16, transition: "all 0.3s", cursor: "pointer" };
-  const smallInput = { ...inputStyle, padding: "12px 14px", fontSize: 14, background: "#111119" };
+  const smallInput = { ...inputStyle, padding: "12px 14px", fontSize: 14, background: "#120f16" };
 
   return (
-    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#111119", color: "#eee", fontFamily: "'DM Sans',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100vh", background: "#120f16", color: "#eee", fontFamily: "'DM Sans',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <style>{`
         @keyframes pinShake {
           0%,100% { transform: translateX(0); }

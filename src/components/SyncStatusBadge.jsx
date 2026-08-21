@@ -110,7 +110,7 @@ export function SyncStatusBadge({ lang = "it" }) {
               {failedOps.map(op => {
                 const entityLabel = ENTITY_LABELS[op.entityType]?.[lang] || ENTITY_LABELS[op.entityType]?.it || op.entityType;
                 return (
-                  <div key={op.operationId} style={{ background: "#111119", border: "1px solid #252538", borderRadius: 10, padding: "8px 10px" }}>
+                  <div key={op.operationId} style={{ background: "#120f16", border: "1px solid #252538", borderRadius: 10, padding: "8px 10px" }}>
                     <div style={{ fontSize: 11, color: "#ccc", fontWeight: 600, marginBottom: 2 }}>{entityLabel}</div>
                     <div style={{ fontSize: 10, color: "#FF6B6B", marginBottom: 6, lineHeight: 1.4 }}>{op.lastError || t(lang, "sync.genericError")}</div>
                     <div style={{ display: "flex", gap: 6 }}>

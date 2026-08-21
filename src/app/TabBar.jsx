@@ -55,7 +55,7 @@ export function TabBar({ tab, setTab, householdId, lang = "it" }) {
       left: 0,
       right: 0,
       width: "100%",
-      background: "#111119",
+      background: "#120f16",
       display: "flex",
       flexDirection: "column",
       zIndex: 100,
