@@ -3,6 +3,24 @@ import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { generaId } from "../../lib/appHelpers.js";
 import { buildSettlementTransaction } from "../../services/debtService.js";
+import { color, moneyFont } from "../../components/ui/styles.js";
+
+// Small colored initial-circle avatar — used in the debt rows below instead
+// of relying solely on a persona's emoji, so a row reads at a glance even
+// when two people share the same emoji.
+function Avatar({ persona }) {
+  const initial = (persona.nome || "?").trim().charAt(0).toUpperCase();
+  return (
+    <div style={{
+      width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+      background: `${persona.colore || color.textMuted}22`, border: `1.5px solid ${persona.colore || color.textMuted}77`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 12, fontWeight: 700, color: persona.colore || color.textSecondary,
+    }}>
+      {persona.emoji || initial}
+    </div>
+  );
+}
 
 // ─── Debt summary card (MOD-013) ───
 // Shows this month's and all-time debts between household members, lets
@@ -16,38 +34,45 @@ export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, tra
   const [showStoricoSaldi, setShowStoricoSaldi] = useState(false);
 
   return (
-      <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 20, border: "1px solid #252538" }}>
-        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>{t(lang, "home.debtBalance")}</div>
+      <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 20, border: `1px solid ${color.debtSoft}`, boxShadow: `0 0 0 1px #0000, inset 0 1px 0 #ffffff08` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+          <span style={{ fontSize: 13 }}>⚖</span>
+          <div style={{ fontSize: 11, color: color.debt, letterSpacing: 0.6, textTransform: "uppercase", fontWeight: 700 }}>{t(lang, "home.debtBalance")}</div>
+        </div>
         {/* Month debts */}
-        <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>{mese(meseVis.getMonth())}</div>
-        {debitiMese.length === 0 ? <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>{t(lang, "home.allSquare")}</div> : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: color.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>{mese(meseVis.getMonth())}</div>
+        {debitiMese.length === 0 ? <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 8 }}>{t(lang, "home.allSquare")}</div> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
             {debitiMese.map((d, i) => {
-              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
-              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: "#888" };
+              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: color.textMuted };
+              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: color.textMuted };
               return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 16 }}>{pDa.emoji}</span>
-                  <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: pA.colore }}>{formattaValuta(d.importo)}</span>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Avatar persona={pDa} />
+                  <span style={{ fontSize: 11, color: color.debt }}>→</span>
+                  <Avatar persona={pA} />
+                  <span style={{ fontSize: 12, color: color.textSecondary, flex: 1 }}>{pDa.nome} <span style={{ color: color.textMuted }}>{t(lang, "home.owes")}</span> {pA.nome}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, fontFamily: moneyFont, color: color.debt, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(d.importo)}</span>
                 </div>
               );
             })}
           </div>
         )}
         {/* Global debts */}
-        <div style={{ borderTop: "1px solid #252538", paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: "#777", marginBottom: 6 }}>{t(lang, "home.total")}</div>
-          {debitiGlobale.length === 0 ? <div style={{ fontSize: 13, color: "#888" }}>{t(lang, "home.allSquare")}</div> : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ borderTop: `1px solid ${color.border}`, paddingTop: 10 }}>
+          <div style={{ fontSize: 10, color: color.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>{t(lang, "home.total")}</div>
+          {debitiGlobale.length === 0 ? <div style={{ fontSize: 13, color: color.textSecondary }}>{t(lang, "home.allSquare")}</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {debitiGlobale.map((d, i) => {
-                const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: "#888" };
-                const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: "#888" };
+                const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: color.textMuted };
+                const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: color.textMuted };
                 return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 16 }}>{pDa.emoji}</span>
-                    <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
-                    <span style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: pA.colore }}>{formattaValuta(d.importo)}</span>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Avatar persona={pDa} />
+                    <span style={{ fontSize: 11, color: color.debt }}>→</span>
+                    <Avatar persona={pA} />
+                    <span style={{ fontSize: 12, color: color.textSecondary, flex: 1 }}>{pDa.nome} <span style={{ color: color.textMuted }}>{t(lang, "home.owes")}</span> {pA.nome}</span>
+                    <span style={{ fontSize: 16, fontWeight: 700, fontFamily: moneyFont, color: color.debt, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(d.importo)}</span>
                   </div>
                 );
               })}
@@ -63,7 +88,7 @@ export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, tra
               const key = `${d.da}->${d.a}`;
               if (settlingKey === key) {
                 return (
-                  <div key={i} style={{ background: "#111119", borderRadius: 12, padding: 12, border: "1px solid #4ECDC433" }}>
+                  <div key={i} style={{ background: "#120f16", borderRadius: 12, padding: 12, border: "1px solid #4ECDC433" }}>
                     <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>
                       {pDa.emoji} {pDa.nome} → {pA.emoji} {pA.nome} <span style={{ color: "#555" }}>(max {formattaValuta(d.importo)})</span>
                     </div>
@@ -81,7 +106,7 @@ export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, tra
                       <button onClick={() => {
                         onSettle(buildSettlementTransaction(d, settleAmount, { generaId, recipientName: pA.nome }));
                         setSettlingKey(null); setSettleAmount("");
-                      }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: "#4ECDC4", color: "#111119", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
+                      }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: "#4ECDC4", color: "#120f16", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
                         {t(lang, "home.confirmSettle")}
                       </button>
                     </div>

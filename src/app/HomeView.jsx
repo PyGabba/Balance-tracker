@@ -3,7 +3,7 @@ import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, filtraT
 import { t, mese } from "../lib/i18n.js";
 import { formattaValuta } from "../lib/format.js";
 import { getAllPersone, generaId } from "../lib/appHelpers.js";
-import { filterLabelStyle, inputStyle } from "../components/ui/styles.js";
+import { filterLabelStyle, inputStyle, color, moneyFont } from "../components/ui/styles.js";
 import { FilterChip } from "../components/ui/FilterChip.jsx";
 import { TransactionRow } from "../features/transactions/TransactionRow.jsx";
 import { GoalRow } from "../features/goals/GoalRow.jsx";
@@ -77,20 +77,20 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
   return (
     <div>
       <div style={{ padding: "14px 16px 20px" }}>
-      {/* Saldo card */}
-      <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #2a1f4e 100%)", borderRadius: 20, padding: "24px 20px", marginBottom: 12, border: "1px solid #333355", boxShadow: "0 8px 32px #0005" }}>
-        <div style={{ fontSize: 12, color: "#999", letterSpacing: 1, textTransform: "uppercase" }}>{t(lang, "home.balanceOf")} {mese(meseVis.getMonth())}</div>
-        <div style={{ fontSize: 36, fontWeight: 800, marginTop: 6, fontFamily: "'Space Mono', monospace", color: saldo >= 0 ? "#4ECDC4" : "#FF6B6B", letterSpacing: -1 }}>
+      {/* Saldo card — the hero figure of the home screen, set with room to breathe */}
+      <div style={{ background: `linear-gradient(155deg, ${color.surfaceRaised} 0%, #241a3d 60%, #2a1f4e 100%)`, borderRadius: 22, padding: "26px 22px", marginBottom: 12, border: `1px solid ${color.borderStrong}`, boxShadow: "0 12px 32px #0006" }}>
+        <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 1.2, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.balanceOf")} {mese(meseVis.getMonth())}</div>
+        <div style={{ fontSize: 46, fontWeight: 700, marginTop: 8, fontFamily: moneyFont, color: saldo >= 0 ? color.positive : color.negative, letterSpacing: -1.5, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
           {saldo >= 0 ? "+" : ""}{formattaValuta(saldo)}
         </div>
-        <div style={{ display: "flex", gap: 20, marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 24, marginTop: 18 }}>
           <div>
-            <div style={{ fontSize: 10, color: "#6a6", letterSpacing: 0.5 }}>{t(lang, "home.income")}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#6C6", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(entrate)}</div>
+            <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 0.8, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.income")}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: color.positive, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{formattaValuta(entrate)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, color: "#a66", letterSpacing: 0.5 }}>{t(lang, "home.expenses")}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#F66", fontFamily: "'Space Mono',monospace" }}>{formattaValuta(uscite)}</div>
+            <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 0.8, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.expenses")}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: color.negative, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{formattaValuta(uscite)}</div>
           </div>
         </div>
       </div>
@@ -133,9 +133,9 @@ export function HomeView({ transazioni, onDelete, onEdit, onSettle, persone, mes
         const patrimonio = totConti + totInvestimenti;
         const accantonati = (goals || []).reduce((s, g) => s + (g.contoId ? (g.currentAmount || 0) : 0), 0);
         return (
-          <div style={{ background: "linear-gradient(135deg, #1e1e30 0%, #16281f 100%)", borderRadius: 20, padding: "18px 20px", marginBottom: 16, border: "1px solid #2a4a3a", boxShadow: "0 8px 32px #0005" }}>
-            <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "home.netWorth")}</div>
-            <div style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Space Mono',monospace", color: patrimonio >= 0 ? "#eee" : "#FF6B6B", marginTop: 4 }}>
+          <div style={{ background: `linear-gradient(135deg, ${color.surfaceRaised} 0%, #16281f 100%)`, borderRadius: 20, padding: "18px 20px", marginBottom: 16, border: "1px solid #2a4a3a", boxShadow: "0 8px 32px #0005" }}>
+            <div style={{ fontSize: 11, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.netWorth")}</div>
+            <div style={{ fontSize: 30, fontWeight: 700, fontFamily: moneyFont, color: patrimonio >= 0 ? color.textPrimary : color.negative, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
               {formattaValuta(patrimonio)}
             </div>
             <div style={{ display: "flex", gap: 16, marginTop: 10, flexWrap: "wrap" }}>
