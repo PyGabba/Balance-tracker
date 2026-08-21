@@ -1,3 +1,5 @@
+import { color } from "../../components/ui/styles.js";
+
 export function GoalGauge({ current, target, size = 60 }) {
   const pct = target > 0 ? Math.min(current / target, 1) : 0;
   const stroke = 8;
@@ -6,8 +8,8 @@ export function GoalGauge({ current, target, size = 60 }) {
   const offset = circ * (1 - pct);
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="#252538" strokeWidth={stroke} />
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={pct >= 1 ? "#4ECDC4" : "#6C5CE7"} strokeWidth={stroke}
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={color.border} strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke={pct >= 1 ? color.positive : color.accent} strokeWidth={stroke}
         strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`} style={{transition: "stroke-dashoffset 0.5s"}} />
     </svg>
   );

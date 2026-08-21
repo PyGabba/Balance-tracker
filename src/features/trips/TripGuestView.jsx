@@ -4,7 +4,7 @@ import { calcolaSettleViaggio } from "../../lib/finance.js";
 import { t, detectGuestLang } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast, ToastHost } from "../../components/Toast.jsx";
-import { inputStyle } from "../../components/ui/styles.js";
+import { inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { GuestExpenseForm } from "./GuestExpenseForm.jsx";
 import { guestTripDefaultCategorie } from "./helpers.js";
 
@@ -52,9 +52,9 @@ export function TripGuestView({ token }) {
     setJoining(false);
   }
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#666" }}>{t(lang, "viaggi.loading")}</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: color.textMuted }}>{t(lang, "viaggi.loading")}</div>;
   if (error || !trip) return (
-    <div style={{ padding: 40, textAlign: "center", color: "#FF6B6B" }}>
+    <div style={{ padding: 40, textAlign: "center", color: color.negative }}>
       {error || t(lang, "guest.invalidLink")}
     </div>
   );
@@ -64,48 +64,48 @@ export function TripGuestView({ token }) {
   const settlements = calcolaSettleViaggio(trip);
 
   return (
-    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100dvh", background: "#111119", color: "#eee", fontFamily: "'DM Sans', sans-serif", padding: "24px 16px" }}>
+    <div style={{ maxWidth: 430, margin: "0 auto", minHeight: "100dvh", background: color.bg, color: color.textPrimary, fontFamily: displayFont, padding: "24px 16px" }}>
       <ToastHost />
-      <div style={{ fontSize: 11, color: "#6C5CE7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "guest.invitedTo")}</div>
+      <div style={{ fontSize: 11, color: color.accent, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>{t(lang, "guest.invitedTo")}</div>
       <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{trip.nome}</div>
-      {trip.descrizione && <div style={{ fontSize: 13, color: "#888", marginBottom: 4 }}>{trip.descrizione}</div>}
-      <div style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>
+      {trip.descrizione && <div style={{ fontSize: 13, color: color.textMuted, marginBottom: 4 }}>{trip.descrizione}</div>}
+      <div style={{ fontSize: 12, color: color.textMuted, marginBottom: 20 }}>
         {trip.startDate && trip.endDate ? `${trip.startDate} → ${trip.endDate}` : trip.startDate || trip.endDate || ""}
         {trip.settled && <span style={{ marginLeft: 8, color: "#55EFC4", fontWeight: 700 }}>{t(lang, "guest.closed")}</span>}
       </div>
 
       {!me && !trip.settled && (
-        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, border: "1px solid #252538", marginBottom: 20 }}>
-          <div style={{ fontSize: 13, color: "#ccc", marginBottom: 10 }}>{t(lang, "guest.whatsYourName")}</div>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, border: `1px solid ${color.border}`, marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 10 }}>{t(lang, "guest.whatsYourName")}</div>
           <input type="text" value={nomeInput} onChange={e => setNomeInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleJoin()}
             placeholder={t(lang, "guest.yourName")} autoFocus style={{ ...inputStyle, marginBottom: 10 }} />
           <button onClick={handleJoin} disabled={!nomeInput.trim() || joining} style={{
             width: "100%", padding: "12px", border: "none", borderRadius: 12,
-            background: nomeInput.trim() ? "#6C5CE7" : "#252538", color: "#fff",
+            background: nomeInput.trim() ? color.accent : color.border, color: "#fff",
             fontSize: 14, fontWeight: 700, cursor: nomeInput.trim() ? "pointer" : "default",
           }}>{joining ? "..." : t(lang, "guest.joinTrip")}</button>
         </div>
       )}
 
       {!me && trip.settled && (
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 20 }}>{t(lang, "guest.tripClosedReadonly")}</div>
+        <div style={{ fontSize: 12, color: color.textMuted, marginBottom: 20 }}>{t(lang, "guest.tripClosedReadonly")}</div>
       )}
 
       {me && (
-        <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>{t(lang, "guest.participatingAs")} <strong style={{ color: "#a78bfa" }}>{me.nome}</strong></div>
+        <div style={{ fontSize: 12, color: color.textMuted, marginBottom: 16 }}>{t(lang, "guest.participatingAs")} <strong style={{ color: color.accent }}>{me.nome}</strong></div>
       )}
 
       <div style={{ marginBottom: 16 }}>
-        <span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(total)}</span>
-        <span style={{ fontSize: 12, color: "#666", marginLeft: 6 }}>{t(lang, "guest.total")} · {trip.expenses?.length || 0} {t(lang, "viaggi.expenses")}</span>
+        <span style={{ fontSize: 16, fontWeight: 700, fontFamily: moneyFont, color: color.accent }}>{formattaValuta(total)}</span>
+        <span style={{ fontSize: 12, color: color.textMuted, marginLeft: 6 }}>{t(lang, "guest.total")} · {trip.expenses?.length || 0} {t(lang, "viaggi.expenses")}</span>
       </div>
 
       {settlements.length > 0 && (
-        <div style={{ background: "#1a1a28", borderRadius: 14, padding: 14, marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{trip.settled ? t(lang, "guest.settledLikeThis") : t(lang, "viaggi.toSettle")}</div>
+        <div style={{ background: color.surface, borderRadius: 14, padding: 14, marginBottom: 16, border: `1px solid ${color.border}` }}>
+          <div style={{ fontSize: 11, color: color.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{trip.settled ? t(lang, "guest.settledLikeThis") : t(lang, "viaggi.toSettle")}</div>
           {settlements.map((s, i) => (
             <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
-              {nameOf(s.da)} → {nameOf(s.a)}: <span style={{ fontFamily: "'Space Mono',monospace" }}>{formattaValuta(s.importo)}</span>
+              {nameOf(s.da)} → {nameOf(s.a)}: <span style={{ fontFamily: moneyFont }}>{formattaValuta(s.importo)}</span>
             </div>
           ))}
         </div>
@@ -113,14 +113,14 @@ export function TripGuestView({ token }) {
 
       {trip.expenses && trip.expenses.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{t(lang, "guest.expenses")}</div>
+          <div style={{ fontSize: 11, color: color.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>{t(lang, "guest.expenses")}</div>
           {trip.expenses.map((e, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #252538" }}>
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${color.border}` }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, color: "#ccc" }}>{e.descrizione || t(lang, "viaggi.expenseFallback")}</div>
-                <div style={{ fontSize: 11, color: "#666" }}>{e.categoria} · {nameOf(e.pagatoDa)}</div>
+                <div style={{ fontSize: 13, color: color.textSecondary }}>{e.descrizione || t(lang, "viaggi.expenseFallback")}</div>
+                <div style={{ fontSize: 11, color: color.textMuted }}>{e.categoria} · {nameOf(e.pagatoDa)}</div>
               </div>
-              <div style={{ fontSize: 13, fontFamily: "'Space Mono',monospace", color: "#a78bfa" }}>{formattaValuta(e.importo)}</div>
+              <div style={{ fontSize: 13, fontFamily: moneyFont, color: color.accent }}>{formattaValuta(e.importo)}</div>
             </div>
           ))}
         </div>

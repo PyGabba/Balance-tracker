@@ -78,7 +78,7 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
                     setSelectedId(p.id); setError("");
                   }} style={{
                     display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-                    background: p.id === activePersonaId ? "#4ECDC422" : "#111119",
+                    background: p.id === activePersonaId ? "#4ECDC422" : "#120f16",
                     border: "1px solid " + (p.id === activePersonaId ? "#4ECDC4" : "#252538"),
                     borderRadius: 10, color: "#eee", fontSize: 13, cursor: "pointer", textAlign: "left",
                   }}>
@@ -100,7 +100,7 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
                   type="password" autoFocus placeholder={t(lang, "personaSwitcher.password")}
                   value={password} onChange={e => setPassword(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && password) handleLogin(); if (e.key === "Escape") setSelectedId(null); }}
-                  style={{ width: "100%", padding: "8px 10px", background: "#111119", border: "1px solid #6C5CE7", borderRadius: 10, color: "#eee", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                  style={{ width: "100%", padding: "8px 10px", background: "#120f16", border: "1px solid #6C5CE7", borderRadius: 10, color: "#eee", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 8 }}
                 />
                 {error && <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8 }}>{error}</div>}
                 <div style={{ display: "flex", gap: 6 }}>

@@ -3,13 +3,13 @@ import { t } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { splitsTotalOk } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
-import { labelStyle, inputStyle } from "../../components/ui/styles.js";
+import { labelStyle, inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { SplitSelector } from "./components/SplitSelector.jsx";
 import { initialSplits } from "./helpers.js";
 
 // ─── Transaction Row with inline edit ───
 export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
-  const _ENTRATA_CAT = { id: "entrata", nome: t(lang, "cat.entrata"), emoji: "💰", colore: "#4ECDC4" };
+  const _ENTRATA_CAT = { id: "entrata", nome: t(lang, "cat.entrata"), emoji: "💰", colore: color.positive };
   const cat = tx.tipo === "entrata" ? _ENTRATA_CAT : (categorie.find(c => c.id === tx.categoria) || categorie.find(c => c.id === "altro") || categorie[categorie.length - 1]);
   const persona = persone.find(p => p.id === tx.pagatoDa);
 
@@ -66,16 +66,16 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
     const cDa = conti.find(c => c.id === tx.contoDa);
     const cA = conti.find(c => c.id === tx.contoA);
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538" }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: "#6C5CE722", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: color.surface, borderRadius: 14, padding: "12px 14px", border: `1px solid ${color.border}` }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${color.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.descrizione || t(lang, "form.transfer")}</div>
-          <div style={{ fontSize: 11, color: "#666" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: color.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.descrizione || t(lang, "form.transfer")}</div>
+          <div style={{ fontSize: 11, color: color.textMuted }}>
             {formattaData(tx.data)} · {cDa ? `${cDa.icona} ${cDa.nome}` : "?"} → {cA ? `${cA.icona} ${cA.nome}` : "?"}
           </div>
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: "#a78bfa", flexShrink: 0 }}>{formattaValuta(tx.importo)}</div>
-        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent, flexShrink: 0 }}>{formattaValuta(tx.importo)}</div>
+        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: `${color.negative}55`, cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
       </div>
     );
   }
@@ -83,17 +83,17 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
   // Compact row
   if (!isEditing) {
     return (
-      <div onClick={onTap} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1a1a28", borderRadius: 14, padding: "12px 14px", border: "1px solid #252538", cursor: "pointer", transition: "background 0.2s" }}>
+      <div onClick={onTap} style={{ display: "flex", alignItems: "center", gap: 10, background: color.surface, borderRadius: 14, padding: "12px 14px", border: `1px solid ${color.border}`, cursor: "pointer", transition: "background 0.2s" }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.colore + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
           {cat.emoji}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: color.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {tx.descrizione || cat.nome}
-            {tx.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: "#6C5CE7" }}>🔁</span>}
-            {tx.daVerificare && <span title={t(lang, "form.checkAmountTitle")} style={{ fontSize: 10, marginLeft: 5, color: "#FFB020" }}>⚠️</span>}
+            {tx.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: color.accent }}>🔁</span>}
+            {tx.daVerificare && <span title={t(lang, "form.checkAmountTitle")} style={{ fontSize: 10, marginLeft: 5, color: color.warn }}>⚠️</span>}
           </div>
-          <div style={{ fontSize: 11, color: "#666", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: color.textMuted, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(tx.data)}
             {(() => { const c = conti.find(x => x.id === tx.contoId); return c ? <span title={c.nome} style={{ fontSize: 10 }}>{c.icona}</span> : null; })()}
             {persona && tx.tipo === "uscita" && (() => {
@@ -103,7 +103,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
                 participants = tx.splits.map(s => ({
                   id: s.personaId,
                   quota: s.quota,
-                  persona: persone.find(p => p.id === s.personaId) || { id: s.personaId, nome: s.personaId, emoji: "👤", colore: "#888" }
+                  persona: persone.find(p => p.id === s.personaId) || { id: s.personaId, nome: s.personaId, emoji: "👤", colore: color.textMuted }
                 }));
               } else if (tx.splitPagante != null && tx.splitPagante !== 100) {
                 // Vecchio formato a 2 persone
@@ -155,8 +155,8 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: tx.tipo === "entrata" ? "#4ECDC4" : "#FF6B6B" }}>{tx.tipo === "entrata" ? "+" : "-"}{formattaValuta(tx.importo)}</div>
-          {tx.valuta && <div style={{ fontSize: 10, color: "#666", fontFamily: "'Space Mono',monospace" }}>{tx.importoOriginale} {tx.valuta}</div>}
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: tx.tipo === "entrata" ? color.positive : color.negative }}>{tx.tipo === "entrata" ? "+" : "-"}{formattaValuta(tx.importo)}</div>
+          {tx.valuta && <div style={{ fontSize: 10, color: color.textMuted, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{tx.importoOriginale} {tx.valuta}</div>}
         </div>
       </div>
     );
@@ -164,20 +164,20 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
 
   // Expanded edit form
   return (
-    <div style={{ background: "#1a1a28", borderRadius: 16, padding: "16px", border: "2px solid #6C5CE7", position: "relative", zIndex: 10, overflow: "hidden" }}>
+    <div style={{ background: color.surface, borderRadius: 16, padding: "16px", border: `2px solid ${color.accent}`, position: "relative", zIndex: 10, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#eee" }}>{t(lang, "form.editTransaction")}</div>
-        <button onClick={onCancel} style={{ background: "none", border: "none", color: "#888", fontSize: 18, cursor: "pointer" }}>✕</button>
+        <div style={{ fontSize: 15, fontWeight: 700, color: color.textPrimary }}>{t(lang, "form.editTransaction")}</div>
+        <button onClick={onCancel} style={{ background: "none", border: "none", color: color.textMuted, fontSize: 18, cursor: "pointer" }}>✕</button>
       </div>
 
       {/* Tipo */}
-      <div style={{ display: "flex", background: "#111119", borderRadius: 12, padding: 3, marginBottom: 14, border: "1px solid #252538" }}>
+      <div style={{ display: "flex", background: color.bg, borderRadius: 12, padding: 3, marginBottom: 14, border: `1px solid ${color.border}` }}>
         {["uscita", "entrata"].map(tp => (
           <button key={tp} onClick={() => setTipo(tp)} style={{
             flex: 1, padding: "8px 0", border: "none", borderRadius: 10, cursor: "pointer",
             fontSize: 13, fontWeight: 600,
-            background: tipo === tp ? (tp === "uscita" ? "#FF6B6B22" : "#4ECDC422") : "transparent",
-            color: tipo === tp ? (tp === "uscita" ? "#FF6B6B" : "#4ECDC4") : "#666",
+            background: tipo === tp ? (tp === "uscita" ? `${color.negative}22` : `${color.positive}22`) : "transparent",
+            color: tipo === tp ? (tp === "uscita" ? color.negative : color.positive) : color.textMuted,
           }}>{tp === "uscita" ? t(lang, "type.expense") : t(lang, "type.income")}</button>
         ))}
       </div>
@@ -186,7 +186,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>{t(lang, "home.filterAmount")} (€)</label>
         <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)}
-          style={{ ...inputStyle, fontSize: 22, fontWeight: 800, fontFamily: "'Space Mono',monospace", textAlign: "center", color: tipo === "uscita" ? "#FF6B6B" : "#4ECDC4", background: "#111119" }} />
+          style={{ ...inputStyle, fontSize: 22, fontWeight: 800, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", textAlign: "center", color: tipo === "uscita" ? color.negative : color.positive, background: color.bg }} />
       </div>
 
       {/* Categoria */}
@@ -196,13 +196,13 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5 }}>
             {categorie.map(c => (
               <button key={c.id} onClick={() => setCategoria(c.id)} style={{
-                background: categoria === c.id ? c.colore + "33" : "#111119",
-                border: categoria === c.id ? `2px solid ${c.colore}88` : "2px solid #252538",
+                background: categoria === c.id ? c.colore + "33" : color.bg,
+                border: categoria === c.id ? `2px solid ${c.colore}88` : `2px solid ${color.border}`,
                 borderRadius: 10, padding: "6px 2px", cursor: "pointer",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
               }}>
                 <span style={{ fontSize: 16 }}>{c.emoji}</span>
-                <span style={{ fontSize: 8, color: categoria === c.id ? c.colore : "#888", fontWeight: 600 }}>{c.nome}</span>
+                <span style={{ fontSize: 8, color: categoria === c.id ? c.colore : color.textMuted, fontWeight: 600 }}>{c.nome}</span>
               </button>
             ))}
           </div>
@@ -221,12 +221,12 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {persone.map(p => (
               <button key={p.id} onClick={() => setIntestataA(p.id)} style={{
-                flex: "1 1 auto", minWidth: 0, padding: "10px 6px", border: intestataA === p.id ? `2px solid ${p.colore}` : "2px solid #252538",
-                borderRadius: 12, cursor: "pointer", background: intestataA === p.id ? p.colore + "22" : "#111119",
+                flex: "1 1 auto", minWidth: 0, padding: "10px 6px", border: intestataA === p.id ? `2px solid ${p.colore}` : `2px solid ${color.border}`,
+                borderRadius: 12, cursor: "pointer", background: intestataA === p.id ? p.colore + "22" : color.bg,
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6, transition: "all 0.2s",
               }}>
                 <span style={{ fontSize: 18 }}>{p.emoji}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: intestataA === p.id ? p.colore : "#888" }}>{p.nome}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: intestataA === p.id ? p.colore : color.textMuted }}>{p.nome}</span>
               </button>
             ))}
           </div>
@@ -236,13 +236,13 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
       {/* Descrizione */}
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>{t(lang, "form.description")}</label>
-        <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "form.descriptionPlaceholder")} style={{ ...inputStyle, background: "#111119" }} />
+        <input type="text" value={descrizione} onChange={e => setDescrizione(e.target.value)} placeholder={t(lang, "form.descriptionPlaceholder")} style={{ ...inputStyle, background: color.bg }} />
       </div>
 
       {/* Data */}
       <div style={{ marginBottom: 16 }}>
         <label style={labelStyle}>{t(lang, "form.date")}</label>
-        <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, background: "#111119", colorScheme: "dark" }} />
+        <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, background: color.bg, colorScheme: "dark" }} />
       </div>
       {/* Conto */}
       {conti.length > 0 && (
@@ -250,17 +250,17 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           <label style={labelStyle}>{t(lang, "home.filterAccount")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setEContoId("")} style={{
-              padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
-              background: eContoId === "" ? "#6C5CE722" : "#111119",
-              border: eContoId === "" ? "1px solid #6C5CE7" : "1px solid #252538",
-              color: eContoId === "" ? "#a78bfa" : "#666",
+              padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: displayFont,
+              background: eContoId === "" ? `${color.accent}22` : color.bg,
+              border: eContoId === "" ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+              color: eContoId === "" ? color.accent : color.textMuted,
             }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setEContoId(c.id)} style={{
-                padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
-                background: eContoId === c.id ? "#6C5CE722" : "#111119",
-                border: eContoId === c.id ? "1px solid #6C5CE7" : "1px solid #252538",
-                color: eContoId === c.id ? "#a78bfa" : "#888",
+                padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: displayFont,
+                background: eContoId === c.id ? `${color.accent}22` : color.bg,
+                border: eContoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+                color: eContoId === c.id ? color.accent : color.textMuted,
               }}>{c.icona} {c.nome}</button>
             ))}
           </div>
@@ -271,7 +271,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => { if (confirm(t(lang, "form.deleteTransactionConfirm"))) onDelete(); }} style={{
           padding: "12px", border: "1px solid #FF6B6B44", borderRadius: 12, cursor: "pointer",
-          background: "#FF6B6B11", color: "#FF6B6B", fontSize: 13, fontWeight: 600, flexShrink: 0,
+          background: `${color.negative}11`, color: color.negative, fontSize: 13, fontWeight: 600, flexShrink: 0,
         }}>{t(lang, "common.delete")}</button>
         <button onClick={handleSave} style={{
           flex: 1, padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
