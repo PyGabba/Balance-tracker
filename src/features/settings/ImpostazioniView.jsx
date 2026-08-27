@@ -5,10 +5,11 @@ import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { VALUTE_FALLBACK } from "../transactions/helpers.js";
+import { RecurringManagerSection } from "./RecurringManagerSection.jsx";
 
 const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
 
-export function ImpostazioniView({ householdName, householdId, persone, activePersonaId, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange, lang = "it", onLangChange }) {
+export function ImpostazioniView({ householdName, householdId, persone, activePersonaId, onDeleted, categorie, onCategorieChange, onRestoreTransazione, valutaBase = "EUR", onValutaBaseChange, lang = "it", onLangChange, transazioni = [], onEditTransazione, onDeleteTransazione }) {
   const [valutaBusy, setValutaBusy] = useState(false);
   const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
 
@@ -574,6 +575,15 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
           {t(lang, "settings.calendarSubscribeHint")}
         </div>
       </div>
+
+      {/* Recurring transactions manager */}
+      <RecurringManagerSection
+        transazioni={transazioni}
+        categorie={categorie}
+        onEdit={onEditTransazione}
+        onDelete={onDeleteTransazione}
+        lang={lang}
+      />
 
       {/* Category editor */}
       <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 24, border: `1px solid ${color.border}` }}>

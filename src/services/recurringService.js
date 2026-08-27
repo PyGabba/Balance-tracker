@@ -24,3 +24,22 @@ export function buildRecurringOccurrence(template, generaId) {
   const updatedRicorrenza = { frequenza: ricorrenza.frequenza, prossimaData: newProssimaData, variabile: ricorrenza.variabile };
   return { nuovaTx, updatedRicorrenza };
 }
+
+// ─── Recurring-manager helpers (Manage recurring transactions) ───
+
+// All templates (transactions still carrying a live ricorrenza), soonest
+// next-occurrence first — the order the manager list should render in.
+export function listRecurringTemplates(transazioni) {
+  return transazioni
+    .filter(t => t.ricorrenza?.frequenza && t.ricorrenza?.prossimaData)
+    .sort((a, b) => a.ricorrenza.prossimaData.localeCompare(b.ricorrenza.prossimaData));
+}
+
+// "Skip" a template's next occurrence: advances prossimaData by one
+// frequency step WITHOUT creating a transaction for it — for months you
+// paid it another way, or want to silently push it out. Returns just the
+// updated ricorrenza the caller should persist (a partial update).
+export function skipNextOccurrence(template) {
+  const { ricorrenza } = template;
+  return { ...ricorrenza, prossimaData: calcolaProssimaData(ricorrenza.prossimaData, ricorrenza.frequenza) };
+}

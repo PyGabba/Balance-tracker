@@ -115,6 +115,16 @@ const dict = {
     "recur.trimestrale": "Ogni 3 mesi",
     "recur.annuale": "Ogni anno",
 
+    "recurManager.title": "🔁 Transazioni ricorrenti",
+    "recurManager.hint": "Gestisci le spese ed entrate che si ripetono automaticamente: cambia frequenza, salta la prossima occorrenza, mettile in pausa o eliminale del tutto.",
+    "recurManager.empty": "Nessuna transazione ricorrente al momento.",
+    "recurManager.next": "Prossima:",
+    "recurManager.variable": "Importo variabile",
+    "recurManager.skip": "Salta prossima",
+    "recurManager.pause": "Metti in pausa",
+    "recurManager.confirmPause": "Mettere in pausa questa ricorrenza? Non verranno più generate nuove transazioni, ma quelle già create restano invariate.",
+    "recurManager.confirmDelete": "Eliminare questa transazione ricorrente? Verrà rimossa anche la voce originale — le occorrenze già generate in passato non saranno toccate.",
+
     "viaggi.title": "Viaggi",
     "viaggi.categories": "Categorie viaggi",
     "viaggi.categoryNamePlaceholder": "Nome categoria",
@@ -675,6 +685,16 @@ const dict = {
     "recur.mensile": "Every month",
     "recur.trimestrale": "Every 3 months",
     "recur.annuale": "Every year",
+
+    "recurManager.title": "🔁 Recurring transactions",
+    "recurManager.hint": "Manage expenses and income that repeat automatically: change the frequency, skip the next occurrence, pause them, or delete them entirely.",
+    "recurManager.empty": "No recurring transactions right now.",
+    "recurManager.next": "Next:",
+    "recurManager.variable": "Variable amount",
+    "recurManager.skip": "Skip next",
+    "recurManager.pause": "Pause",
+    "recurManager.confirmPause": "Pause this recurrence? No new transactions will be generated, but ones already created stay as they are.",
+    "recurManager.confirmDelete": "Delete this recurring transaction? This also removes the original entry — occurrences already generated in the past won't be touched.",
 
     "viaggi.title": "Trips",
     "viaggi.categories": "Trip categories",

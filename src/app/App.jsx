@@ -391,6 +391,9 @@ export default function FinanzaApp() {
             onValutaBaseChange={setValutaBase}
             lang={lang}
             onLangChange={handleLangChange}
+            transazioni={transazioni}
+            onEditTransazione={modificaTransazione}
+            onDeleteTransazione={eliminaTransazione}
           />
         )}
       </PullToRefresh>
