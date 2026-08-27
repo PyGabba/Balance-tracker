@@ -670,6 +670,21 @@ export async function addTransaction(tx) {
   return enqueueWrite(syncCtx, { entityType: "transactions", operation: "create", payload: tx });
 }
 
+// Asks the server to run its (dedup-protected) recurring-transactions job
+// right now, instead of waiting for its periodic tick — see the comment on
+// POST /api/recurring/run. Best-effort: callers should treat failure as
+// "the periodic job will still catch it later" rather than a hard error.
+export async function runDueRecurringNow() {
+  if (!(await checkAPI()) || !currentHousehold) return false;
+  try {
+    const res = await fetch(`${API_BASE}/api/recurring/run`, { method: "POST", headers: authHeaders(), credentials: "include" });
+    return res.ok;
+  } catch (err) {
+    console.error("runDueRecurringNow:", err);
+    return false;
+  }
+}
+
 export async function deleteTransaction(id) {
   return enqueueWrite(syncCtx, { entityType: "transactions", operation: "delete", entityId: id, payload: null });
 }

@@ -2,6 +2,19 @@
 // Pure: decides which templates are due and what their next occurrence
 // looks like. No API calls, no React state — callers persist the result
 // (create the occurrence, update the template) and merge it into UI state.
+//
+// NOTE: findDueRecurring/buildRecurringOccurrence are no longer what
+// actually generates occurrences in the app — that used to run client-side
+// in App.jsx, but had no protection against two devices (or one device
+// reloading twice) both generating the same occurrence, which is how
+// duplicate transactions like "Affitto" appearing 3-4 times happened.
+// Generation now always goes through the server's dedup-protected job
+// (server/index.js: generaRicorrentiDovute, unique index on
+// recurrenceOccurrenceKey) via POST /api/recurring/run. These two
+// functions are kept because they're still accurate, still tested, and
+// mirror the server's own logic — useful for previewing "what would the
+// next occurrence look like" without a round-trip — but nothing in the app
+// currently calls them to actually create a transaction.
 
 import { calcolaProssimaData } from "../features/transactions/helpers.js";
 

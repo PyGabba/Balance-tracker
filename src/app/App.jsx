@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId } from "../api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId, runDueRecurringNow } from "../api.js";
 import { PersonaSwitcher } from "../features/auth/PersonaSwitcher.jsx";
 import { getLang, setLang, t, detectGuestLang } from "../lib/i18n.js";
 import { toast, ToastHost } from "../components/Toast.jsx";
 import { SyncStatusBadge } from "../components/SyncStatusBadge.jsx";
 import { setImportiNascosti as setImportiNascostiFormat } from "../lib/format.js";
-import { defaultCategorie, generaId } from "../lib/appHelpers.js";
+import { defaultCategorie } from "../lib/appHelpers.js";
 import { AggiungiView } from "../features/transactions/AggiungiView.jsx";
-import { findDueRecurring, buildRecurringOccurrence } from "../services/recurringService.js";
 import { computeAutoContributions } from "../services/goalsService.js";
 import { LoginScreen } from "../features/auth/LoginScreen.jsx";
 import { ViaggiView } from "../features/trips/ViaggiView.jsx";
@@ -122,43 +121,40 @@ export default function FinanzaApp() {
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();
 
-  // ─── Auto-generate due recurring transactions ───
-  // Which templates are due and what their next occurrence looks like is
-  // decided by services/recurringService.js (pure, tested in isolation);
-  // this callback only owns persistence (addTransaction/updateTransaction)
-  // and merging the result into UI state.
-  const generaRicorrenti = useCallback(async (txList) => {
-    const dovute = findDueRecurring(txList);
-    if (dovute.length === 0) return;
-    const nuove = [];
-    for (const t of dovute) {
-      const { nuovaTx, updatedRicorrenza } = buildRecurringOccurrence(t, generaId);
-      try {
-        const saved = await addTransaction(nuovaTx);
-        nuove.push(saved);
-        // Advance the template's prossimaData so it doesn't fire again this period
-        await updateTransaction(t.id, { ricorrenza: updatedRicorrenza });
-        setTransazioni(prev => prev.map(tx => tx.id === t.id ? { ...tx, ricorrenza: updatedRicorrenza } : tx));
-      } catch (e) { console.error("Ricorrente error:", e); }
-    }
-    if (nuove.length > 0) {
-      setTransazioni(prev => [...prev, ...nuove]);
-    }
-  }, []);
-
+  // ─── Trigger due recurring transactions (rent, subscriptions, etc.) ───
+  // Generation itself always happens server-side, in the ONE place that's
+  // actually safe to call from multiple devices/tabs/reloads at once: the
+  // dedup-protected job behind POST /api/recurring/run (see server/index.js
+  // — unique index on recurrenceOccurrenceKey means at most one "Affitto"
+  // occurrence can ever be inserted per due date, no matter how many
+  // clients ask for it). This used to be done directly in the client via
+  // addTransaction(), with no such protection — two phones open around the
+  // same due date (or even one phone reloading twice in a row) could each
+  // create their own copy of the same occurrence, which is exactly how you
+  // end up with 3-4 identical "Affitto" transactions.
   const loadAll = useCallback(async () => {
     try {
       const localData = await fetchTransactions((serverData) => {
         setTransazioni(serverData);
-        // generaRicorrenti already ran on localData below; skip here to avoid race duplicates
       });
       setTransazioni(localData);
-      generaRicorrenti(localData);
+      // Ask the server to generate anything due right now (safe to call
+      // freely — see above), then re-fetch so a newly-created occurrence
+      // shows up immediately instead of waiting for the next reload. Both
+      // steps are best-effort: if either fails, the periodic server-side
+      // tick (every 6h) still catches it later.
+      const ranNow = await runDueRecurringNow().catch(() => false);
+      if (ranNow) {
+        try {
+          const refreshed = await fetchTransactions((serverData) => setTransazioni(serverData));
+          setTransazioni(refreshed);
+        } catch (e) { console.error("Post-recurring refresh error:", e); }
+      }
     } catch (err) {
       if (err.message === "Sessione scaduta") { setAuthed(false); return; }
       console.error("Load error:", err);
     }
-  }, [generaRicorrenti]);
+  }, []);
 
   const loadPositions = useCallback(async () => {
     try {

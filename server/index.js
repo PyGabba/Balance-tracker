@@ -2112,6 +2112,27 @@ app.get("/api/stats/summary", requireHousehold, async (req, res) => {
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", db: !!db }));
 
+// ─── Trigger the recurring-transactions job immediately ───
+// The job itself (generaRicorrentiDovute, above) already runs on server
+// startup and every RICORRENTI_CHECK_MS, and is safe to call as often as
+// you like: an in-process flag (ricorrentiRunning) skips overlapping runs,
+// and the unique index on recurrenceOccurrenceKey means a race between two
+// calls (or two servers) can insert the SAME occurrence at most once — the
+// loser just gets a duplicate-key error it treats as "already generated".
+// This endpoint exists so the app can ask for a due "Affitto"-style
+// transaction to appear right away on open, instead of waiting up to 6h for
+// the next tick — WITHOUT the client generating the occurrence itself
+// (that used to happen in App.jsx and had no such protection: two devices,
+// or the same device reloading twice in a row, could each create their own
+// copy of the same occurrence. Route everything through this one
+// dedup-protected path instead.)
+app.post("/api/recurring/run", writeLimiter, requireHousehold, async (req, res) => {
+  try {
+    await generaRicorrentiDovute();
+    res.json({ ok: true });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
 // ─── Custom Categories ───
 // Already loaded in requireHousehold via findHousehold — just return it
 app.get("/api/categorie", requireHousehold, (req, res) => {
