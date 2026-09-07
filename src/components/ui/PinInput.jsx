@@ -23,10 +23,10 @@ export function NumPad({ onDigit, onDelete, disabled }) {
     border: "none", borderRadius: "50%", fontFamily: displayFont,
     fontSize: 20, fontWeight: 600, cursor: "pointer", transition: "all 0.12s",
     display: "flex", alignItems: "center", justifyContent: "center",
-    height: 64, userSelect: "none", WebkitUserSelect: "none",
+    width: 64, height: 64, flexShrink: 0, userSelect: "none", WebkitUserSelect: "none",
   };
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, width: "100%", maxWidth: 260, margin: "0 auto" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 64px)", gap: 16, justifyContent: "center" }}>
       {keys.map((k, i) => {
         if (k === "") return <div key={i} />;
         const isDel = k === "⌫";
