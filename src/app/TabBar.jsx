@@ -68,7 +68,7 @@ export function TabBar({ tab, setTab, householdId, lang = "it" }) {
         display: "flex",
         justifyContent: "space-around",
         alignItems: "center",
-        background: "rgba(17, 17, 25, 0.92)",
+        background: alpha(color.bg, 0.92),
         backdropFilter: "blur(25px) saturate(180%)",
         WebkitBackdropFilter: "blur(25px) saturate(180%)",
         borderRadius: "16px 16px 0 0",
