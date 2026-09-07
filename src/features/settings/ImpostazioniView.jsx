@@ -710,9 +710,9 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
 
         {fase === "idle" && (
           <button onClick={() => setFase("confirm")} style={{
-            width: "100%", padding: "13px", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 12,
-            background: "transparent", color: color.negative, fontFamily: displayFont,
-            fontSize: 14, fontWeight: 700, cursor: "pointer",
+            width: "100%", padding: "13px", border: `1px solid ${alpha(color.negative, 0.4)}`, borderRadius: 12,
+            background: alpha(color.negative, 0.1), color: color.negative, fontFamily: displayFont,
+            fontSize: 13, fontWeight: 700, cursor: "pointer",
           }}>
             {t(lang, "settings.deleteAccount")}
           </button>
