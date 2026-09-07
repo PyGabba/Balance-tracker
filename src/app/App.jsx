@@ -412,6 +412,11 @@ export default function FinanzaApp() {
             transazioni={transazioni}
             onEditTransazione={modificaTransazione}
             onDeleteTransazione={eliminaTransazione}
+            conti={conti}
+            goals={goals}
+            onAddConto={handleAddConto}
+            onUpdateConto={handleUpdateConto}
+            onDeleteConto={handleDeleteConto}
           />
         )}
       </PullToRefresh>

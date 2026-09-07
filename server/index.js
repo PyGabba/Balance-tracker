@@ -1010,6 +1010,7 @@ async function findHousehold(hid) {
     requiresPinChange: dbH.requiresPinChange || false,
     email: dbH.email || null,
     valutaBase: dbH.valutaBase || "EUR",
+    createdAt: dbH.createdAt || null,
   };
   return null;
 }
@@ -1404,7 +1405,7 @@ app.delete("/api/auth/household", requireHousehold, requireRole("owner"), async 
 
 // ─── GET household info ───
 app.get("/api/household", requireHousehold, (req, res) => {
-  res.json({ id: req.household.id, nome: req.household.nome, persone: sanitizePersone(req.household.persone), hasRecoveryEmail: !!req.household.email, valutaBase: req.household.valutaBase || "EUR" });
+  res.json({ id: req.household.id, nome: req.household.nome, persone: sanitizePersone(req.household.persone), hasRecoveryEmail: !!req.household.email, valutaBase: req.household.valutaBase || "EUR", createdAt: req.household.createdAt || null });
 });
 
 // ─── Base currency ───
