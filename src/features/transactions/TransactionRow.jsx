@@ -3,7 +3,7 @@ import { t } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { splitsTotalOk } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
-import { labelStyle, inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { SplitSelector } from "./components/SplitSelector.jsx";
 import { initialSplits } from "./helpers.js";
 
@@ -67,7 +67,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
     const cA = conti.find(c => c.id === tx.contoA);
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: color.surface, borderRadius: 14, padding: "12px 14px", border: `1px solid ${color.border}` }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${color.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${alpha(color.accent, 0.13)}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: color.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.descrizione || t(lang, "form.transfer")}</div>
           <div style={{ fontSize: 11, color: color.textMuted }}>
@@ -75,7 +75,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           </div>
         </div>
         <div style={{ fontSize: 15, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent, flexShrink: 0 }}>{formattaValuta(tx.importo)}</div>
-        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: `${color.negative}55`, cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
+        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.33)}`, cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
       </div>
     );
   }
@@ -176,7 +176,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           <button key={tp} onClick={() => setTipo(tp)} style={{
             flex: 1, padding: "8px 0", border: "none", borderRadius: 10, cursor: "pointer",
             fontSize: 13, fontWeight: 600,
-            background: tipo === tp ? (tp === "uscita" ? `${color.negative}22` : `${color.positive}22`) : "transparent",
+            background: tipo === tp ? (tp === "uscita" ? `${alpha(color.negative, 0.13)}` : `${alpha(color.positive, 0.13)}`) : "transparent",
             color: tipo === tp ? (tp === "uscita" ? color.negative : color.positive) : color.textMuted,
           }}>{tp === "uscita" ? t(lang, "type.expense") : t(lang, "type.income")}</button>
         ))}
@@ -251,14 +251,14 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setEContoId("")} style={{
               padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: displayFont,
-              background: eContoId === "" ? `${color.accent}22` : color.bg,
+              background: eContoId === "" ? `${alpha(color.accent, 0.13)}` : color.bg,
               border: eContoId === "" ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
               color: eContoId === "" ? color.accent : color.textMuted,
             }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setEContoId(c.id)} style={{
                 padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: displayFont,
-                background: eContoId === c.id ? `${color.accent}22` : color.bg,
+                background: eContoId === c.id ? `${alpha(color.accent, 0.13)}` : color.bg,
                 border: eContoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: eContoId === c.id ? color.accent : color.textMuted,
               }}>{c.icona} {c.nome}</button>
@@ -270,14 +270,14 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
       {/* Actions */}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => { if (confirm(t(lang, "form.deleteTransactionConfirm"))) onDelete(); }} style={{
-          padding: "12px", border: "1px solid #FF6B6B44", borderRadius: 12, cursor: "pointer",
-          background: `${color.negative}11`, color: color.negative, fontSize: 13, fontWeight: 600, flexShrink: 0,
+          padding: "12px", border: `1px solid ${alpha(color.negative, 0.27)}`, borderRadius: 12, cursor: "pointer",
+          background: `${alpha(color.negative, 0.07)}`, color: color.negative, fontSize: 13, fontWeight: 600, flexShrink: 0,
         }}>{t(lang, "common.delete")}</button>
         <button onClick={handleSave} style={{
           flex: 1, padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
           fontSize: 14, fontWeight: 700, color: "#fff",
-          background: salvato ? "linear-gradient(135deg, #4ECDC4, #3ab8b0)" : "linear-gradient(135deg, #6C5CE7, #a855f7)",
-          boxShadow: "0 4px 16px #6C5CE744",
+          background: salvato ? color.positive : accentGradient,
+          boxShadow: `0 4px 16px ${alpha(color.accent, 0.27)}`,
         }}>{salvato ? t(lang, "form.saved") : t(lang, "form.saveChanges")}</button>
       </div>
     </div>

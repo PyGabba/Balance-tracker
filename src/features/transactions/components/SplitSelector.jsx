@@ -138,7 +138,7 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
           {(splits || []).map(s => {
             const p = allPersone.find(x => x.id === s.personaId) || { nome: s.personaId, emoji: "👤", colore: color.textMuted };
             return (
-              <div key={s.personaId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #1e1e2e" }}>
+              <div key={s.personaId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${color.border}` }}>
                 <span style={{ fontSize: 16 }}>{p.emoji}</span>
                 <span style={{ fontSize: 12, color: p.colore, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</span>
                 <input type="number" inputMode="numeric" value={s.quota} onChange={e => setQuota(s.personaId, parseInt(e.target.value) || 0)}

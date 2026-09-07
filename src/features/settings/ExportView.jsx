@@ -4,7 +4,7 @@ import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { getAllPersone, COLORI_EXTRA } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
-import { labelStyle, inputStyle } from "../../components/ui/styles.js";
+import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { parseSplitwiseRows } from "./parseSplitwiseRows.js";
 
 const ALL_COLUMN_IDS = ["data", "tipo", "importo", "categoria", "descrizione", "pagatoDa", "ricevutoDa", "partecipanti", "conto"];
@@ -275,47 +275,52 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
     return 0;
   });
 
+  // Shared row-building logic — used by both the XLSX and CSV export paths
+  // so the two file formats never drift apart on which columns/values they contain.
+  function buildExportRows() {
+    return ordinate.map(t => {
+      const row = {};
+      const p = persone.find(p => p.id === t.pagatoDa);
+      if (colonne.includes("data")) row["Data"] = t.data;
+      if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "saldo" ? "Saldo" : t.tipo === "trasferimento" ? "Giroconto" : t.tipo === "uscita" ? "Uscita" : "Entrata";
+      if (colonne.includes("importo")) row["Importo (€)"] = t.importo;
+      if (colonne.includes("categoria")) row["Categoria"] = t.tipo === "saldo" ? "" : (t.categoria || "");
+      if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
+      if (colonne.includes("conto")) {
+        if (t.tipo === "trasferimento") {
+          const cDa = conti.find(c => c.id === t.contoDa); const cA = conti.find(c => c.id === t.contoA);
+          row["Conto"] = `${cDa?.nome || "?"} → ${cA?.nome || "?"}`;
+        } else {
+          row["Conto"] = conti.find(c => c.id === t.contoId)?.nome || "";
+        }
+      }
+      if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
+      if (colonne.includes("ricevutoDa")) {
+        const rp = persone.find(x => x.id === t.ricevutoDa);
+        row["Ricevuto da"] = rp?.nome || t.ricevutoDa || "";
+      }
+      if (colonne.includes("partecipanti") && t.tipo !== "saldo") {
+        if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
+          const allP = getAllPersone(transazioni, persone);
+          row["Partecipanti"] = t.splits.map(s => {
+            const sp = allP.find(x => x.id === s.personaId);
+            return `${sp?.nome || s.personaId} ${s.quota}%`;
+          }).join(", ");
+        } else if (t.splitPagante != null) {
+          row["Partecipanti"] = `${p?.nome || ""} ${t.splitPagante}%`;
+        } else {
+          row["Partecipanti"] = "";
+        }
+      }
+      return row;
+    });
+  }
+
   async function esporta() {
     setEsportando(true);
     try {
       const XLSX = await import("xlsx");
-
-      const rows = ordinate.map(t => {
-        const row = {};
-        const p = persone.find(p => p.id === t.pagatoDa);
-        if (colonne.includes("data")) row["Data"] = t.data;
-        if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "saldo" ? "Saldo" : t.tipo === "trasferimento" ? "Giroconto" : t.tipo === "uscita" ? "Uscita" : "Entrata";
-        if (colonne.includes("importo")) row["Importo (€)"] = t.importo;
-        if (colonne.includes("categoria")) row["Categoria"] = t.tipo === "saldo" ? "" : (t.categoria || "");
-        if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
-        if (colonne.includes("conto")) {
-          if (t.tipo === "trasferimento") {
-            const cDa = conti.find(c => c.id === t.contoDa); const cA = conti.find(c => c.id === t.contoA);
-            row["Conto"] = `${cDa?.nome || "?"} → ${cA?.nome || "?"}`;
-          } else {
-            row["Conto"] = conti.find(c => c.id === t.contoId)?.nome || "";
-          }
-        }
-        if (colonne.includes("pagatoDa")) row["Pagato da"] = p?.nome || t.pagatoDa || "";
-        if (colonne.includes("ricevutoDa")) {
-          const rp = persone.find(x => x.id === t.ricevutoDa);
-          row["Ricevuto da"] = rp?.nome || t.ricevutoDa || "";
-        }
-        if (colonne.includes("partecipanti") && t.tipo !== "saldo") {
-          if (t.splits && Array.isArray(t.splits) && t.splits.length > 0) {
-            const allP = getAllPersone(transazioni, persone);
-            row["Partecipanti"] = t.splits.map(s => {
-              const sp = allP.find(x => x.id === s.personaId);
-              return `${sp?.nome || s.personaId} ${s.quota}%`;
-            }).join(", ");
-          } else if (t.splitPagante != null) {
-            row["Partecipanti"] = `${p?.nome || ""} ${t.splitPagante}%`;
-          } else {
-            row["Partecipanti"] = "";
-          }
-        }
-        return row;
-      });
+      const rows = buildExportRows();
 
       const ws = XLSX.utils.json_to_sheet(rows);
       const colWidths = Object.keys(rows[0] || {}).map(key => ({
@@ -355,6 +360,31 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
     }
   }
 
+  // CSV export — transactions only (a CSV file has no second-sheet concept,
+  // so the portfolio-include toggle only ever applies to the XLSX path).
+  async function esportaCsv() {
+    setEsportando(true);
+    try {
+      const XLSX = await import("xlsx");
+      const rows = buildExportRows();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const csv = XLSX.utils.sheet_to_csv(ws);
+      const sheetName = meseDa === meseA ? meseDa : `${meseDa}_${meseA}`;
+      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `finanza_${sheetName}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export error:", err);
+      toast(`${t(lang, "toast.errorExportPrefix")} ${err.message}`, "error");
+    } finally {
+      setEsportando(false);
+    }
+  }
+
   // Generate month options (last 24 months)
   const mesiOptions = [];
   for (let i = 0; i < 24; i++) {
@@ -376,15 +406,15 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
   return (
     <div style={{ padding: "20px 16px" }}>
       {/* ─── IMPORT SECTION ─── */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>{t(lang, "export.importTitle")}</div>
-      <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary, marginBottom: 6 }}>{t(lang, "export.importTitle")}</div>
+      <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 16 }}>
         {t(lang, "export.importHint")}
       </div>
 
       <label style={{
         display: "block", padding: "18px 16px", borderRadius: 16, cursor: "pointer",
-        border: "2px dashed #252538", background: "#1a1a28", textAlign: "center",
-        color: importFile ? "#ccc" : "#555", fontSize: 13, marginBottom: 12, transition: "all 0.2s",
+        border: `2px dashed ${color.border}`, background: color.surface, textAlign: "center",
+        color: importFile ? color.textSecondary : color.textMuted, fontSize: 13, marginBottom: 12, transition: "all 0.2s",
       }}>
         <span style={{ fontSize: 22, display: "block", marginBottom: 6 }}>📂</span>
         {importFile ? importFile.name : t(lang, "export.chooseFile")}
@@ -398,43 +428,43 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       </label>
 
       {importando && (
-        <div style={{ textAlign: "center", color: "#6C5CE7", marginBottom: 12, fontSize: 13, padding: "10px 0" }}>
+        <div style={{ textAlign: "center", color: color.accent, marginBottom: 12, fontSize: 13, padding: "10px 0" }}>
           {t(lang, "export.analyzing")}
         </div>
       )}
 
       {importPreview && !importando && (
-        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 10, fontSize: 14 }}>{t(lang, "export.importPreview")}</div>
-          <div style={{ fontSize: 13, color: "#4ECDC4", marginBottom: importPreview.errori.length ? 8 : 0 }}>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${color.border}` }}>
+          <div style={{ fontWeight: 700, color: color.textPrimary, marginBottom: 10, fontSize: 14 }}>{t(lang, "export.importPreview")}</div>
+          <div style={{ fontSize: 13, color: color.positive, marginBottom: importPreview.errori.length ? 8 : 0 }}>
             ✓ {importPreview.righe.length} {t(lang, "export.validTransactions")}
           </div>
           {importPreview.errori.length > 0 && (
-            <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11, color: color.negative, marginBottom: 8, lineHeight: 1.6 }}>
               {importPreview.errori.map((e, i) => <div key={i}>⚠ {e}</div>)}
             </div>
           )}
           {importPreview.righe.length > 0 && (
             <>
-              <div style={{ borderTop: "1px solid #252538", marginTop: 8, paddingTop: 8 }}>
+              <div style={{ borderTop: `1px solid ${color.border}`, marginTop: 8, paddingTop: 8 }}>
                 {importPreview.righe.slice(0, 3).map((r, i) => (
-                  <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
+                  <div key={i} style={{ fontSize: 11, color: color.textMuted, paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
                     <span>{r.data} · {r.tipo === "saldo" ? "Saldo" : r.categoria}</span>
-                    <span style={{ color: r.tipo === "uscita" ? "#FF6B6B" : r.tipo === "saldo" ? "#a78bfa" : "#4ECDC4", fontFamily: "'Space Mono',monospace" }}>
+                    <span style={{ color: r.tipo === "uscita" ? color.negative : r.tipo === "saldo" ? color.accent : color.positive, fontFamily: moneyFont }}>
                       {importoOscurabile(`${r.tipo === "uscita" ? "-" : r.tipo === "saldo" ? "↔" : "+"}€${r.importo.toFixed(2)}`)}
                     </span>
                   </div>
                 ))}
                 {importPreview.righe.length > 3 && (
-                  <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ {t(lang, "export.moreRows")} {importPreview.righe.length - 3} {t(lang, "export.rows")}</div>
+                  <div style={{ fontSize: 11, color: color.textMuted, marginTop: 2 }}>+ {t(lang, "export.moreRows")} {importPreview.righe.length - 3} {t(lang, "export.rows")}</div>
                 )}
               </div>
               <button onClick={confermaImport} disabled={importando} style={{
                 marginTop: 14, width: "100%", padding: "14px", border: "none",
-                borderRadius: 14, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                borderRadius: 14, cursor: "pointer", fontFamily: displayFont,
                 fontSize: 15, fontWeight: 700,
-                background: "linear-gradient(135deg, #4ECDC4, #26a69a)",
-                color: "#fff", boxShadow: "0 4px 20px #4ECDC433",
+                background: color.positive,
+                color: color.bg, boxShadow: `0 4px 20px ${alpha(color.positive, 0.2)}`,
               }}>
                 {t(lang, "export.importItems")} {(importPreview?.righe?.length || 0) + (importPortfolioPreview?.posizioni?.length || 0)} {t(lang, "export.items")}
               </button>
@@ -445,35 +475,35 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
 
       {/* Portfolio sheet preview */}
       {importPortfolioPreview && !importando && (
-        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
-          <div style={{ fontWeight: 700, color: "#eee", marginBottom: 8, fontSize: 14 }}>{t(lang, "export.portfolioFound")}</div>
-          <div style={{ fontSize: 13, color: "#4ECDC4", marginBottom: importPortfolioPreview.errori.length ? 8 : 0 }}>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${color.border}` }}>
+          <div style={{ fontWeight: 700, color: color.textPrimary, marginBottom: 8, fontSize: 14 }}>{t(lang, "export.portfolioFound")}</div>
+          <div style={{ fontSize: 13, color: color.positive, marginBottom: importPortfolioPreview.errori.length ? 8 : 0 }}>
             ✓ {importPortfolioPreview.posizioni.length} {t(lang, "export.validPositions")}
           </div>
           {importPortfolioPreview.errori.length > 0 && (
-            <div style={{ fontSize: 11, color: "#FF6B6B", marginBottom: 8, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11, color: color.negative, marginBottom: 8, lineHeight: 1.6 }}>
               {importPortfolioPreview.errori.map((e, i) => <div key={i}>⚠ {e}</div>)}
             </div>
           )}
-          <div style={{ borderTop: "1px solid #252538", marginTop: 6, paddingTop: 6 }}>
+          <div style={{ borderTop: `1px solid ${color.border}`, marginTop: 6, paddingTop: 6 }}>
             {importPortfolioPreview.posizioni.slice(0, 3).map((p, i) => (
-              <div key={i} style={{ fontSize: 11, color: "#888", paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontFamily: "'Space Mono',monospace", color: "#ccc" }}>{p.ticker}</span>
+              <div key={i} style={{ fontSize: 11, color: color.textMuted, paddingBottom: 5, display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontFamily: moneyFont, color: color.textSecondary }}>{p.ticker}</span>
                 <span>{p.tipo === "sell" ? t(lang, "export.sell") : t(lang, "export.buy")} {p.quantita} {t(lang, "portfolio.units")} × €{p.prezzoAcquisto}</span>
               </div>
             ))}
             {importPortfolioPreview.posizioni.length > 3 && (
-              <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>+ {t(lang, "export.more")} {importPortfolioPreview.posizioni.length - 3}...</div>
+              <div style={{ fontSize: 11, color: color.textMuted, marginTop: 2 }}>+ {t(lang, "export.more")} {importPortfolioPreview.posizioni.length - 3}...</div>
             )}
           </div>
         </div>
       )}
 
-      <div style={{ borderTop: "1px solid #1e1e2e", margin: "24px 0" }} />
+      <div style={{ borderTop: `1px solid ${color.border}`, margin: "24px 0" }} />
 
       {/* ─── EXPORT SECTION ─── */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginBottom: 6 }}>{t(lang, "export.exportTitle")}</div>
-      <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>{t(lang, "export.exportHint")}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary, marginBottom: 6 }}>{t(lang, "export.exportTitle")}</div>
+      <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 20 }}>{t(lang, "export.exportHint")}</div>
 
       {/* Month range */}
       <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
@@ -493,27 +523,31 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
         </div>
       </div>
 
-      {/* Column selector */}
-      <div style={{ marginBottom: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+      {/* Column selector — vertical checkbox rows */}
+      <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 18, border: `1px solid ${color.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <label style={{ ...labelStyle, marginBottom: 0 }}>{t(lang, "export.columnsToExport")}</label>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={selezionaTutte} style={{ background: "none", border: "none", color: "#6C5CE7", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t(lang, "export.all")}</button>
-            <button onClick={deselezionaTutte} style={{ background: "none", border: "none", color: "#888", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t(lang, "export.minimum")}</button>
+            <button onClick={selezionaTutte} style={{ background: "none", border: "none", color: color.accent, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t(lang, "export.all")}</button>
+            <button onClick={deselezionaTutte} style={{ background: "none", border: "none", color: color.textMuted, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>{t(lang, "export.minimum")}</button>
           </div>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {ALL_COLUMN_IDS.map(id => {
             const active = colonne.includes(id);
             return (
               <button key={id} onClick={() => toggleColonna(id)} style={{
-                padding: "7px 12px", borderRadius: 10, cursor: "pointer",
-                fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
-                background: active ? "#6C5CE722" : "#1a1a28",
-                border: active ? "2px solid #6C5CE7" : "2px solid #252538",
-                color: active ? "#6C5CE7" : "#888",
-                transition: "all 0.2s",
-              }}>{t(lang, `col.${id}`)}</button>
+                width: "100%", display: "flex", alignItems: "center", gap: 10,
+                background: "none", border: "none", padding: "8px 0", cursor: "pointer", fontFamily: displayFont,
+              }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                  border: `1px solid ${active ? color.accent : color.borderStrong}`,
+                  background: active ? color.accentSoft : "transparent",
+                  color: color.accent, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{active ? "✓" : ""}</div>
+                <span style={{ fontSize: 13, color: color.textPrimary }}>{t(lang, `col.${id}`)}</span>
+              </button>
             );
           })}
         </div>
@@ -529,66 +563,75 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       </div>
 
       {/* Preview */}
-      <div style={{ background: "#1a1a28", borderRadius: 16, padding: "14px 16px", marginBottom: 20, border: "1px solid #252538" }}>
+      <div style={{ background: color.surface, borderRadius: 16, padding: "14px 16px", marginBottom: 20, border: `1px solid ${color.border}` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{ordinate.length} {t(lang, "export.transactions")}</div>
-            <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{colonne.length} {t(lang, "export.columnsSelected")}</div>
+            <div style={{ fontSize: 13, color: color.textSecondary, fontWeight: 600 }}>{ordinate.length} {t(lang, "export.transactions")}</div>
+            <div style={{ fontSize: 11, color: color.textMuted, marginTop: 2 }}>{colonne.length} {t(lang, "export.columnsSelected")}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#FF6B6B", fontFamily: "'Space Mono',monospace" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: color.negative, fontFamily: moneyFont }}>
               {formattaValuta(ordinate.filter(t => t.tipo === "uscita").reduce((s, t) => s + t.importo, 0))}
             </div>
-            <div style={{ fontSize: 10, color: "#888" }}>{t(lang, "export.totalExpenses")}</div>
+            <div style={{ fontSize: 10, color: color.textMuted }}>{t(lang, "export.totalExpenses")}</div>
           </div>
         </div>
       </div>
 
       {/* Portfolio include toggle */}
       {positions?.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px", background: "#1a1a28", borderRadius: 12, border: "1px solid #252538", cursor: "pointer" }}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, padding: "12px 14px", background: color.surface, borderRadius: 12, border: `1px solid ${color.border}`, cursor: "pointer" }}
           onClick={() => setIncludiPortfolio(v => !v)}>
           <div style={{
             width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-            border: includiPortfolio ? "2px solid #6C5CE7" : "2px solid #333",
-            background: includiPortfolio ? "#6C5CE7" : "transparent",
+            border: includiPortfolio ? `2px solid ${color.accent}` : `2px solid ${color.borderStrong}`,
+            background: includiPortfolio ? color.accent : "transparent",
             display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s",
           }}>{includiPortfolio && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1 }}>✓</span>}</div>
           <div>
-            <div style={{ fontSize: 13, color: "#ccc", fontWeight: 600 }}>{t(lang, "export.includePortfolio")}</div>
-            <div style={{ fontSize: 11, color: "#555" }}>{positions.length} {t(lang, "export.positionsToSheet")}</div>
+            <div style={{ fontSize: 13, color: color.textSecondary, fontWeight: 600 }}>{t(lang, "export.includePortfolio")}</div>
+            <div style={{ fontSize: 11, color: color.textMuted }}>{positions.length} {t(lang, "export.positionsToSheet")}</div>
           </div>
         </div>
       )}
 
-      {/* Export button */}
-      <button onClick={esporta} disabled={ordinate.length === 0 || esportando} style={{
-        width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: ordinate.length > 0 ? "pointer" : "default",
-        fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
-        background: ordinate.length > 0 ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538",
-        color: ordinate.length > 0 ? "#fff" : "#666",
-        boxShadow: ordinate.length > 0 ? "0 4px 20px #6C5CE744" : "none",
-        opacity: esportando ? 0.6 : 1,
-        transition: "all 0.3s",
-      }}>
-        {esportando ? t(lang, "export.generatingFile") : ordinate.length === 0 ? t(lang, "export.noTransactionsInPeriod") : `${t(lang, "export.downloadXlsx")} (${ordinate.length} ${t(lang, "export.rowsPlain")})`}
-      </button>
+      {/* Export buttons — filled XLSX + outline CSV */}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={esporta} disabled={ordinate.length === 0 || esportando} style={{
+          flex: 1, padding: "15px", borderRadius: 14, cursor: ordinate.length > 0 ? "pointer" : "default",
+          fontFamily: displayFont, fontSize: 14, fontWeight: 700,
+          background: ordinate.length > 0 ? color.accentSoft : color.border,
+          color: ordinate.length > 0 ? color.accent : color.textMuted,
+          border: ordinate.length > 0 ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+          opacity: esportando ? 0.6 : 1,
+          transition: "all 0.3s",
+        }}>↓ {esportando ? t(lang, "export.generatingFile") : "XLSX"}</button>
+        <button onClick={esportaCsv} disabled={ordinate.length === 0 || esportando} style={{
+          flex: 1, padding: "15px", border: `1px solid ${color.border}`, borderRadius: 14, cursor: ordinate.length > 0 ? "pointer" : "default",
+          fontFamily: displayFont, fontSize: 14, fontWeight: 700,
+          background: "none", color: ordinate.length > 0 ? color.textSecondary : color.textMuted,
+          opacity: esportando ? 0.6 : 1,
+        }}>↓ CSV</button>
+      </div>
+      <div style={{ fontSize: 11, color: color.textMuted, textAlign: "center", marginTop: 10 }}>
+        {ordinate.length === 0 ? t(lang, "export.noTransactionsInPeriod") : `${ordinate.length} ${t(lang, "export.rowsPlain")}`}
+      </div>
 
       {/* ─── BACKUP SECTION ─── */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#eee", marginTop: 32, marginBottom: 6 }}>{t(lang, "export.backupTitle")}</div>
-      <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary, marginTop: 32, marginBottom: 6 }}>{t(lang, "export.backupTitle")}</div>
+      <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 16 }}>
         {t(lang, "export.backupHint")}
       </div>
       <button onClick={handleDownloadBackup} disabled={backupBusy} style={{
-        width: "100%", padding: "14px", border: "1px solid #4ECDC455", borderRadius: 14, cursor: "pointer",
-        fontSize: 14, fontWeight: 700, background: "#4ECDC411", color: "#4ECDC4",
-        fontFamily: "'DM Sans',sans-serif", marginBottom: 12, opacity: backupBusy ? 0.6 : 1,
+        width: "100%", padding: "14px", border: `1px solid ${alpha(color.positive, 0.33)}`, borderRadius: 14, cursor: "pointer",
+        fontSize: 14, fontWeight: 700, background: `${alpha(color.positive, 0.07)}`, color: color.positive,
+        fontFamily: displayFont, marginBottom: 12, opacity: backupBusy ? 0.6 : 1,
       }}>{backupBusy ? t(lang, "export.preparing") : t(lang, "export.downloadBackup")}</button>
 
       <label style={{
         display: "block", padding: "14px 16px", borderRadius: 14, cursor: "pointer",
-        border: "1px dashed #252538", background: "#1a1a28", textAlign: "center",
-        color: "#888", fontSize: 13, marginBottom: 12,
+        border: `1px dashed ${color.border}`, background: color.surface, textAlign: "center",
+        color: color.textSecondary, fontSize: 13, marginBottom: 12,
       }}>
         {t(lang, "export.restoreFromBackup")}
         <input type="file" accept=".json,application/json" style={{ display: "none" }}
@@ -596,17 +639,17 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       </label>
 
       {restorePreview && (
-        <div style={{ background: "#1a1a28", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #F0A50055" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#F0A500", marginBottom: 8 }}>{t(lang, "export.backupContents")}{restorePreview.data.creato ? ` (${restorePreview.data.creato.slice(0, 10)})` : ""}</div>
-          <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7 }}>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${alpha(color.warn, 0.33)}` }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: color.warn, marginBottom: 8 }}>{t(lang, "export.backupContents")}{restorePreview.data.creato ? ` (${restorePreview.data.creato.slice(0, 10)})` : ""}</div>
+          <div style={{ fontSize: 12, color: color.textSecondary, lineHeight: 1.7 }}>
             {restorePreview.counts.transazioni} {t(lang, "export.transactions")} · {restorePreview.counts.conti} {t(lang, "export.accounts")} · {restorePreview.counts.obiettivi} {t(lang, "export.goals")} · {restorePreview.counts.viaggi} {t(lang, "export.trips")} · {restorePreview.counts.posizioni} {t(lang, "export.portfolioTrades")} · {restorePreview.counts.prezzi} {t(lang, "export.manualPrices")}
           </div>
-          <div style={{ fontSize: 11, color: "#F0A500", marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: color.warn, marginTop: 10 }}>
             {t(lang, "export.restoreWarning")}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => setRestorePreview(null)} style={{ padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: "#888", fontSize: 13, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
-            <button onClick={handleConfirmRestore} disabled={restoreBusy} style={{ flex: 1, padding: "10px", background: "linear-gradient(135deg,#F0A500,#e08e00)", border: "none", borderRadius: 10, color: "#111", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: restoreBusy ? 0.6 : 1 }}>
+            <button onClick={() => setRestorePreview(null)} style={{ padding: "10px 14px", background: "none", border: `1px solid ${color.borderStrong}`, borderRadius: 10, color: color.textSecondary, fontSize: 13, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+            <button onClick={handleConfirmRestore} disabled={restoreBusy} style={{ flex: 1, padding: "10px", background: color.warn, border: "none", borderRadius: 10, color: color.bg, fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: restoreBusy ? 0.6 : 1 }}>
               {restoreBusy ? t(lang, "export.restoring") : t(lang, "export.confirmRestore")}
             </button>
           </div>
@@ -614,7 +657,7 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       )}
 
       {restoreDone && (
-        <div style={{ background: "#4ECDC411", borderRadius: 16, padding: 16, marginBottom: 16, border: "1px solid #4ECDC455", fontSize: 13, color: "#4ECDC4" }}>
+        <div style={{ background: `${alpha(color.positive, 0.07)}`, borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${alpha(color.positive, 0.33)}`, fontSize: 13, color: color.positive }}>
           {t(lang, "export.restoreComplete")}: {restoreDone.transactions} {t(lang, "export.transactions")}, {restoreDone.accounts} {t(lang, "export.accounts")}, {restoreDone.goals} {t(lang, "export.goals")}, {restoreDone.trips} {t(lang, "export.trips")}, {restoreDone.positions} {t(lang, "export.trades")}. {t(lang, "export.reloadingApp")}
         </div>
       )}

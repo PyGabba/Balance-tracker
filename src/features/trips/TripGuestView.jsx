@@ -71,7 +71,7 @@ export function TripGuestView({ token }) {
       {trip.descrizione && <div style={{ fontSize: 13, color: color.textMuted, marginBottom: 4 }}>{trip.descrizione}</div>}
       <div style={{ fontSize: 12, color: color.textMuted, marginBottom: 20 }}>
         {trip.startDate && trip.endDate ? `${trip.startDate} → ${trip.endDate}` : trip.startDate || trip.endDate || ""}
-        {trip.settled && <span style={{ marginLeft: 8, color: "#55EFC4", fontWeight: 700 }}>{t(lang, "guest.closed")}</span>}
+        {trip.settled && <span style={{ marginLeft: 8, color: color.positive, fontWeight: 700 }}>{t(lang, "guest.closed")}</span>}
       </div>
 
       {!me && !trip.settled && (

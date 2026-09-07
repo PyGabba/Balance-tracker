@@ -4,7 +4,7 @@ import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { evalImporto, splitsTotalOk, generaId } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
-import { labelStyle, inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { SplitSelector } from "./components/SplitSelector.jsx";
 import { ReceiptScanner } from "./components/ReceiptScanner.jsx";
 import { calcolaProssimaData, VALUTE_FALLBACK, RICORRENZA_IDS } from "./helpers.js";
@@ -137,7 +137,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           <button key={tp} onClick={() => setTipo(tp)} style={{
             flex: 1, padding: "10px 0", border: "none", borderRadius: 11, cursor: "pointer",
             fontFamily: displayFont, fontSize: 14, fontWeight: 600,
-            background: tipo===tp?(tp==="uscita"?"linear-gradient(135deg,#FF6B6B33,#FF6B6B22)":tp==="trasferimento"?"linear-gradient(135deg,#6C5CE733,#6C5CE722)":"linear-gradient(135deg,#4ECDC433,#4ECDC422)"):"transparent",
+            background: tipo===tp?(tp==="uscita"?`${alpha(color.negative, 0.13)}`:tp==="trasferimento"?color.accentSoft:`${alpha(color.positive, 0.13)}`):"transparent",
             color: tipo===tp?(tp==="uscita"?color.negative:tp==="trasferimento"?color.accent:color.positive):color.textMuted,
           }}>{tp === "uscita" ? t(lang, "type.expense") : tp === "entrata" ? t(lang, "type.income") : t(lang, "type.transfer")}</button>
         ))}
@@ -147,12 +147,12 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           <label style={{ ...labelStyle, marginBottom: 0 }}>{t(lang, "home.filterAmount")}</label>
           {tipo !== "trasferimento" && (
             <select value={valuta} onChange={e => setValuta(e.target.value)} style={{
-              background: valuta !== valutaBase ? `${color.accent}22` : color.surface,
-              border: `1px solid ${valuta !== valutaBase ? `${color.accent}66` : color.border}`,
+              background: valuta !== valutaBase ? `${alpha(color.accent, 0.13)}` : color.surface,
+              border: `1px solid ${valuta !== valutaBase ? `${alpha(color.accent, 0.4)}` : color.border}`,
               borderRadius: 10, color: valuta !== valutaBase ? color.accent : color.textSecondary,
               fontFamily: displayFont, fontSize: 13, fontWeight: 700, letterSpacing: 0.3,
               padding: "8px 14px", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
-              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2372809c' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
               backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center", paddingRight: 28,
             }}>
               {valuteDisponibili.map(v => <option key={v} value={v}>{v}</option>)}
@@ -191,7 +191,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
         <>
           <div style={{ marginBottom: 18 }}>
             <label style={labelStyle}>{t(lang, "home.filterCategory")}</label>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
               {categorie.map(c => (
                 <button key={c.id} onClick={() => setCategoria(c.id)} style={{
                   background: categoria===c.id?c.colore+"33":color.surface, border: categoria===c.id?`2px solid ${c.colore}88`:`2px solid ${color.border}`,
@@ -252,7 +252,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
             <div style={{
               position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
               background: color.surface, border: `1px solid ${color.border}`, borderRadius: 14,
-              marginTop: 4, overflow: "hidden", boxShadow: "0 8px 24px #00000055",
+              marginTop: 4, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,.35)",
             }}>
               {suggestions.map((s, i) => (
                 <div
@@ -260,7 +260,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
                   onMouseDown={() => { setDescrizione(s); setSuggestOpen(false); }}
                   style={{
                     padding: "12px 16px", cursor: "pointer", fontSize: 14,
-                    color: "#ddd", fontFamily: displayFont,
+                    color: color.textPrimary, fontFamily: displayFont,
                     borderBottom: i < suggestions.length - 1 ? `1px solid ${color.border}` : "none",
                   }}
                   onMouseEnter={e => e.currentTarget.style.background = color.border}
@@ -282,8 +282,8 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoDa(c.id)} style={{
                 padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: displayFont,
-                background: contoDa === c.id ? `${color.negative}22` : color.surface,
-                border: contoDa === c.id ? "1px solid #FF6B6B" : `1px solid ${color.border}`,
+                background: contoDa === c.id ? `${alpha(color.negative, 0.13)}` : color.surface,
+                border: contoDa === c.id ? `1px solid ${color.negative}` : `1px solid ${color.border}`,
                 color: contoDa === c.id ? color.negative : color.textMuted,
               }}>{c.icona} {c.nome}</button>
             ))}
@@ -293,9 +293,9 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoA(c.id)} disabled={c.id === contoDa} style={{
                 padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: displayFont,
-                background: contoA === c.id ? `${color.positive}22` : color.surface,
-                border: contoA === c.id ? "1px solid #4ECDC4" : `1px solid ${color.border}`,
-                color: c.id === contoDa ? "#333" : contoA === c.id ? color.positive : color.textMuted,
+                background: contoA === c.id ? `${alpha(color.positive, 0.13)}` : color.surface,
+                border: contoA === c.id ? `1px solid ${color.positive}` : `1px solid ${color.border}`,
+                color: c.id === contoDa ? color.textMuted : contoA === c.id ? color.positive : color.textMuted,
                 opacity: c.id === contoDa ? 0.4 : 1,
               }}>{c.icona} {c.nome}</button>
             ))}
@@ -313,14 +313,14 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setContoId("")} style={{
               padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: displayFont,
-              background: contoId === "" ? `${color.accent}22` : color.surface,
+              background: contoId === "" ? `${alpha(color.accent, 0.13)}` : color.surface,
               border: contoId === "" ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
               color: contoId === "" ? color.accent : color.textMuted,
             }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoId(c.id)} style={{
                 padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: displayFont,
-                background: contoId === c.id ? `${color.accent}22` : color.surface,
+                background: contoId === c.id ? `${alpha(color.accent, 0.13)}` : color.surface,
                 border: contoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: contoId === c.id ? color.accent : color.textMuted,
               }}>{c.icona} {c.nome}</button>
@@ -335,7 +335,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
             <button key={id} onClick={() => setRicorrenza(id)} style={{
               padding: "8px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600,
               fontFamily: displayFont,
-              background: ricorrenza === id ? `${color.accent}22` : color.surface,
+              background: ricorrenza === id ? `${alpha(color.accent, 0.13)}` : color.surface,
               border: ricorrenza === id ? `2px solid ${color.accent}` : `2px solid ${color.border}`,
               color: ricorrenza === id ? color.accent : color.textMuted,
               transition: "all 0.15s",
@@ -355,10 +355,10 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
         )}
       </div>}
       <button onClick={handleSubmit} style={{
-        width: "100%", padding: "16px", border: "none", borderRadius: 16, cursor: "pointer",
-        fontSize: 16, fontWeight: 700,
-        background: tipo==="uscita"?"linear-gradient(135deg,#FF6B6B,#ee5a5a)":tipo==="trasferimento"?"linear-gradient(135deg,#6C5CE7,#a855f7)":"linear-gradient(135deg,#4ECDC4,#3ab8b0)",
-        color: "#fff", boxShadow: tipo==="uscita"?"0 4px 20px #FF6B6B44":"0 4px 20px #4ECDC444",
+        width: "100%", padding: "15px", border: "none", borderRadius: 14, cursor: "pointer",
+        fontSize: 15, fontWeight: 700, fontFamily: displayFont,
+        background: tipo==="uscita"?color.negative:tipo==="trasferimento"?accentGradient:color.positive,
+        color: "#fff", boxShadow: tipo==="uscita"?`0 4px 20px ${alpha(color.negative, 0.27)}`:tipo==="trasferimento"?`0 4px 20px ${alpha(color.accent, 0.27)}`:`0 4px 20px ${alpha(color.positive, 0.27)}`,
       }}>{salvato ? t(lang, "form.saved") : tipo === "trasferimento" ? t(lang, "aggiungi.transferSubmit") : t(lang, "aggiungi.saveTransaction")}</button>
     </div>
   );

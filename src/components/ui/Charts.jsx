@@ -1,4 +1,5 @@
 import { formattaValuta } from "../../lib/format.js";
+import { color, alpha, displayFont } from "./styles.js";
 
 export function MiniChart({ dati, maxVal }) {
   if (!dati.length) return null;
@@ -8,9 +9,9 @@ export function MiniChart({ dati, maxVal }) {
       {dati.map((d, i) => (
         <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
           <div style={{ width: "100%", maxWidth: 28, height: Math.max(2, (d.valore / mx) * 80),
-            background: `linear-gradient(180deg, ${d.colore||"#6C5CE7"} 0%, ${d.colore||"#6C5CE7"}88 100%)`,
+            background: `linear-gradient(180deg, ${d.colore||color.accent} 0%, ${alpha(d.colore||color.accent, 0.53)} 100%)`,
             borderRadius: "4px 4px 0 0", transition: "height 0.5s cubic-bezier(.4,0,.2,1)" }} />
-          <span style={{ fontSize: 9, color: "#888", marginTop: 4 }}>{d.label}</span>
+          <span style={{ fontSize: 9, color: color.textMuted, marginTop: 4, fontFamily: displayFont }}>{d.label}</span>
         </div>
       ))}
     </div>
@@ -29,8 +30,8 @@ export function DonutChart({ segmenti }) {
   return (
     <svg viewBox="0 0 100 100" width="140" height="140">
       {archi.map((a,i) => <path key={i} d={arcPath(a.start, a.end===1?0.9999:a.end)} fill="none" stroke={a.colore} strokeWidth="12" strokeLinecap="round" style={{filter:"drop-shadow(0 0 3px "+a.colore+"44)"}} />)}
-      <text x="50" y="47" textAnchor="middle" fill="#eee" fontSize="10" fontWeight="700" fontFamily="'DM Sans',sans-serif">{formattaValuta(total)}</text>
-      <text x="50" y="59" textAnchor="middle" fill="#888" fontSize="7" fontFamily="'DM Sans',sans-serif">totale</text>
+      <text x="50" y="47" textAnchor="middle" fill={color.textPrimary} fontSize="10" fontWeight="700" fontFamily={displayFont}>{formattaValuta(total)}</text>
+      <text x="50" y="59" textAnchor="middle" fill={color.textMuted} fontSize="7" fontFamily={displayFont}>totale</text>
     </svg>
   );
 }

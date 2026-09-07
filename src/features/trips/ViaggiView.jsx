@@ -4,7 +4,7 @@ import { calcolaSettleViaggio } from "../../lib/finance.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
-import { inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { TripExpenseForm } from "./TripExpenseForm.jsx";
 
 export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
@@ -208,7 +208,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
         <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary }}>{t(lang, "viaggi.title")}</div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? color.accent : color.textMuted, fontSize: 16, padding: "4px 8px" }}>⚙</button>
-          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? `${color.accent}22` : "none", border: showAdd ? `1px solid ${color.accent}` : `1px solid ${color.border}`, borderRadius: 10, cursor: "pointer", color: showAdd ? color.accent : color.textMuted, fontSize: 18, padding: "4px 12px" }}>{showAdd ? "✕" : "+"}</button>
+          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? color.border : accentGradient, border: "none", borderRadius: 10, cursor: "pointer", color: showAdd ? color.textMuted : "#fff", fontSize: 13, fontWeight: 700, padding: "8px 14px", fontFamily: displayFont }}>{showAdd ? "✕" : `+ ${t(lang, "viaggi.newTrip")}`}</button>
         </div>
       </div>
 
@@ -228,7 +228,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                       style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
                   </div>
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+                    <button onClick={() => setEditingCatId(null)} style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
                     <button onClick={() => handleSaveTripCat(c.id)} style={{ padding: "6px 12px", background: color.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
                   </div>
                 </div>
@@ -254,12 +254,12 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: "1px solid #444", borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
+                <button onClick={() => setShowNewCat(false)} style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>{t(lang, "common.cancel")}</button>
                 <button onClick={handleAddTripCat} style={{ padding: "6px 12px", background: color.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: "1px dashed #333", borderRadius: 10, color: color.textMuted, fontSize: 13, cursor: "pointer" }}>{t(lang, "settings.newCategory")}</button>
+            <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", background: "transparent", border: `1px dashed ${color.borderStrong}`, borderRadius: 10, color: color.textMuted, fontSize: 13, cursor: "pointer" }}>{t(lang, "settings.newCategory")}</button>
           )}
         </div>
       )}
@@ -287,7 +287,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
               <button onClick={addGuest} style={{ padding: "8px 14px", background: color.accent, border: "none", borderRadius: 10, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: displayFont }}>{t(lang, "common.add")}</button>
             </div>
           </div>
-          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "12px", background: nome.trim() ? color.accent : color.border, border: "none", borderRadius: 12, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: displayFont, cursor: nome.trim() ? "pointer" : "default" }}>{t(lang, "viaggi.createTrip")}</button>
+          <button onClick={handleAddTrip} disabled={!nome.trim()} style={{ width: "100%", padding: "13px", background: nome.trim() ? accentGradient : color.border, border: "none", borderRadius: 14, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: displayFont, cursor: nome.trim() ? "pointer" : "default" }}>{t(lang, "viaggi.createTrip")}</button>
         </div>
       )}
 
@@ -310,7 +310,11 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: color.textPrimary, fontFamily: displayFont }}>
                       {trip.nome}
-                      {trip.settled && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#55EFC4", background: "#55EFC422", border: "1px solid #55EFC455", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>{trip.autoSettled ? t(lang, "viaggi.autoSettled") : t(lang, "viaggi.settled")}</span>}
+                      {trip.settled ? (
+                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: color.textMuted, background: color.border, borderRadius: 6, padding: "2px 8px", verticalAlign: "middle", textTransform: "uppercase" }}>{trip.autoSettled ? t(lang, "viaggi.autoSettled") : t(lang, "viaggi.settled")}</span>
+                      ) : (
+                        <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: color.positive, background: `${alpha(color.positive, 0.13)}`, borderRadius: 6, padding: "2px 8px", verticalAlign: "middle", textTransform: "uppercase" }}>{t(lang, "viaggi.active")}</span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: color.textMuted, fontFamily: displayFont }}>{trip.descrizione}</div>
                     <div style={{ fontSize: 11, color: color.textMuted, marginTop: 4, fontFamily: displayFont }}>
@@ -320,7 +324,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                     {!trip.settled && (
                       trip.shareToken ? (
-                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: `${color.accent}22`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
                       ) : (
                         <button onClick={() => handleShareTrip(trip.id)} disabled={shareBusyId === trip.id} title={t(lang, "viaggi.inviteSomeone")} style={{ background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, cursor: shareBusyId === trip.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
                       )
@@ -350,7 +354,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                       </div>
                     ))}
                     <button onClick={() => handleMarkSettled(trip, settlements)} disabled={settlingId === trip.id}
-                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === trip.id ? color.border : "#55EFC422", border: "1px solid #55EFC455", borderRadius: 10, color: "#55EFC4", fontSize: 12, fontWeight: 700, fontFamily: displayFont, cursor: settlingId === trip.id ? "default" : "pointer" }}>
+                      style={{ width: "100%", marginTop: 8, padding: "10px", background: settlingId === trip.id ? color.border : `${alpha(color.positive, 0.13)}`, border: `1px solid ${alpha(color.positive, 0.33)}`, borderRadius: 10, color: color.positive, fontSize: 12, fontWeight: 700, fontFamily: displayFont, cursor: settlingId === trip.id ? "default" : "pointer" }}>
                       {settlingId === trip.id ? t(lang, "viaggi.saving") : t(lang, "viaggi.markSettled")}
                     </button>
                   </div>

@@ -3,7 +3,7 @@ import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, rev
 import { LANGUAGES, t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
-import { labelStyle, inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { VALUTE_FALLBACK } from "../transactions/helpers.js";
 import { RecurringManagerSection } from "./RecurringManagerSection.jsx";
 
@@ -368,7 +368,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                   <button
                     onClick={() => setEditingRuoloId(p.id)}
                     title={t(lang, "settings.roleNotEnforcedHint")}
-                    style={{ background: color.bg, border: "1px solid #333", borderRadius: 8, color: color.textMuted, fontSize: 10, fontWeight: 700, padding: "3px 8px", cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3 }}
+                    style={{ background: color.bg, border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 10, fontWeight: 700, padding: "3px 8px", cursor: "pointer", textTransform: "uppercase", letterSpacing: 0.3 }}
                   >
                     {t(lang, `settings.role.${p.ruolo || "member"}`)}
                   </button>
@@ -391,7 +391,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
               </div>
 
               {editingCredId === p.id && (
-                <div style={{ background: color.bg, border: `1px solid ${color.accent}33`, borderRadius: 12, padding: 10, minWidth: 220 }}>
+                <div style={{ background: color.bg, border: `1px solid ${alpha(color.accent, 0.2)}`, borderRadius: 12, padding: 10, minWidth: 220 }}>
                   <div style={{ fontSize: 10, color: color.accent, marginBottom: 6 }}>
                     {p.hasCredential ? t(lang, "settings.credentialChange") : t(lang, "settings.credentialSet")} — {p.nome}
                   </div>
@@ -423,10 +423,10 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                       <button
                         disabled={credBusy}
                         onClick={() => handleCredRemove(p.id)}
-                        style={{ padding: "6px 10px", background: "none", border: `1px solid ${color.negative}44`, borderRadius: 8, color: color.negative, fontSize: 11, cursor: "pointer" }}
+                        style={{ padding: "6px 10px", background: "none", border: `1px solid ${alpha(color.negative, 0.27)}`, borderRadius: 8, color: color.negative, fontSize: 11, cursor: "pointer" }}
                       >{t(lang, "settings.credentialRemove")}</button>
                     )}
-                    <button onClick={() => setEditingCredId(null)} style={{ padding: "6px 10px", background: "none", border: "1px solid #333", borderRadius: 8, color: color.textMuted, fontSize: 11, cursor: "pointer" }}>✕</button>
+                    <button onClick={() => setEditingCredId(null)} style={{ padding: "6px 10px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 11, cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
               )}
@@ -473,7 +473,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
               <div style={{ fontSize: 10, color: color.textMuted, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginBottom: 10, wordBreak: "break-word" }}>{recoveryEmailErrDetail}</div>
             )}
             <button onClick={loadRecoveryEmailStatus} style={{
-              padding: "10px 14px", background: `${color.warn}22`, border: `1px solid ${color.warn}55`, borderRadius: 10,
+              padding: "10px 14px", background: `${alpha(color.warn, 0.13)}`, border: `1px solid ${alpha(color.warn, 0.33)}`, borderRadius: 10,
               color: color.warn, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: displayFont,
             }}>{t(lang, "settings.retry")}</button>
           </>
@@ -498,11 +498,11 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
             <div style={{ display: "flex", gap: 8 }}>
               {editingRecoveryEmail && (
                 <button onClick={() => { setEditingRecoveryEmail(false); setRecoveryEmailInput(""); }} style={{
-                  padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10, color: color.textMuted, fontSize: 13, cursor: "pointer",
+                  padding: "10px 14px", background: "none", border: `1px solid ${color.border}`, borderRadius: 10, color: color.textMuted, fontSize: 13, cursor: "pointer",
                 }}>{t(lang, "common.cancel")}</button>
               )}
               <button onClick={handleSaveRecoveryEmail} disabled={recoveryEmailBusy} style={{
-                flex: 1, padding: "10px", background: recoveryEmailInput.trim() ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : color.border,
+                flex: 1, padding: "10px", background: recoveryEmailInput.trim() ? accentGradient : color.border,
                 border: "none", borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
                 fontFamily: displayFont, opacity: recoveryEmailBusy ? 0.6 : 1,
               }}>{recoveryEmailBusy ? t(lang, "settings.savingEmail") : t(lang, "settings.saveEmail")}</button>
@@ -521,23 +521,23 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
           <div>
             <div style={{ fontSize: 10, color: color.warn, marginBottom: 6 }}>{t(lang, "settings.widgetCopyNow")}</div>
             <div onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
-              background: color.bg, border: `1px solid ${color.positive}55`, borderRadius: 10, padding: "10px 12px",
+              background: color.bg, border: `1px solid ${alpha(color.positive, 0.33)}`, borderRadius: 10, padding: "10px 12px",
               fontSize: 10, fontFamily: moneyFont, color: color.positive, wordBreak: "break-all", cursor: "pointer", marginBottom: 10,
             }}>{widgetUrl}</div>
             <button onClick={() => { navigator.clipboard?.writeText(widgetUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
-              width: "100%", padding: "10px", background: `${color.positive}22`, border: `1px solid ${color.positive}55`, borderRadius: 10,
+              width: "100%", padding: "10px", background: `${alpha(color.positive, 0.13)}`, border: `1px solid ${alpha(color.positive, 0.33)}`, borderRadius: 10,
               color: color.positive, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: displayFont, marginBottom: 8,
             }}>{t(lang, "settings.copyUrl")}</button>
           </div>
         ) : (
           <button onClick={handleCreateWidgetKey} disabled={widgetBusy} style={{
-            width: "100%", padding: "12px", background: `${color.accent}22`, border: `1px solid ${color.accent}`, borderRadius: 10,
+            width: "100%", padding: "12px", background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 10,
             color: color.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: displayFont, marginBottom: 8, opacity: widgetBusy ? 0.6 : 1,
           }}>{widgetBusy ? t(lang, "settings.generatingKey") : t(lang, "settings.generateWidgetKey")}</button>
         )}
         <button onClick={handleRevokeWidgetKey} disabled={widgetBusy} style={{
-          width: "100%", padding: "10px", background: "none", border: `1px solid ${color.negative}33`, borderRadius: 10,
-          color: `${color.negative}99`, fontSize: 12, cursor: "pointer", fontFamily: displayFont,
+          width: "100%", padding: "10px", background: "none", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 10,
+          color: `${alpha(color.negative, 0.6)}`, fontSize: 12, cursor: "pointer", fontFamily: displayFont,
         }}>{t(lang, "settings.revokeExistingKey")}</button>
         <div style={{ fontSize: 10, color: color.textMuted, marginTop: 8 }}>
           {t(lang, "settings.widgetRegenerateHint")}
@@ -553,23 +553,23 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
         {calendarUrl ? (
           <div>
             <div onClick={() => { navigator.clipboard?.writeText(calendarUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
-              background: color.bg, border: `1px solid ${color.positive}55`, borderRadius: 10, padding: "10px 12px",
+              background: color.bg, border: `1px solid ${alpha(color.positive, 0.33)}`, borderRadius: 10, padding: "10px 12px",
               fontSize: 10, fontFamily: moneyFont, color: color.positive, wordBreak: "break-all", cursor: "pointer", marginBottom: 10,
             }}>{calendarUrl}</div>
             <button onClick={() => { navigator.clipboard?.writeText(calendarUrl); toast(t(lang, "toast.urlCopied"), "success"); }} style={{
-              width: "100%", padding: "10px", background: `${color.positive}22`, border: `1px solid ${color.positive}55`, borderRadius: 10,
+              width: "100%", padding: "10px", background: `${alpha(color.positive, 0.13)}`, border: `1px solid ${alpha(color.positive, 0.33)}`, borderRadius: 10,
               color: color.positive, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: displayFont, marginBottom: 8,
             }}>{t(lang, "settings.copyUrl")}</button>
           </div>
         ) : (
           <button onClick={handleCreateCalendarKey} disabled={calendarBusy} style={{
-            width: "100%", padding: "12px", background: `${color.accent}22`, border: `1px solid ${color.accent}`, borderRadius: 10,
+            width: "100%", padding: "12px", background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 10,
             color: color.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: displayFont, marginBottom: 8, opacity: calendarBusy ? 0.6 : 1,
           }}>{calendarBusy ? t(lang, "settings.generatingKey") : t(lang, "settings.generateCalendarKey")}</button>
         )}
         <button onClick={handleRevokeCalendarKey} disabled={calendarBusy} style={{
-          width: "100%", padding: "10px", background: "none", border: `1px solid ${color.negative}33`, borderRadius: 10,
-          color: `${color.negative}99`, fontSize: 12, cursor: "pointer", fontFamily: displayFont,
+          width: "100%", padding: "10px", background: "none", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 10,
+          color: `${alpha(color.negative, 0.6)}`, fontSize: 12, cursor: "pointer", fontFamily: displayFont,
         }}>{t(lang, "settings.revokeExistingKey")}</button>
         <div style={{ fontSize: 10, color: color.textMuted, marginTop: 8 }}>
           {t(lang, "settings.calendarSubscribeHint")}
@@ -612,7 +612,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                 <span style={{ flex: 1, fontSize: 14, color: color.textSecondary, fontWeight: 600 }}>{c.nome}</span>
                 <button onClick={() => { setEditingCatId(c.id); setEditForm({}); }} style={{ padding: "5px 8px", border: `1px solid ${color.border}`, borderRadius: 8, background: "transparent", color: color.textMuted, fontSize: 11, cursor: "pointer" }}>{t(lang, "common.edit")}</button>
                 {categorie.length > 1 && (
-                  <button onClick={() => handleDeleteCat(c.id)} style={{ padding: "5px 8px", border: `1px solid ${color.negative}33`, borderRadius: 8, background: "transparent", color: color.negative, fontSize: 11, cursor: "pointer" }}>{t(lang, "common.delete")}</button>
+                  <button onClick={() => handleDeleteCat(c.id)} style={{ padding: "5px 8px", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 8, background: "transparent", color: color.negative, fontSize: 11, cursor: "pointer" }}>{t(lang, "common.delete")}</button>
                 )}
               </div>
             )}
@@ -634,7 +634,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
             </div>
           </div>
         ) : (
-          <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", border: "1px dashed #252538", borderRadius: 10, background: "transparent", color: color.textMuted, fontSize: 13, cursor: "pointer", fontFamily: displayFont }}>
+          <button onClick={() => setShowNewCat(true)} style={{ marginTop: 12, width: "100%", padding: "10px", border: `1px dashed ${color.borderStrong}`, borderRadius: 10, background: "transparent", color: color.textMuted, fontSize: 13, cursor: "pointer", fontFamily: displayFont }}>
             {t(lang, "settings.newCategory")}
           </button>
         )}
@@ -672,13 +672,13 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                             {formattaValuta(item.importo)} · {giorniRimanenti(item.deletedAt)}{t(lang, "stats.daysLeft")}
                           </div>
                         </div>
-                        <button disabled={busy} onClick={() => handleRestore(item.id)} style={{ background: `${color.accent}22`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>{t(lang, "common.restore")}</button>
-                        <button disabled={busy} onClick={() => handlePermanentDelete(item.id)} style={{ background: "none", border: "none", color: `${color.negative}88`, fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
+                        <button disabled={busy} onClick={() => handleRestore(item.id)} style={{ background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>{t(lang, "common.restore")}</button>
+                        <button disabled={busy} onClick={() => handlePermanentDelete(item.id)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
                       </div>
                     );
                   })}
                 </div>
-                <button onClick={handleEmptyCestino} style={{ width: "100%", padding: "10px", border: "1px solid #2a1a1a", borderRadius: 10, background: "transparent", color: color.negative, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: displayFont }}>
+                <button onClick={handleEmptyCestino} style={{ width: "100%", padding: "10px", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 10, background: "transparent", color: color.negative, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: displayFont }}>
                   {t(lang, "settings.emptyTrash")}
                 </button>
               </>
@@ -702,7 +702,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
       </div>
 
       {/* Delete section */}
-      <div style={{ background: color.surface, borderRadius: 16, padding: 16, border: "1px solid #2a1a1a" }}>
+      <div style={{ background: color.surface, borderRadius: 16, padding: 16, border: `1px solid ${alpha(color.negative, 0.2)}` }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: color.negative, marginBottom: 6 }}>{t(lang, "settings.dangerZone")}</div>
         <div style={{ fontSize: 12, color: color.textMuted, marginBottom: 16, lineHeight: 1.5 }}>
           {t(lang, "settings.dangerZoneHint")}
@@ -710,7 +710,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
 
         {fase === "idle" && (
           <button onClick={() => setFase("confirm")} style={{
-            width: "100%", padding: "13px", border: `1px solid ${color.negative}33`, borderRadius: 12,
+            width: "100%", padding: "13px", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 12,
             background: "transparent", color: color.negative, fontFamily: displayFont,
             fontSize: 14, fontWeight: 700, cursor: "pointer",
           }}>
@@ -720,7 +720,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
 
         {fase === "confirm" && (
           <div>
-            <div style={{ fontSize: 13, color: "#FFD93D", marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: color.warn, marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>
               {t(lang, "settings.confirmDeleteWarningPrefix")} <strong style={{ color: color.textPrimary }}>{householdName}</strong>. {t(lang, "settings.confirmDeleteWarningSuffix")}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -731,7 +731,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
               }}>{t(lang, "common.cancel")}</button>
               <button onClick={() => setFase("pin")} style={{
                 flex: 1, padding: "12px", border: "none", borderRadius: 12,
-                background: `${color.negative}22`, color: color.negative, fontFamily: displayFont,
+                background: `${alpha(color.negative, 0.13)}`, color: color.negative, fontFamily: displayFont,
                 fontSize: 14, fontWeight: 700, cursor: "pointer",
               }}>{t(lang, "common.continue")}</button>
             </div>
@@ -765,7 +765,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
               }}>{t(lang, "common.cancel")}</button>
               <button onClick={eseguiElimina} disabled={pin.length < 4 || fase === "deleting"} style={{
                 flex: 1, padding: "12px", border: "none", borderRadius: 12,
-                background: pin.length >= 4 ? color.negative : "#2a1a1a",
+                background: pin.length >= 4 ? color.negative : color.border,
                 color: pin.length >= 4 ? "#fff" : color.textMuted,
                 fontFamily: displayFont, fontSize: 14, fontWeight: 700,
                 cursor: pin.length >= 4 ? "pointer" : "default",

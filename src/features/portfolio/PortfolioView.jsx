@@ -3,7 +3,7 @@ import { fetchPositions, addPosition, deletePosition, fetchManualPrices, saveMan
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
-import { labelStyle, inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { DonutChart } from "../../components/ui/Charts.jsx";
 import { computeHoldingsBreakdown } from "../../services/portfolioService.js";
 
@@ -171,14 +171,14 @@ export function PortfolioView({ lang = "it" }) {
           <div style={{ fontSize: 10, color: color.textMuted, marginTop: 2 }}>{t(lang, "portfolio.notTaxAdviceNote")}</div>
         </div>
         <button onClick={() => setShowAdd(!showAdd)} style={{
-            background: showAdd ? "#6C5CE722" : "none", border: showAdd ? "1px solid #6C5CE7" : "1px solid #252538",
+            background: showAdd ? color.accentSoft : "none", border: showAdd ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
             borderRadius: 8, cursor: "pointer", color: showAdd ? color.accent : color.textMuted, fontSize: 16, padding: "4px 10px",
           }}>{showAdd ? "✕" : "+"}</button>
       </div>
 
       {/* Summary card */}
       {(holdings.length > 0 || closedHoldings.length > 0) && (
-        <div style={{ background: `linear-gradient(155deg, ${color.surfaceRaised} 0%, #241a3d 60%, #2a1f4e 100%)`, borderRadius: 22, padding: "22px 20px", marginBottom: 16, border: `1px solid ${color.borderStrong}`, boxShadow: "0 12px 32px #0006" }}>
+        <div style={{ background: `linear-gradient(155deg, ${color.surfaceRaised} 0%, oklch(27% 0.05 265) 60%, oklch(30% 0.06 260) 100%)`, borderRadius: 22, padding: "22px 20px", marginBottom: 16, border: `1px solid ${color.borderStrong}`, boxShadow: "0 12px 32px rgba(0,0,0,.4)" }}>
           <div style={{ fontSize: 11, color: color.textSecondary, letterSpacing: 1, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "portfolio.totalValue")}</div>
           <div style={{ fontSize: 38, fontWeight: 700, fontFamily: moneyFont, color: color.textPrimary, marginTop: 6, letterSpacing: -1, fontVariantNumeric: "tabular-nums" }}>
             {formattaValuta(totalValore)}
@@ -208,16 +208,16 @@ export function PortfolioView({ lang = "it" }) {
 
       {/* Add form */}
       {showAdd && (
-        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: "2px solid #6C5CE7" }}>
+        <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: `2px solid ${color.accent}` }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: color.textPrimary, marginBottom: 12 }}>{t(lang, "portfolio.addPosition")}</div>
 
           {/* Buy/Sell toggle */}
-          <div style={{ display: "flex", background: color.bg, borderRadius: 12, padding: 3, marginBottom: 12, border: "1px solid #252538" }}>
+          <div style={{ display: "flex", background: color.bg, borderRadius: 12, padding: 3, marginBottom: 12, border: `1px solid ${color.border}` }}>
             {["buy", "sell"].map(tp => (
               <button key={tp} onClick={() => setTradeType(tp)} style={{
                 flex: 1, padding: "8px 0", border: "none", borderRadius: 10, cursor: "pointer",
                 fontSize: 13, fontWeight: 600,
-                background: tradeType === tp ? (tp === "buy" ? "#4ECDC422" : "#FF6B6B22") : "transparent",
+                background: tradeType === tp ? (tp === "buy" ? `${alpha(color.positive, 0.13)}` : `${alpha(color.negative, 0.13)}`) : "transparent",
                 color: tradeType === tp ? (tp === "buy" ? color.positive : color.negative) : color.textMuted,
               }}>{tp === "buy" ? t(lang, "portfolio.buy") : t(lang, "portfolio.sell")}</button>
             ))}
@@ -262,7 +262,7 @@ export function PortfolioView({ lang = "it" }) {
           <button onClick={handleAdd} disabled={adding || !ticker || !quantita || !prezzoAcquisto} style={{
             width: "100%", padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
             fontSize: 14, fontWeight: 700, color: "#fff",
-            background: ticker && quantita && prezzoAcquisto ? (tradeType === "buy" ? "linear-gradient(135deg, #4ECDC4, #3ab8b0)" : "linear-gradient(135deg, #FF6B6B, #e05050)") : color.border,
+            background: ticker && quantita && prezzoAcquisto ? (tradeType === "buy" ? color.positive : color.negative) : color.border,
             opacity: adding ? 0.6 : 1,
           }}>{adding ? t(lang, "viaggi.saving") : (tradeType === "buy" ? t(lang, "portfolio.addBuy") : t(lang, "portfolio.recordSell"))}</button>
         </div>
@@ -279,7 +279,7 @@ export function PortfolioView({ lang = "it" }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 11, color: color.textMuted, flexShrink: 0 }}>{t(lang, "portfolio.sortBy")}</span>
             <select value={sortPortfolio} onChange={e => setSortPortfolio(e.target.value)} style={{
-              flex: 1, background: color.surface, border: "1px solid #252538", borderRadius: 8,
+              flex: 1, background: color.surface, border: `1px solid ${color.border}`, borderRadius: 8,
               color: color.textSecondary, fontSize: 12, padding: "6px 8px", fontFamily: displayFont,
               colorScheme: "dark", cursor: "pointer",
             }}>
@@ -306,14 +306,14 @@ export function PortfolioView({ lang = "it" }) {
             const isEditing = editingTicker === h.ticker;
 
             return (
-              <div key={h.ticker} style={{ background: color.surface, borderRadius: 16, padding: "14px 16px", border: isEditing ? "1px solid #6C5CE7" : "1px solid #252538", transition: "border-color 0.2s" }}>
+              <div key={h.ticker} style={{ background: color.surface, borderRadius: 16, padding: "14px 16px", border: isEditing ? `1px solid ${color.accent}` : `1px solid ${color.border}`, transition: "border-color 0.2s" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 15, fontWeight: 800, color: color.textPrimary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{h.ticker}</span>
                       <span style={{ fontSize: 11, color: color.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{h.nome}</span>
                       {isManuale && (
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: "#F0A50022", color: color.warn, letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.manualBadge")}</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: `${alpha(color.warn, 0.13)}`, color: color.warn, letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.manualBadge")}</span>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: color.textMuted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -352,8 +352,8 @@ export function PortfolioView({ lang = "it" }) {
                   {!isEditing && (
                     <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
                       <button onClick={() => startEditPrice(h.ticker, manuale)} title={t(lang, "portfolio.updatePriceManually")} style={{
-                        background: prezzoCorrente === 0 ? "#6C5CE722" : "none",
-                        border: prezzoCorrente === 0 ? "1px solid #6C5CE755" : "none",
+                        background: prezzoCorrente === 0 ? color.accentSoft : "none",
+                        border: prezzoCorrente === 0 ? `1px solid ${alpha(color.accent, 0.33)}` : "none",
                         borderRadius: 7, color: prezzoCorrente === 0 ? color.accent : color.textMuted,
                         cursor: "pointer", fontSize: 13, lineHeight: 1,
                         padding: prezzoCorrente === 0 ? "4px 8px" : "4px 6px",
@@ -369,15 +369,15 @@ export function PortfolioView({ lang = "it" }) {
                 {/* "Inserisci prezzo" call-to-action when no price and not editing */}
                 {prezzoCorrente === 0 && !isEditing && (
                   <button onClick={() => startEditPrice(h.ticker, manuale)} style={{
-                    marginTop: 8, width: "100%", padding: "8px", background: "#6C5CE711",
-                    border: "1px dashed #6C5CE755", borderRadius: 10, color: color.accent,
+                    marginTop: 8, width: "100%", padding: "8px", background: color.accentSoft,
+                    border: `1px dashed ${alpha(color.accent, 0.33)}`, borderRadius: 10, color: color.accent,
                     cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: displayFont,
                   }}>✏ {t(lang, "portfolio.enterManualPrice")}</button>
                 )}
 
                 {/* Inline manual price editor */}
                 {isEditing && (
-                  <div style={{ marginTop: 10, padding: "12px", background: color.bg, borderRadius: 12, border: "1px solid #6C5CE733" }}>
+                  <div style={{ marginTop: 10, padding: "12px", background: color.bg, borderRadius: 12, border: `1px solid ${alpha(color.accent, 0.2)}` }}>
                     <div style={{ fontSize: 11, color: color.accent, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>
                       {t(lang, "portfolio.manualPricePrefix")} {h.ticker}
                     </div>
@@ -387,21 +387,21 @@ export function PortfolioView({ lang = "it" }) {
                       onChange={e => setEditPriceVal(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter") handleSaveManualPrice(h.ticker); if (e.key === "Escape") setEditingTicker(null); }}
                       placeholder="Es: 42.50"
-                      style={{ width: "100%", padding: "10px 12px", background: color.surface, border: "1px solid #6C5CE7", borderRadius: 10, color: color.textPrimary, fontSize: 16, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                      style={{ width: "100%", padding: "10px 12px", background: color.surface, border: `1px solid ${color.accent}`, borderRadius: 10, color: color.textPrimary, fontSize: 16, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
                     />
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => handleSaveManualPrice(h.ticker)} style={{
-                        flex: 1, padding: "10px", background: "linear-gradient(135deg, #6C5CE7, #a855f7)", border: "none",
+                        flex: 1, padding: "10px", background: accentGradient, border: "none",
                         borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: displayFont,
                       }}>{t(lang, "common.save")}</button>
                       <button onClick={() => setEditingTicker(null)} style={{
-                        padding: "10px 14px", background: "none", border: "1px solid #333", borderRadius: 10,
+                        padding: "10px 14px", background: "none", border: `1px solid ${color.border}`, borderRadius: 10,
                         color: color.textMuted, fontSize: 14, cursor: "pointer", fontFamily: displayFont,
                       }}>✕</button>
                     </div>
                     {manuale && (
                       <button onClick={() => handleClearManualPrice(h.ticker)} style={{
-                        marginTop: 8, background: "none", border: "none", color: "#FF6B6B88", cursor: "pointer",
+                        marginTop: 8, background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, cursor: "pointer",
                         fontSize: 11, fontFamily: displayFont, padding: 0,
                       }}>{t(lang, "portfolio.removeManualPrice")}</button>
                     )}
@@ -424,7 +424,7 @@ export function PortfolioView({ lang = "it" }) {
 
                 {/* Expandable trade history */}
                 {expandedTicker === h.ticker && h.trades && h.trades.length > 0 && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #252538" }}>
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${color.border}` }}>
                     <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>{t(lang, "portfolio.tradeHistory")}</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {[...h.trades].sort((a, b) => new Date(b.dataAcquisto) - new Date(a.dataAcquisto)).map((tr, i) => (
@@ -435,7 +435,7 @@ export function PortfolioView({ lang = "it" }) {
                           </span>
                           <span style={{ flex: 1, fontSize: 12, color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{tr.quantita} {t(lang, "portfolio.units")}</span>
                           <span style={{ fontSize: 12, color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>@{formattaValuta(tr.prezzoAcquisto)}</span>
-                          <button onClick={() => handleDeleteTrade(tr)} title={t(lang, "portfolio.deleteThisTrade")} style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                          <button onClick={() => handleDeleteTrade(tr)} title={t(lang, "portfolio.deleteThisTrade")} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.4)}`, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
                         </div>
                       ))}
                     </div>
@@ -455,9 +455,16 @@ export function PortfolioView({ lang = "it" }) {
         </div>
       )}
 
+      {!showAdd && (
+        <button onClick={() => setShowAdd(true)} style={{
+          width: "100%", marginTop: 8, padding: "13px", borderRadius: 12, border: `1px dashed ${color.borderStrong}`,
+          background: "none", color: color.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: displayFont,
+        }}>+ {t(lang, "portfolio.addPosition")}</button>
+      )}
+
       {/* Closed positions */}
       {closedHoldings.length > 0 && (
-        <div style={{ background: color.surface, borderRadius: 20, padding: 16, marginTop: 16, border: "1px solid #252538" }}>
+        <div style={{ background: color.surface, borderRadius: 20, padding: 16, marginTop: 16, border: `1px solid ${color.border}` }}>
           <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12 }}>{t(lang, "portfolio.closedPositions")}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {closedHoldings.map(h => (
@@ -484,7 +491,7 @@ export function PortfolioView({ lang = "it" }) {
                         <span style={{ fontSize: 11, fontWeight: 600, color: tr.tipo === "sell" ? color.negative : color.positive, minWidth: 35 }}>{tr.tipo === "sell" ? "SELL" : "BUY"}</span>
                         <span style={{ flex: 1, fontSize: 12, color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{tr.quantita} {t(lang, "portfolio.units")}</span>
                         <span style={{ fontSize: 12, color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>@{formattaValuta(tr.prezzoAcquisto)}</span>
-                        <button onClick={() => handleDeleteTrade(tr)} title={t(lang, "portfolio.deleteThisTrade")} style={{ background: "none", border: "none", color: "#FF6B6B66", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                        <button onClick={() => handleDeleteTrade(tr)} title={t(lang, "portfolio.deleteThisTrade")} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.4)}`, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 4px" }}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -497,7 +504,7 @@ export function PortfolioView({ lang = "it" }) {
 
       {/* Allocation pie chart */}
       {holdings.length >= 2 && totalValore > 0 && (
-        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538" }}>
+        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: `1px solid ${color.border}` }}>
           <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "portfolio.allocation")}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <DonutChart segmenti={holdingsByValue.map((h, i) => {
@@ -528,7 +535,7 @@ export function PortfolioView({ lang = "it" }) {
 
       {/* P&L Bar Chart */}
       {holdings.length >= 1 && totalValore > 0 && (
-        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: "1px solid #252538", overflow: "hidden" }}>
+        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: `1px solid ${color.border}`, overflow: "hidden" }}>
           <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "portfolio.profitLoss")}</div>
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, minWidth: "max-content" }}>

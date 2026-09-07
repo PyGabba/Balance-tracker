@@ -2,9 +2,9 @@ import { calcolaDebitiMatrix, forecastNextMonthExpenses, quotaPersonale } from "
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { getAllPersone } from "../../lib/appHelpers.js";
-import { DonutChart, MiniChart } from "../../components/ui/Charts.jsx";
+import { MiniChart } from "../../components/ui/Charts.jsx";
 import { GoalGauge } from "../goals/GoalGauge.jsx";
-import { color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
 
 export function StatsView({ transazioni, persone, meseOffset, categorie, goals, valutaBase = "EUR", activePersonaId = null, lang = "it" }) {
   const oggi = new Date();
@@ -114,7 +114,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
     <div>
       <div style={{ padding: "14px 16px 20px" }}>
       {activePerson && (personalEntrate > 0 || personalUscite > 0) && (
-        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${activePerson.colore || color.accent}55` }}>
+        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${alpha(activePerson.colore || color.accent, 0.33)}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 18 }}>{activePerson.emoji || "👤"}</span>
             <span style={{ fontSize: 12, color: activePerson.colore || color.accent, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700 }}>{t(lang, "stats.yourStats")}</span>
@@ -191,23 +191,27 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
           )}
         </div>
       )}
-      {perCategoria.length > 0 && (
-        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${color.border}` }}>
-          <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "stats.expensesByCategory")}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-            <DonutChart segmenti={perCategoria} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+      {perCategoria.length > 0 && (() => {
+        const maxCatValore = Math.max(...perCategoria.map(c => c.valore), 1);
+        return (
+          <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${color.border}` }}>
+            <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "stats.expensesByCategory")}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {perCategoria.map(c => (
-                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 3, background: c.colore, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: color.textSecondary, flex: 1 }}>{c.emoji} {c.nome}</span>
-                  <span style={{ fontSize: 12, color: color.textPrimary, fontWeight: 600, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(c.valore)}</span>
+                <div key={c.id}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5 }}>
+                    <span style={{ color: color.textSecondary }}>{c.emoji} {c.nome}</span>
+                    <span style={{ color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(c.valore)}</span>
+                  </div>
+                  <div style={{ height: 8, background: color.border, borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(c.valore / maxCatValore) * 100}%`, background: c.colore, borderRadius: 4 }} />
+                  </div>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {goals && goals.length > 0 && (
         <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${color.border}` }}>
           <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "home.savingsGoals")}</div>
@@ -257,7 +261,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
                 <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                   {f.count > 0 && <div style={{ fontSize: 10, color: color.textSecondary, marginBottom: 4, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{f.count}</div>}
                   <div style={{ width: "100%", maxWidth: 40, height: Math.max(3, (f.count / maxIsto) * 65),
-                    background: `linear-gradient(180deg, ${[color.accent,"#a855f7",color.negative,color.warn,"#E84393"][i]} 0%, ${[color.accent,"#a855f7",color.negative,color.warn,"#E84393"][i]}66 100%)`,
+                    background: `linear-gradient(180deg, ${[color.accent,color.accentSecondary,color.negative,color.warn,color.personaPink][i]} 0%, ${alpha([color.accent,color.accentSecondary,color.negative,color.warn,color.personaPink][i], 0.4)} 100%)`,
                     borderRadius: "5px 5px 0 0", transition: "height 0.4s ease" }} />
                   <div style={{ fontSize: 9, color: color.textMuted, marginTop: 5, whiteSpace: "nowrap" }}>{f.label}</div>
                 </div>
@@ -274,7 +278,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
                   <div key={g.giorno} title={`${g.giorno}: ${formattaValuta(g.totale)} (${g.count} tx)`} style={{
                     aspectRatio: "1", borderRadius: 6, background: bg,
                     display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    border: g.totale > 0 ? `1px solid ${color.accent}44` : `1px solid ${color.border}`, cursor: "default",
+                    border: g.totale > 0 ? `1px solid ${alpha(color.accent, 0.27)}` : `1px solid ${color.border}`, cursor: "default",
                   }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: g.totale > 0 ? color.textPrimary : color.textMuted }}>{g.giorno}</div>
                     {g.totale > 0 && <div style={{ fontSize: 7, color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 1 }}>{g.totale >= 1000 ? Math.round(g.totale/1000)+"k" : Math.round(g.totale)}</div>}
@@ -325,13 +329,13 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
                 </div>
                 <div style={{ display: "flex", gap: 4, height: 20 }}>
                   <div style={{ position: "relative", flex: 1, background: color.border, borderRadius: 6, overflow: "hidden" }}>
-                    <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscitePrec / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: `${color.negative}44`, borderRadius: 6 }} />
+                    <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscitePrec / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: `${alpha(color.negative, 0.27)}`, borderRadius: 6 }} />
                     <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: color.textSecondary }}>{mese(mesePrecedente.getMonth(), lang)} {formattaValuta(totalUscitePrec)}</div>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 4, height: 20, marginTop: 4 }}>
                   <div style={{ position: "relative", flex: 1, background: color.border, borderRadius: 6, overflow: "hidden" }}>
-                    <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscite / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: `${color.negative}88`, borderRadius: 6 }} />
+                    <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalUscite / Math.max(totalUscite, totalUscitePrec) * 100)}%`, background: `${alpha(color.negative, 0.53)}`, borderRadius: 6 }} />
                     <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: color.textPrimary, fontWeight: 600 }}>{mese(meseVis.getMonth(), lang)} {formattaValuta(totalUscite)}</div>
                   </div>
                 </div>
@@ -347,13 +351,13 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
                   </div>
                   <div style={{ display: "flex", gap: 4, height: 20 }}>
                     <div style={{ position: "relative", flex: 1, background: color.border, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntratePrec / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: `${color.positive}44`, borderRadius: 6 }} />
+                      <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntratePrec / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: `${alpha(color.positive, 0.27)}`, borderRadius: 6 }} />
                       <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: color.textSecondary }}>{mese(mesePrecedente.getMonth(), lang)} {formattaValuta(totalEntratePrec)}</div>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 4, height: 20, marginTop: 4 }}>
                     <div style={{ position: "relative", flex: 1, background: color.border, borderRadius: 6, overflow: "hidden" }}>
-                      <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntrate / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: `${color.positive}88`, borderRadius: 6 }} />
+                      <div style={{ position: "absolute", inset: 0, width: `${Math.min(100, totalEntrate / Math.max(totalEntrate, totalEntratePrec, 1) * 100)}%`, background: `${alpha(color.positive, 0.53)}`, borderRadius: 6 }} />
                       <div style={{ position: "relative", padding: "2px 8px", fontSize: 10, color: color.textPrimary, fontWeight: 600 }}>{mese(meseVis.getMonth(), lang)} {formattaValuta(totalEntrate)}</div>
                     </div>
                   </div>
@@ -376,7 +380,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
                       fontSize: 11, fontWeight: 700, fontFamily: moneyFont, flexShrink: 0,
                       padding: "2px 6px", borderRadius: 6, minWidth: 48, textAlign: "center",
                       color: c.delta > 10 ? color.negative : c.delta < -10 ? color.positive : color.warn,
-                      background: c.delta > 10 ? `${color.negative}15` : c.delta < -10 ? `${color.positive}15` : `${color.warn}15`,
+                      background: c.delta > 10 ? `${alpha(color.negative, 0.08)}` : c.delta < -10 ? `${alpha(color.positive, 0.08)}` : `${alpha(color.warn, 0.08)}`,
                     }}>
                       {c.delta >= 0 ? "+" : ""}{Math.round(c.delta)}%
                     </span>
@@ -506,10 +510,10 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
                     <g key={m.ym}>
                       {/* Entrate bar */}
                       <rect x={x - barW - 1} y={CHART_H - hE} width={barW} height={Math.max(hE, 1)}
-                        rx="2" fill={isCurrent ? color.positive : `${color.positive}33`} />
+                        rx="2" fill={isCurrent ? color.positive : `${alpha(color.positive, 0.2)}`} />
                       {/* Uscite bar */}
                       <rect x={x + 1} y={CHART_H - hU} width={barW} height={Math.max(hU, 1)}
-                        rx="2" fill={isCurrent ? color.negative : `${color.negative}33`} />
+                        rx="2" fill={isCurrent ? color.negative : `${alpha(color.negative, 0.2)}`} />
                       {/* Month label */}
                       <text x={x} y={CHART_H + 12} textAnchor="middle"
                         fill={isCurrent ? color.accent : color.textMuted} fontSize="7"

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { color, alpha, displayFont } from "./ui/styles.js";
 
 // ─── Toast leggeri, senza dipendenze ───
 // Uso: import { toast } from "./components/Toast"; toast("Salvato!", "success");
@@ -27,9 +28,9 @@ export function ToastHost() {
   if (toasts.length === 0) return null;
 
   const colors = {
-    success: { bg: "#4ECDC418", border: "#4ECDC455", text: "#4ECDC4", icon: "✓" },
-    error:   { bg: "#FF6B6B18", border: "#FF6B6B55", text: "#FF6B6B", icon: "✕" },
-    info:    { bg: "#6C5CE718", border: "#6C5CE755", text: "#a78bfa", icon: "ℹ" },
+    success: { bg: `${alpha(color.positive, 0.09)}`, border: `${alpha(color.positive, 0.33)}`, text: color.positive, icon: "✓" },
+    error:   { bg: `${alpha(color.negative, 0.09)}`, border: `${alpha(color.negative, 0.33)}`, text: color.negative, icon: "✕" },
+    info:    { bg: `${alpha(color.accent, 0.09)}`, border: `${alpha(color.accent, 0.33)}`, text: color.accent, icon: "ℹ" },
   };
 
   return (
@@ -42,13 +43,13 @@ export function ToastHost() {
         const c = colors[t.type] || colors.info;
         return (
           <div key={t.id} style={{
-            background: "#1a1a28", border: `1px solid ${c.border}`, borderRadius: 12,
+            background: color.surface, border: `1px solid ${c.border}`, borderRadius: 12,
             padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 10,
-            boxShadow: "0 8px 24px #000a", fontFamily: "'DM Sans', sans-serif",
+            boxShadow: "0 8px 24px rgba(0,0,0,.55)", fontFamily: displayFont,
             animation: "toastIn 0.25s ease",
           }}>
             <span style={{ color: c.text, fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{c.icon}</span>
-            <span style={{ color: "#ddd", fontSize: 13, lineHeight: 1.4, whiteSpace: "pre-line" }}>{t.message}</span>
+            <span style={{ color: color.textPrimary, fontSize: 13, lineHeight: 1.4, whiteSpace: "pre-line" }}>{t.message}</span>
           </div>
         );
       })}

@@ -3,6 +3,7 @@ import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { calcolaSaldiConti } from "../../lib/finance.js";
 import { toast } from "../../components/Toast.jsx";
+import { color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 
 export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, valutaBase = "EUR", lang = "it" }) {
   const [showAdd, setShowAdd] = useState(false);
@@ -48,76 +49,76 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
   const formOpen = showAdd || editId;
 
   return (
-    <div style={{ background: "#1a1a28", borderRadius: 20, padding: 16, marginBottom: 16, border: "1px solid #252538" }}>
+    <div style={{ background: color.surface, borderRadius: 20, padding: 16, marginBottom: 16, border: `1px solid ${color.border}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: conti.length > 0 || formOpen ? 10 : 0 }}>
-        <div style={{ fontSize: 11, color: "#999", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "conti.title")}</div>
+        <div style={{ fontSize: 11, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "conti.title")}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {conti.length > 1 && (
-            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: totale >= 0 ? "#4ECDC4" : "#FF6B6B" }}>{formattaValuta(totale)}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: moneyFont, color: totale >= 0 ? color.positive : color.negative }}>{formattaValuta(totale)}</span>
           )}
           <button onClick={() => formOpen ? closeForm() : openAdd()} style={{
-            background: formOpen ? "#6C5CE722" : "none", border: formOpen ? "1px solid #6C5CE7" : "1px solid #252538",
-            borderRadius: 8, cursor: "pointer", color: formOpen ? "#6C5CE7" : "#888", fontSize: 14, padding: "2px 8px",
+            background: formOpen ? color.accentSoft : "none", border: formOpen ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+            borderRadius: 8, cursor: "pointer", color: formOpen ? color.accent : color.textSecondary, fontSize: 14, padding: "2px 8px",
           }}>{formOpen ? "✕" : "+"}</button>
         </div>
       </div>
 
       {conti.length === 0 && !formOpen && (
-        <div style={{ fontSize: 12, color: "#555", marginTop: 8 }}>{t(lang, "conti.empty")}</div>
+        <div style={{ fontSize: 12, color: color.textMuted, marginTop: 8 }}>{t(lang, "conti.empty")}</div>
       )}
 
       {conti.map(c => (
         <div key={c.id} onClick={() => editId === c.id ? null : openEdit(c)} style={{
           display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 12, cursor: "pointer",
-          background: editId === c.id ? "#6C5CE711" : "#120f16", marginBottom: 6,
-          border: editId === c.id ? "1px solid #6C5CE755" : "1px solid transparent",
+          background: editId === c.id ? color.accentSoft : color.bg, marginBottom: 6,
+          border: editId === c.id ? `1px solid ${alpha(color.accent, 0.33)}` : "1px solid transparent",
         }}>
           <span style={{ fontSize: 16 }}>{c.icona || "🏦"}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#ccc", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: color.textSecondary, fontFamily: displayFont, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
             {(accantonati[c.id] || 0) > 0 && (
-              <div style={{ fontSize: 10, color: "#888", marginTop: 1 }}>
-                🎯 {formattaValuta(accantonati[c.id])} {t(lang, "conti.inGoals")} · <span style={{ color: "#aaa" }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} {t(lang, "conti.free")}</span>
+              <div style={{ fontSize: 10, color: color.textMuted, marginTop: 1 }}>
+                🎯 {formattaValuta(accantonati[c.id])} {t(lang, "conti.inGoals")} · <span style={{ color: color.textSecondary }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} {t(lang, "conti.free")}</span>
               </div>
             )}
           </div>
-          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'Space Mono',monospace", color: (saldi[c.id] || 0) >= 0 ? "#4ECDC4" : "#FF6B6B", flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: moneyFont, color: (saldi[c.id] || 0) >= 0 ? color.positive : color.negative, flexShrink: 0 }}>
             {formattaValuta(saldi[c.id] || 0)}
           </span>
         </div>
       ))}
 
       {formOpen && (
-        <div style={{ marginTop: 10, padding: 12, background: "#120f16", borderRadius: 12, border: "1px solid #6C5CE733" }}>
-          <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
+        <div style={{ marginTop: 10, padding: 12, background: color.bg, borderRadius: 12, border: `1px solid ${alpha(color.accent, 0.2)}` }}>
+          <div style={{ fontSize: 11, color: color.accent, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10 }}>
             {editId ? t(lang, "conti.editAccount") : t(lang, "conti.newAccount")}
           </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             {ICONE.map(ic => (
               <button key={ic} onClick={() => setIcona(ic)} style={{
                 fontSize: 16, padding: "6px 8px", borderRadius: 8, cursor: "pointer",
-                background: icona === ic ? "#6C5CE722" : "transparent",
-                border: icona === ic ? "1px solid #6C5CE7" : "1px solid #252538",
+                background: icona === ic ? color.accentSoft : "transparent",
+                border: icona === ic ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
               }}>{ic}</button>
             ))}
           </div>
           <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder={t(lang, "conti.namePlaceholder")}
-            style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+            style={{ width: "100%", padding: "10px 12px", background: color.surface, border: `1px solid ${color.border}`, borderRadius: 10, color: color.textPrimary, fontSize: 14, fontFamily: displayFont, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
           <input type="text" inputMode="decimal" value={saldoIniziale} onChange={e => setSaldoIniziale(e.target.value)} placeholder={t(lang, "conti.initialBalancePlaceholder")}
-            style={{ width: "100%", padding: "10px 12px", background: "#1a1a28", border: "1px solid #252538", borderRadius: 10, color: "#eee", fontSize: 14, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
+            style={{ width: "100%", padding: "10px 12px", background: color.surface, border: `1px solid ${color.border}`, borderRadius: 10, color: color.textPrimary, fontSize: 14, fontFamily: moneyFont, outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={handleSave} disabled={saving || !nome.trim()} style={{
-              flex: 1, padding: "10px", background: nome.trim() ? "linear-gradient(135deg, #6C5CE7, #a855f7)" : "#252538", border: "none",
-              borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", opacity: saving ? 0.6 : 1,
+              flex: 1, padding: "10px", background: nome.trim() ? accentGradient : color.border, border: "none",
+              borderRadius: 10, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: displayFont, opacity: saving ? 0.6 : 1,
             }}>{saving ? t(lang, "conti.saving") : t(lang, "common.save")}</button>
             {editId && (
               <button onClick={() => handleDelete(conti.find(c => c.id === editId))} style={{
-                padding: "10px 14px", background: "none", border: "1px solid #FF6B6B55", borderRadius: 10,
-                color: "#FF6B6B", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
+                padding: "10px 14px", background: "none", border: `1px solid ${alpha(color.negative, 0.33)}`, borderRadius: 10,
+                color: color.negative, fontSize: 13, cursor: "pointer", fontFamily: displayFont,
               }}>{t(lang, "common.delete")}</button>
             )}
           </div>
-          {editId && <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>{t(lang, "conti.balanceHint")}</div>}
+          {editId && <div style={{ fontSize: 10, color: color.textMuted, marginTop: 8 }}>{t(lang, "conti.balanceHint")}</div>}
         </div>
       )}
     </div>

@@ -6,7 +6,8 @@ import { getLang, setLang, t, detectGuestLang } from "../lib/i18n.js";
 import { toast, ToastHost } from "../components/Toast.jsx";
 import { SyncStatusBadge } from "../components/SyncStatusBadge.jsx";
 import { setImportiNascosti as setImportiNascostiFormat } from "../lib/format.js";
-import { defaultCategorie } from "../lib/appHelpers.js";
+import { defaultCategorie, getAllPersone } from "../lib/appHelpers.js";
+import { calcolaDebitiMatrix } from "../lib/finance.js";
 import { AggiungiView } from "../features/transactions/AggiungiView.jsx";
 import { computeAutoContributions } from "../services/goalsService.js";
 import { LoginScreen } from "../features/auth/LoginScreen.jsx";
@@ -20,12 +21,17 @@ import { ExportView } from "../features/settings/ExportView.jsx";
 import { ImpostazioniView } from "../features/settings/ImpostazioniView.jsx";
 import { TabBar } from "./TabBar.jsx";
 import { HomeView } from "./HomeView.jsx";
+import { DebitiView } from "../features/debts/DebitiView.jsx";
+import { color, accentGradient, displayFont } from "../components/ui/styles.js";
 
 // PERSONE is now dynamic — loaded from session after login
-// Fallback for offline/localStorage mode
+// Fallback for offline/localStorage mode. Deliberately plain hex (not the
+// oklch design tokens) — persona colors flow through many call sites that
+// still do the old "#RRGGBB + 2-digit-alpha-suffix" trick (e.g.
+// `p.colore + "22"`), which silently breaks on an oklch string.
 const DEFAULT_PERSONE = [
-  { id: "persona1", nome: "Persona 1", emoji: "👤", colore: "#E84393" },
-  { id: "persona2", nome: "Persona 2", emoji: "👤", colore: "#0984E3" },
+  { id: "persona1", nome: "Persona 1", emoji: "👤", colore: "#e0609c" },
+  { id: "persona2", nome: "Persona 2", emoji: "👤", colore: "#5b8def" },
 ];
 
 // ─── Main App ───
@@ -53,6 +59,10 @@ export default function FinanzaApp() {
     setTabState(next);
     try { sessionStorage.setItem(LAST_TAB_KEY, next); } catch {}
   };
+  // Debiti sub-page — a full-screen overlay opened from Home's compact debt
+  // card, not a tab: it doesn't need to survive a hard reload the way the
+  // persisted `tab` does.
+  const [debtOpen, setDebtOpen] = useState(false);
   const [initialTipo, setInitialTipo] = useState(urlParams.get("tipo") || "uscita");
   const [initialImporto, setInitialImporto] = useState(urlParams.get("importo") || "");
   const [initialDescrizione, setInitialDescrizione] = useState(urlParams.get("descrizione") || "");
@@ -120,6 +130,18 @@ export default function FinanzaApp() {
 
   const persone = getPersone().length > 0 ? getPersone() : DEFAULT_PERSONE;
   const householdName = getHouseholdName();
+
+  // Debt data — shared by Home's compact card and the Debiti sub-page so
+  // both read the same computation instead of each running its own.
+  const oggiDebt = new Date();
+  const meseVisDebt = new Date(oggiDebt.getFullYear(), oggiDebt.getMonth() - meseOffset, 1);
+  const txMeseDebt = transazioni.filter(tx => {
+    const d = new Date(tx.data);
+    return d.getMonth() === meseVisDebt.getMonth() && d.getFullYear() === meseVisDebt.getFullYear();
+  });
+  const debitiGlobale = calcolaDebitiMatrix(transazioni, persone, valutaBase);
+  const debitiMese = calcolaDebitiMatrix(txMeseDebt.filter(tx => tx.tipo !== "saldo"), persone, valutaBase);
+  const allPeopleDebt = getAllPersone(transazioni, persone);
 
   // ─── Trigger due recurring transactions (rent, subscriptions, etc.) ───
   // Generation itself always happens server-side, in the ONE place that's
@@ -332,32 +354,32 @@ export default function FinanzaApp() {
   const showMonthBar = tab === "home" || tab === "stats";
 
   return (
-    <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: "#120f16", color: "#eee", fontFamily: "'DM Sans', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+    <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: color.bg, color: color.textPrimary, fontFamily: displayFont, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <ToastHost />
       {/* Fixed header */}
-      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : "1px solid #1e1e2e", background: "#120f16", flexShrink: 0 }}>
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : `1px solid ${color.border}`, background: color.bg, flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: "linear-gradient(135deg, #6C5CE7, #a855f7)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
-          <div style={{ fontSize: 10, color: "#555", letterSpacing: 1 }}>{householdName || t(lang, "header.tracker")}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
+          <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 1 }}>{householdName || t(lang, "header.tracker")}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <SyncStatusBadge lang={lang} />
           <PersonaSwitcher persone={persone} activePersonaId={activePersonaId} onSwitched={setActivePersonaId} lang={lang} />
           <button onClick={toggleNascondiImporti} title={nascondiImporti ? t(lang, "header.showAmounts") : t(lang, "header.hideAmounts")} style={{
-            background: nascondiImporti ? "#6C5CE722" : "none", border: nascondiImporti ? "1px solid #6C5CE7" : "1px solid #252538",
-            borderRadius: 8, cursor: "pointer", color: nascondiImporti ? "#a78bfa" : "#888",
+            background: nascondiImporti ? color.accentSoft : "none", border: nascondiImporti ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+            borderRadius: 8, cursor: "pointer", color: nascondiImporti ? color.accent : color.textSecondary,
             fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
           }}>{nascondiImporti ? "🙈" : "👁"}</button>
           <button onClick={() => setTab("impostazioni")} title={t(lang, "header.settings")} style={{
-            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-            color: "#888", fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
+            background: "none", border: `1px solid ${color.border}`, borderRadius: 8, cursor: "pointer",
+            color: color.textSecondary, fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
           }}>⚙</button>
           <button onClick={handleLogout} title={t(lang, "header.logout")} style={{
-            background: "none", border: "1px solid #252538", borderRadius: 8, cursor: "pointer",
-            color: "#888", fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
-            fontFamily: "'DM Sans',sans-serif",
+            background: "none", border: `1px solid ${color.border}`, borderRadius: 8, cursor: "pointer",
+            color: color.textSecondary, fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
+            fontFamily: displayFont,
           }}>{t(lang, "header.logout")}</button>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? "#4ECDC4" : "#F0A500" }} title={isAPIConnected() ? "MongoDB" : "offline"} />
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? color.positive : color.warn }} title={isAPIConnected() ? "MongoDB" : "offline"} />
         </div>
       </div>
       {/* Fixed month selector bar — only for Home and Stats */}
@@ -367,7 +389,7 @@ export default function FinanzaApp() {
       {/* Scrollable content — pulling down past the top reloads, replacing
           the old explicit reload button (MOD: pull-to-refresh) */}
       <PullToRefresh onRefresh={() => window.location.reload()} style={{ flex: 1, paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} onSettle={aggiungiSaldo} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} lang={lang} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} debitiGlobale={debitiGlobale} allPeople={allPeopleDebt} onOpenDebt={() => setDebtOpen(true)} lang={lang} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} valutaBase={valutaBase} activePersonaId={activePersonaId} lang={lang} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} lang={lang} />}
@@ -394,6 +416,19 @@ export default function FinanzaApp() {
         )}
       </PullToRefresh>
       <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} lang={lang} />
+      {debtOpen && (
+        <DebitiView
+          meseVis={meseVisDebt}
+          debitiMese={debitiMese}
+          debitiGlobale={debitiGlobale}
+          allPeople={allPeopleDebt}
+          transazioni={transazioni}
+          onDelete={eliminaTransazione}
+          onSettle={aggiungiSaldo}
+          onClose={() => setDebtOpen(false)}
+          lang={lang}
+        />
+      )}
     </div>
   );
 }

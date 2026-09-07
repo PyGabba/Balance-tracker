@@ -2,7 +2,7 @@ import { useState } from "react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { GoalGauge } from "./GoalGauge.jsx";
-import { color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
 
 // Goal row component
 export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
@@ -63,15 +63,15 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
   }
 
   return (
-    <div style={{ background: color.bg, borderRadius: 12, padding: 12, border: mode ? `1px solid ${color.accent}` : done ? "1px solid #4ECDC455" : `1px solid ${color.border}` }}>
+    <div style={{ background: color.bg, borderRadius: 12, padding: 12, border: mode ? `1px solid ${color.accent}` : done ? `1px solid ${alpha(color.positive, 0.33)}` : `1px solid ${color.border}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <GoalGauge current={current} target={goal.targetAmount} size={50} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: color.textPrimary }}>{goal.nome}</span>
-            {done && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: `${color.positive}22`, color: color.positive }}>{t(lang, "goals.achieved")}</span>}
+            {done && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: `${alpha(color.positive, 0.13)}`, color: color.positive }}>{t(lang, "goals.achieved")}</span>}
             {isAuto && !done && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: `${color.accent}22`, color: color.accent }}>
+              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: `${alpha(color.accent, 0.13)}`, color: color.accent }}>
                 {t(lang, "goals.auto")} {goal.contributionType === "percent" ? `${goal.contributionValue}%` : formattaValuta(goal.contributionValue)}
               </span>
             )}
@@ -90,7 +90,7 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
           )}
         </div>
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-          {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title={t(lang, "goals.deposit")} style={{ background: mode === "versa" ? `${color.positive}22` : "none", border: mode === "versa" ? "1px solid #4ECDC4" : `1px solid ${color.border}`, borderRadius: 7, color: color.positive, cursor: "pointer", fontSize: 13, padding: "3px 8px", fontWeight: 700 }}>+</button>}
+          {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title={t(lang, "goals.deposit")} style={{ background: mode === "versa" ? `${alpha(color.positive, 0.13)}` : "none", border: mode === "versa" ? `1px solid ${color.positive}` : `1px solid ${color.border}`, borderRadius: 7, color: color.positive, cursor: "pointer", fontSize: 13, padding: "3px 8px", fontWeight: 700 }}>+</button>}
           <button onClick={openEdit} style={{ background: "none", border: "none", color: color.accent, cursor: "pointer", fontSize: 14 }}>✏</button>
           <button onClick={() => { if (confirm(t(lang, "confirm.deleteGoal"))) onDelete(goal.id); }} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 14 }}>×</button>
         </div>
@@ -101,8 +101,8 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <input type="text" inputMode="decimal" autoFocus value={amount} onChange={e => setAmount(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") handleVersa(); if (e.key === "Escape") setMode(null); }}
-            placeholder={t(lang, "goals.depositPlaceholder")} style={{ flex: 1, padding: "8px 10px", background: color.surface, border: "1px solid #4ECDC4", borderRadius: 8, color: color.textPrimary, fontSize: 14, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", outline: "none", minWidth: 0 }} />
-          <button onClick={handleVersa} style={{ padding: "8px 14px", background: color.positive, border: "none", borderRadius: 8, color: "#0a0a12", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "goals.depositButton")}</button>
+            placeholder={t(lang, "goals.depositPlaceholder")} style={{ flex: 1, padding: "8px 10px", background: color.surface, border: `1px solid ${color.positive}`, borderRadius: 8, color: color.textPrimary, fontSize: 14, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", outline: "none", minWidth: 0 }} />
+          <button onClick={handleVersa} style={{ padding: "8px 14px", background: color.positive, border: "none", borderRadius: 8, color: color.bg, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "goals.depositButton")}</button>
         </div>
       )}
 
@@ -123,14 +123,14 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
             <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
               <button onClick={() => setEConto("")} style={{
                 padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 10, fontWeight: 600,
-                background: eConto === "" ? `${color.accent}22` : "transparent",
+                background: eConto === "" ? `${alpha(color.accent, 0.13)}` : "transparent",
                 border: eConto === "" ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: eConto === "" ? color.accent : color.textMuted,
               }}>{t(lang, "goals.noAccount")}</button>
               {conti.map(c => (
                 <button key={c.id} onClick={() => setEConto(c.id)} style={{
                   padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 10, fontWeight: 600,
-                  background: eConto === c.id ? `${color.accent}22` : "transparent",
+                  background: eConto === c.id ? `${alpha(color.accent, 0.13)}` : "transparent",
                   border: eConto === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                   color: eConto === c.id ? color.accent : color.textMuted,
                 }}>{c.icona} {c.nome}</button>
@@ -141,7 +141,7 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
             {["manual", "percent", "fixed"].map(tp => (
               <button key={tp} onClick={() => setECType(tp)} style={{
                 flex: 1, padding: "5px 0", borderRadius: 8, cursor: "pointer", fontSize: 10, fontWeight: 600,
-                background: eCType === tp ? `${color.accent}22` : "transparent",
+                background: eCType === tp ? `${alpha(color.accent, 0.13)}` : "transparent",
                 color: eCType === tp ? color.accent : color.textMuted,
                 border: eCType === tp ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
               }}>{tp === "manual" ? t(lang, "goals.manual") : tp === "percent" ? t(lang, "goals.percentIncome") : t(lang, "goals.fixedAmount")}</button>
@@ -159,7 +159,7 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
             </>
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setMode(null)} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>✕</button>
+            <button onClick={() => setMode(null)} style={{ padding: "8px 12px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>✕</button>
             <button onClick={handleSaveEdit} disabled={!eNome.trim() || !eTarget} style={{ flex: 1, padding: "8px", background: eNome.trim() && eTarget ? color.accent : color.border, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
           </div>
         </div>

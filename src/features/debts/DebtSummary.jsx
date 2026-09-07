@@ -1,160 +1,38 @@
-import { useState } from "react";
-import { t, mese } from "../../lib/i18n.js";
-import { formattaValuta, formattaData } from "../../lib/format.js";
-import { generaId } from "../../lib/appHelpers.js";
-import { buildSettlementTransaction } from "../../services/debtService.js";
+import { t } from "../../lib/i18n.js";
+import { formattaValuta } from "../../lib/format.js";
 import { color, moneyFont } from "../../components/ui/styles.js";
 
-// Small colored initial-circle avatar — used in the debt rows below instead
-// of relying solely on a persona's emoji, so a row reads at a glance even
-// when two people share the same emoji.
-function Avatar({ persona }) {
-  const initial = (persona.nome || "?").trim().charAt(0).toUpperCase();
+// ─── Debt summary card ───
+// Compact, tappable one-line summary of the household's all-time debt —
+// opens the full DebitiView sub-page (see App.jsx) for the month/global
+// breakdown, settle flow, and settlement history. Debt data itself
+// (debitiGlobale/allPeople) is computed once in App.jsx and shared with
+// DebitiView, this component is presentation only.
+export function DebtSummary({ debitiGlobale, allPeople, onOpen, lang = "it" }) {
+  const allSquare = debitiGlobale.length === 0;
+  const top = debitiGlobale[0] || null;
+  const pDa = top ? (allPeople.find(p => p.id === top.da) || { nome: top.da, colore: color.textMuted }) : null;
+  const pA = top ? (allPeople.find(p => p.id === top.a) || { nome: top.a, colore: color.textMuted }) : null;
+  const extra = debitiGlobale.length - 1;
+
   return (
-    <div style={{
-      width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
-      background: `${persona.colore || color.textMuted}22`, border: `1.5px solid ${persona.colore || color.textMuted}77`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: 12, fontWeight: 700, color: persona.colore || color.textSecondary,
+    <button onClick={onOpen} style={{
+      width: "100%", textAlign: "left", background: color.surface, borderRadius: 16,
+      padding: "14px 16px", marginBottom: 14, border: `1px solid ${color.debtSoft}`,
+      cursor: "pointer", display: "flex", alignItems: "center", gap: 10, boxSizing: "border-box",
+      font: "inherit",
     }}>
-      {persona.emoji || initial}
-    </div>
-  );
-}
-
-// ─── Debt summary card (MOD-013) ───
-// Shows this month's and all-time debts between household members, lets
-// the user settle a debt (full or partial), and shows settlement history.
-// Extracted from HomeView, which still owns the actual data (debitiMese/
-// debitiGlobale/allPeople are computed there from the full transaction
-// list — this component is presentation + its own settle-flow UI state).
-export function DebtSummary({ meseVis, debitiMese, debitiGlobale, allPeople, transazioni, onDelete, onSettle, lang = "it" }) {
-  const [settlingKey, setSettlingKey] = useState(null);
-  const [settleAmount, setSettleAmount] = useState("");
-  const [showStoricoSaldi, setShowStoricoSaldi] = useState(false);
-
-  return (
-      <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 20, border: `1px solid ${color.debtSoft}`, boxShadow: `0 0 0 1px #0000, inset 0 1px 0 #ffffff08` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          <span style={{ fontSize: 13 }}>⚖</span>
-          <div style={{ fontSize: 11, color: color.debt, letterSpacing: 0.6, textTransform: "uppercase", fontWeight: 700 }}>{t(lang, "home.debtBalance")}</div>
+      <span style={{ fontSize: 17 }}>⚖</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: color.debt, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 700 }}>{t(lang, "home.debtBalance")}</div>
+        <div style={{ fontSize: 13, color: color.textSecondary, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {allSquare ? t(lang, "home.allSquare") : <>{pDa.nome} {t(lang, "home.owes")} {pA.nome}{extra > 0 ? ` +${extra}` : ""}</>}
         </div>
-        {/* Month debts */}
-        <div style={{ fontSize: 10, color: color.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>{mese(meseVis.getMonth())}</div>
-        {debitiMese.length === 0 ? <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 8 }}>{t(lang, "home.allSquare")}</div> : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-            {debitiMese.map((d, i) => {
-              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: color.textMuted };
-              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: color.textMuted };
-              return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Avatar persona={pDa} />
-                  <span style={{ fontSize: 11, color: color.debt }}>→</span>
-                  <Avatar persona={pA} />
-                  <span style={{ fontSize: 12, color: color.textSecondary, flex: 1 }}>{pDa.nome} <span style={{ color: color.textMuted }}>{t(lang, "home.owes")}</span> {pA.nome}</span>
-                  <span style={{ fontSize: 14, fontWeight: 700, fontFamily: moneyFont, color: color.debt, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(d.importo)}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {/* Global debts */}
-        <div style={{ borderTop: `1px solid ${color.border}`, paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: color.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>{t(lang, "home.total")}</div>
-          {debitiGlobale.length === 0 ? <div style={{ fontSize: 13, color: color.textSecondary }}>{t(lang, "home.allSquare")}</div> : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {debitiGlobale.map((d, i) => {
-                const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤", colore: color.textMuted };
-                const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤", colore: color.textMuted };
-                return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Avatar persona={pDa} />
-                    <span style={{ fontSize: 11, color: color.debt }}>→</span>
-                    <Avatar persona={pA} />
-                    <span style={{ fontSize: 12, color: color.textSecondary, flex: 1 }}>{pDa.nome} <span style={{ color: color.textMuted }}>{t(lang, "home.owes")}</span> {pA.nome}</span>
-                    <span style={{ fontSize: 16, fontWeight: 700, fontFamily: moneyFont, color: color.debt, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(d.importo)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        {/* Settle buttons */}
-        {debitiGlobale.length > 0 && (
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            {debitiGlobale.map((d, i) => {
-              const pDa = allPeople.find(p => p.id === d.da) || { nome: d.da, emoji: "👤" };
-              const pA = allPeople.find(p => p.id === d.a) || { nome: d.a, emoji: "👤" };
-              const key = `${d.da}->${d.a}`;
-              if (settlingKey === key) {
-                return (
-                  <div key={i} style={{ background: "#120f16", borderRadius: 12, padding: 12, border: "1px solid #4ECDC433" }}>
-                    <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>
-                      {pDa.emoji} {pDa.nome} → {pA.emoji} {pA.nome} <span style={{ color: "#555" }}>(max {formattaValuta(d.importo)})</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                      <input
-                        type="number" inputMode="decimal"
-                        value={settleAmount}
-                        onChange={e => setSettleAmount(e.target.value)}
-                        style={{ flex: 1, padding: "9px 12px", background: "#1a1a28", border: "1px solid #4ECDC455", borderRadius: 10, color: "#eee", fontSize: 15, fontFamily: "'Space Mono',monospace", outline: "none", boxSizing: "border-box" }}
-                      />
-                      <button onClick={() => setSettleAmount(String(d.importo))} style={{ padding: "9px 10px", border: "1px solid #4ECDC433", borderRadius: 10, background: "#4ECDC411", color: "#4ECDC4", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{t(lang, "home.max")}</button>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => { setSettlingKey(null); setSettleAmount(""); }} style={{ flex: 1, padding: "9px", border: "1px solid #252538", borderRadius: 10, background: "transparent", color: "#888", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{t(lang, "home.cancel")}</button>
-                      <button onClick={() => {
-                        onSettle(buildSettlementTransaction(d, settleAmount, { generaId, recipientName: pA.nome }));
-                        setSettlingKey(null); setSettleAmount("");
-                      }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: "#4ECDC4", color: "#120f16", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>
-                        {t(lang, "home.confirmSettle")}
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <button key={i} onClick={() => { setSettlingKey(key); setSettleAmount(String(d.importo)); }} style={{
-                  width: "100%", padding: "10px", borderRadius: 10, cursor: "pointer",
-                  background: "#1e2a2a", color: "#4ECDC4", border: "1px solid #4ECDC433",
-                  fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
-                }}>
-                  {t(lang, "home.settle")} {pDa.nome} → {pA.nome} ({formattaValuta(d.importo)})
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {/* Settlement history */}
-        {(() => {
-          const saldati = transazioni
-            .filter(t => t.tipo === "saldo")
-            .sort((a, b) => new Date(b.data) - new Date(a.data));
-          if (saldati.length === 0) return null;
-          return (
-            <div style={{ borderTop: "1px solid #252538", paddingTop: 10, marginTop: 10 }}>
-              <button onClick={() => setShowStoricoSaldi(v => !v)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: showStoricoSaldi ? 8 : 0 }}>
-                <span style={{ fontSize: 10, color: "#777", letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "home.settleHistory")} ({saldati.length})</span>
-                <span style={{ fontSize: 10, color: "#6C5CE7", transform: showStoricoSaldi ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
-              </button>
-              {showStoricoSaldi && <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {saldati.map((s, i) => {
-                  const pDa = allPeople.find(p => p.id === s.pagatoDa) || { nome: s.pagatoDa, emoji: "👤" };
-                  const pA = allPeople.find(p => p.id === s.ricevutoDa) || { nome: s.ricevutoDa, emoji: "👤" };
-                  return (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "#4ECDC4" }}>✓</span>
-                      <span style={{ fontSize: 11, color: "#666", flex: 1 }}>{pDa.nome} → {pA.nome}</span>
-                      <span style={{ fontSize: 11, color: "#4ECDC4", fontFamily: "'Space Mono',monospace", fontWeight: 600 }}>{formattaValuta(s.importo)}</span>
-                      <span style={{ fontSize: 10, color: "#555", marginLeft: 4 }}>{formattaData(s.data)}</span>
-                      <button onClick={() => onDelete(s.id)} style={{ background: "none", border: "none", color: "#FF6B6B55", cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title={t(lang, "home.deleteSettle")}>✕</button>
-                    </div>
-                  );
-                })}
-              </div>}
-            </div>
-          );
-        })()}
       </div>
+      {!allSquare && (
+        <div style={{ fontSize: 17, fontWeight: 700, fontFamily: moneyFont, color: color.debt, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{formattaValuta(top.importo)}</div>
+      )}
+      <span style={{ color: color.textMuted, fontSize: 16, flexShrink: 0 }}>›</span>
+    </button>
   );
 }

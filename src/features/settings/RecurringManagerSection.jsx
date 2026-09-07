@@ -2,7 +2,7 @@ import { useState } from "react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
-import { color, displayFont } from "../../components/ui/styles.js";
+import { color, alpha, displayFont } from "../../components/ui/styles.js";
 import { RICORRENZA_IDS } from "../transactions/helpers.js";
 import { listRecurringTemplates, skipNextOccurrence } from "../../services/recurringService.js";
 
@@ -85,7 +85,7 @@ export function RecurringManagerSection({ transazioni, categorie, onEdit, onDele
                           {tx.tipo === "entrata" ? "+" : "-"}{formattaValuta(tx.importo)} · {t(lang, "recurManager.next")} {formattaData(tx.ricorrenza.prossimaData)}
                         </div>
                       </div>
-                      <button disabled={busy} onClick={() => handleDelete(tx)} style={{ background: "none", border: "none", color: `${color.negative}88`, fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
+                      <button disabled={busy} onClick={() => handleDelete(tx)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
                     </div>
 
                     {/* Frequency picker */}
@@ -94,7 +94,7 @@ export function RecurringManagerSection({ transazioni, categorie, onEdit, onDele
                         <button key={id} disabled={busy} onClick={() => handleFrequenzaChange(tx, id)} style={{
                           padding: "5px 10px", borderRadius: 16, cursor: busy ? "default" : "pointer", fontSize: 11, fontWeight: 600,
                           fontFamily: displayFont,
-                          background: tx.ricorrenza.frequenza === id ? `${color.accent}22` : "transparent",
+                          background: tx.ricorrenza.frequenza === id ? `${alpha(color.accent, 0.13)}` : "transparent",
                           border: tx.ricorrenza.frequenza === id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                           color: tx.ricorrenza.frequenza === id ? color.accent : color.textMuted,
                         }}>{t(lang, `recur.${id}`)}</button>
@@ -120,7 +120,7 @@ export function RecurringManagerSection({ transazioni, categorie, onEdit, onDele
                         color: color.textMuted, fontSize: 11, fontWeight: 600, cursor: busy ? "default" : "pointer", fontFamily: displayFont,
                       }}>{t(lang, "recurManager.skip")}</button>
                       <button disabled={busy} onClick={() => handlePause(tx)} style={{
-                        flex: 1, padding: "7px", border: `1px solid ${color.warn}55`, borderRadius: 8, background: `${color.warn}11`,
+                        flex: 1, padding: "7px", border: `1px solid ${alpha(color.warn, 0.33)}`, borderRadius: 8, background: `${alpha(color.warn, 0.07)}`,
                         color: color.warn, fontSize: 11, fontWeight: 600, cursor: busy ? "default" : "pointer", fontFamily: displayFont,
                       }}>{t(lang, "recurManager.pause")}</button>
                     </div>

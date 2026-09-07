@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { t } from "../../lib/i18n.js";
-import { inputStyle, color, displayFont } from "../../components/ui/styles.js";
+import { inputStyle, color, alpha, displayFont } from "../../components/ui/styles.js";
 
 // Goals form component
 export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
@@ -50,14 +50,14 @@ export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setContoId("")} style={{
               padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600,
-              background: contoId === "" ? `${color.accent}22` : "transparent",
+              background: contoId === "" ? `${alpha(color.accent, 0.13)}` : "transparent",
               border: contoId === "" ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
               color: contoId === "" ? color.accent : color.textMuted,
             }}>{t(lang, "form.none")}</button>
             {conti.map(c => (
               <button key={c.id} onClick={() => setContoId(c.id)} style={{
                 padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11, fontWeight: 600,
-                background: contoId === c.id ? `${color.accent}22` : "transparent",
+                background: contoId === c.id ? `${alpha(color.accent, 0.13)}` : "transparent",
                 border: contoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: contoId === c.id ? color.accent : color.textMuted,
               }}>{c.icona} {c.nome}</button>
@@ -73,7 +73,7 @@ export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
             <button key={tp} onClick={() => setContributionType(tp)} style={{
               flex: 1, padding: "6px 0", borderRadius: 8, cursor: "pointer",
               fontSize: 11, fontWeight: 600,
-              background: contributionType === tp ? `${color.accent}22` : "transparent",
+              background: contributionType === tp ? `${alpha(color.accent, 0.13)}` : "transparent",
               color: contributionType === tp ? color.accent : color.textMuted,
               border: contributionType === tp ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
             }}>
@@ -93,7 +93,7 @@ export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
         <span style={{ fontSize: 12, color: color.textSecondary }}>{t(lang, "goals.autoApplyToIncome")}</span>
       </label>
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: "1px solid #333", borderRadius: 8, color: color.textMuted, fontSize: 12 }}>✕</button>
+        <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 12 }}>✕</button>
         <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? color.accent : color.border, border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : color.textMuted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
       </div>
     </div>
