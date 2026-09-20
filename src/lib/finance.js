@@ -197,6 +197,8 @@ export function filtraTransazioni(transazioni, filtri = {}, categorie = []) {
     }
     if (min != null && t.importo < min) return false;
     if (max != null && t.importo > max) return false;
+    if (filtri.dataInizio && t.data < filtri.dataInizio) return false;
+    if (filtri.dataFine && t.data > filtri.dataFine) return false;
     if (parole.length > 0) {
       const cat = categorie.find(c => c.id === t.categoria);
       const testo = normalizza(`${t.descrizione || ""} ${cat?.nome || ""} ${t.categoria || ""}`);
@@ -214,6 +216,8 @@ export function contaFiltriAttivi(filtri = {}) {
   if (filtri.contoId) n++;
   if (parseImporto(filtri.minImporto) != null) n++;
   if (parseImporto(filtri.maxImporto) != null) n++;
+  if (filtri.dataInizio) n++;
+  if (filtri.dataFine) n++;
   return n;
 }
 

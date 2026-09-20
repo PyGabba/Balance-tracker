@@ -262,6 +262,12 @@ describe("filtraTransazioni", () => {
   it("input non valido nel range viene ignorato", () => {
     expect(filtraTransazioni(tx, { minImporto: "abc" }, categorie)).toHaveLength(5);
   });
+
+  it("range date: dataInizio, dataFine, entrambe", () => {
+    expect(filtraTransazioni(tx, { dataInizio: "2026-08-05" }, categorie).map(t => t.id)).toEqual([3, 4, 5]);
+    expect(filtraTransazioni(tx, { dataFine: "2026-08-03" }, categorie).map(t => t.id)).toEqual([1, 2]);
+    expect(filtraTransazioni(tx, { dataInizio: "2026-08-03", dataFine: "2026-08-06" }, categorie).map(t => t.id)).toEqual([2, 3, 4]);
+  });
 });
 
 describe("contaFiltriAttivi", () => {
@@ -271,6 +277,7 @@ describe("contaFiltriAttivi", () => {
     expect(contaFiltriAttivi({ tipo: "uscita", categoria: "cibo" })).toBe(2);
     expect(contaFiltriAttivi({ personaId: "g", contoId: "c1", minImporto: "10", maxImporto: "20" })).toBe(4);
     expect(contaFiltriAttivi({ minImporto: "abc" })).toBe(0);
+    expect(contaFiltriAttivi({ dataInizio: "2026-08-01", dataFine: "2026-08-31" })).toBe(2);
   });
 });
 

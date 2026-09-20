@@ -14,7 +14,7 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
-  const FILTRI_VUOTI = { tipo: "", categoria: "", personaId: "", contoId: "", minImporto: "", maxImporto: "" };
+  const FILTRI_VUOTI = { tipo: "", categoria: "", personaId: "", contoId: "", minImporto: "", maxImporto: "", dataInizio: "", dataFine: "" };
   const [filtri, setFiltri] = useState(FILTRI_VUOTI);
   const [showFiltri, setShowFiltri] = useState(false);
   const [tuttiIMesi, setTuttiIMesi] = useState(false);
@@ -41,7 +41,8 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
   const saldo = entrate - uscite;
   const nFiltriAttivi = contaFiltriAttivi(filtri);
   const ricercaAttiva = !!search.trim() || nFiltriAttivi > 0;
-  const baseTx = (ricercaAttiva && tuttiIMesi ? transazioni : txMese).filter(t => t.tipo !== "saldo");
+  const hasDateRange = !!(filtri.dataInizio || filtri.dataFine);
+  const baseTx = (ricercaAttiva && (tuttiIMesi || hasDateRange) ? transazioni : txMese).filter(t => t.tipo !== "saldo");
   const txOrdinate = filtraTransazioni(baseTx, { ...filtri, query: search }, categorie)
     .sort((a, b) => new Date(b.data) - new Date(a.data));
   const totaleRisultati = ricercaAttiva ? txOrdinate.reduce((s, t) => s + (t.tipo === "uscita" ? -t.importo : t.tipo === "entrata" ? t.importo : 0), 0) : 0;
@@ -262,6 +263,15 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
               <input type="text" inputMode="decimal" value={filtri.minImporto} onChange={e => setFiltri({ ...filtri, minImporto: e.target.value })} placeholder={t(lang, "home.filterMin")} style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: moneyFont }} />
               <span style={{ color: color.textMuted, fontSize: 12 }}>—</span>
               <input type="text" inputMode="decimal" value={filtri.maxImporto} onChange={e => setFiltri({ ...filtri, maxImporto: e.target.value })} placeholder={t(lang, "home.filterMax")} style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: moneyFont }} />
+            </div>
+          </div>
+          {/* Periodo (data inizio/fine) */}
+          <div>
+            <div style={filterLabelStyle}>{t(lang, "home.filterPeriod")}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="date" value={filtri.dataInizio} max={filtri.dataFine || undefined} onChange={e => setFiltri({ ...filtri, dataInizio: e.target.value })} style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: moneyFont, flex: 1 }} />
+              <span style={{ color: color.textMuted, fontSize: 12 }}>—</span>
+              <input type="date" value={filtri.dataFine} min={filtri.dataInizio || undefined} onChange={e => setFiltri({ ...filtri, dataFine: e.target.value })} style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, fontFamily: moneyFont, flex: 1 }} />
             </div>
           </div>
           {nFiltriAttivi > 0 && (
