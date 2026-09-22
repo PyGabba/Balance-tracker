@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote } from "../../api.js";
+import { fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -81,9 +81,24 @@ export function PortfolioView({ lang = "it" }) {
     fetchManualPrices().then(p => setManualPrices(p));
   }, []);
 
+  // ── Live prices (Yahoo Finance, best-effort, 24h server-side cache) ──
+  // A ticker Yahoo can't resolve just stays out of autoPrices; the price
+  // resolution below already falls back to the manual override / cost
+  // basis for anything missing here.
+  const [autoPrices, setAutoPrices] = useState({});
+  const tickerKey = holdings.map(h => h.ticker).sort().join(",");
+  useEffect(() => {
+    if (!tickerKey) return;
+    fetchQuotes(tickerKey.split(",")).then(q => setAutoPrices(prev => ({ ...prev, ...q })));
+  }, [tickerKey]);
+
   function saveManualPrices(updated) {
     setManualPrices(updated);
     saveManualPricesRemote(updated);
+  }
+
+  function prezzoDi(ticker) {
+    return manualPrices[ticker] || autoPrices[ticker] || 0;
   }
 
   function startEditPrice(ticker, currentManual) {
@@ -107,11 +122,11 @@ export function PortfolioView({ lang = "it" }) {
     setEditingTicker(null);
   }
 
-  // Portfolio totals — use manual price override, fall back to cost basis
+  // Portfolio totals — manual price override wins, else the live quote,
+  // else cost basis
   let totalInvestito = 0, totalValore = 0;
   for (const h of holdings) {
-    const manuale = manualPrices[h.ticker];
-    const prezzo = manuale || 0;
+    const prezzo = prezzoDi(h.ticker);
     totalInvestito += h.costoTotale;
     totalValore += prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
   }
@@ -120,8 +135,7 @@ export function PortfolioView({ lang = "it" }) {
 
   // Sort holdings
   const holdingsOrdinate = [...holdings].sort((a, b) => {
-    const ma = manualPrices[a.ticker]; const mb = manualPrices[b.ticker];
-    const pa = ma || 0; const pb = mb || 0;
+    const pa = prezzoDi(a.ticker); const pb = prezzoDi(b.ticker);
     const va = pa > 0 ? a.quantita * pa : a.costoTotale;
     const vb = pb > 0 ? b.quantita * pb : b.costoTotale;
     const pla = pa > 0 ? va - a.costoTotale : 0;
@@ -145,16 +159,16 @@ export function PortfolioView({ lang = "it" }) {
 
   // Sorted holdings for charts (by value descending)
   const holdingsByValue = [...holdings].sort((a, b) => {
-    const pa = manualPrices[a.ticker] || 0;
-    const pb = manualPrices[b.ticker] || 0;
+    const pa = prezzoDi(a.ticker);
+    const pb = prezzoDi(b.ticker);
     const va = pa > 0 ? a.quantita * pa : a.costoTotale;
     const vb = pb > 0 ? b.quantita * pb : b.costoTotale;
     return vb - va;
   });
 
   const holdingsByPL = [...holdings].sort((a, b) => {
-    const pa = manualPrices[a.ticker] || 0;
-    const pb = manualPrices[b.ticker] || 0;
+    const pa = prezzoDi(a.ticker);
+    const pb = prezzoDi(b.ticker);
     const pla = pa > 0 ? (a.quantita * pa) - a.costoTotale : 0;
     const plb = pb > 0 ? (b.quantita * pb) - b.costoTotale : 0;
     return plb - pla;
@@ -299,7 +313,8 @@ export function PortfolioView({ lang = "it" }) {
           {holdingsOrdinate.map(h => {
             const manuale = manualPrices[h.ticker];
             const isManuale = manuale > 0;
-            const prezzoCorrente = manuale || 0;
+            const isAuto = !isManuale && autoPrices[h.ticker] > 0;
+            const prezzoCorrente = prezzoDi(h.ticker);
             const valoreCorrente = prezzoCorrente > 0 ? h.quantita * prezzoCorrente : h.costoTotale;
             const pl = prezzoCorrente > 0 ? valoreCorrente - h.costoTotale : 0;
             const plPct = h.costoTotale > 0 && prezzoCorrente > 0 ? (pl / h.costoTotale * 100) : 0;
@@ -314,6 +329,9 @@ export function PortfolioView({ lang = "it" }) {
                       <span style={{ fontSize: 11, color: color.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{h.nome}</span>
                       {isManuale && (
                         <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: `${alpha(color.warn, 0.13)}`, color: color.warn, letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.manualBadge")}</span>
+                      )}
+                      {isAuto && (
+                        <span title={t(lang, "portfolio.updatePriceAuto")} style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: `${alpha(color.positive, 0.13)}`, color: color.positive, letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.autoBadge")}</span>
                       )}
                     </div>
                     <div style={{ fontSize: 11, color: color.textMuted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -508,14 +526,14 @@ export function PortfolioView({ lang = "it" }) {
           <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "portfolio.allocation")}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <DonutChart segmenti={holdingsByValue.map((h, i) => {
-              const prezzo = manualPrices[h.ticker] || 0;
+              const prezzo = prezzoDi(h.ticker);
               const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
               const colors = [color.accent, color.positive, color.negative, "#FFEAA7", "#DDA0DD", color.warn, "#74B9FF", "#55EFC4"];
               return { valore: val, colore: colors[i % colors.length], label: h.ticker };
             })} />
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
               {holdingsByValue.map((h, i) => {
-                const prezzo = manualPrices[h.ticker] || 0;
+                const prezzo = prezzoDi(h.ticker);
                 const val = prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
                 const pct = totalValore > 0 ? (val / totalValore * 100) : 0;
                 const colors = [color.accent, color.positive, color.negative, "#FFEAA7", "#DDA0DD", color.warn, "#74B9FF", "#55EFC4"];
@@ -540,11 +558,11 @@ export function PortfolioView({ lang = "it" }) {
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, minWidth: "max-content" }}>
             {holdingsByPL.map(h => {
-              const prezzo = manualPrices[h.ticker] || 0;
+              const prezzo = prezzoDi(h.ticker);
               const valore = prezzo > 0 ? h.quantita * prezzo : 0;
               const pl = prezzo > 0 ? valore - h.costoTotale : 0;
               const maxPL = Math.max(...holdings.map(h => {
-                const p = manualPrices[h.ticker] || 0;
+                const p = prezzoDi(h.ticker);
                 return p > 0 ? Math.abs((h.quantita * p) - h.costoTotale) : 0;
               }), 1);
               const height = Math.max(2, (Math.abs(pl) / maxPL) * 80);
