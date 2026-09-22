@@ -2347,8 +2347,8 @@ app.put("/api/positions/prices", requireHousehold, requireRole("member"), async 
 const QUOTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const QUOTE_TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
 
-async function fetchYahooQuote(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+async function fetchYahooQuoteRaw(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
   const res = await fetch(url, {
     signal: AbortSignal.timeout(8000),
     headers: { "User-Agent": "Mozilla/5.0 (compatible; BalanceTracker/1.0)" },
@@ -2357,6 +2357,18 @@ async function fetchYahooQuote(ticker) {
   const data = await res.json();
   const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
   return typeof price === "number" && Number.isFinite(price) ? price : null;
+}
+
+// A bare alphanumeric ticker (no exchange suffix, no crypto/forex/index
+// syntax already in it) resolves against the US market by default on
+// Yahoo — wrong for the common case here, an Italian household holding
+// Borsa Italiana-listed ETFs by their plain ticker (VWCE, not VWCE.MI).
+// Retry with .MI before giving up.
+async function fetchYahooQuote(ticker) {
+  const price = await fetchYahooQuoteRaw(ticker);
+  if (price != null) return price;
+  if (/^[A-Z0-9]{1,10}$/.test(ticker)) return await fetchYahooQuoteRaw(`${ticker}.MI`);
+  return null;
 }
 
 app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
