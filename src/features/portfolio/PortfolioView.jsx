@@ -45,7 +45,7 @@ export function PortfolioView({ lang = "it" }) {
     try {
       const pos = await addPosition({
         ticker: ticker.trim().toUpperCase(), nome: nome.trim() || ticker.trim().toUpperCase(),
-        quantita: parseFloat(quantita), prezzoAcquisto: parseFloat(prezzoAcquisto),
+        quantita: parseFloat(quantita.replace(",", ".")), prezzoAcquisto: parseFloat(prezzoAcquisto.replace(",", ".")),
         dataAcquisto, note: note.trim(), tipo: tradeType,
       });
       setPositions(prev => [...prev, pos]);
@@ -238,12 +238,12 @@ export function PortfolioView({ lang = "it" }) {
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t(lang, "portfolio.quantity")}</label>
-              <input type="number" inputMode="decimal" value={quantita} onChange={e => setQuantita(e.target.value)} placeholder="10"
+              <input type="text" inputMode="decimal" value={quantita} onChange={e => setQuantita(e.target.value)} placeholder="10"
                 style={{ ...inputStyle, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", background: color.bg }} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t(lang, "portfolio.purchasePrice")}</label>
-              <input type="number" inputMode="decimal" value={prezzoAcquisto} onChange={e => setPrezzoAcquisto(e.target.value)} placeholder="150.00"
+              <input type="text" inputMode="decimal" value={prezzoAcquisto} onChange={e => setPrezzoAcquisto(e.target.value)} placeholder="150.00"
                 style={{ ...inputStyle, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", background: color.bg }} />
             </div>
           </div>
@@ -382,7 +382,7 @@ export function PortfolioView({ lang = "it" }) {
                       {t(lang, "portfolio.manualPricePrefix")} {h.ticker}
                     </div>
                     <input
-                      type="number" inputMode="decimal" autoFocus
+                      type="text" inputMode="decimal" autoFocus
                       value={editPriceVal}
                       onChange={e => setEditPriceVal(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter") handleSaveManualPrice(h.ticker); if (e.key === "Escape") setEditingTicker(null); }}
