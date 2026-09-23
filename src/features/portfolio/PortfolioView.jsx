@@ -81,16 +81,25 @@ export function PortfolioView({ lang = "it" }) {
     fetchManualPrices().then(p => setManualPrices(p));
   }, []);
 
-  // ── Live prices (Yahoo Finance, best-effort, 24h server-side cache) ──
-  // A ticker Yahoo can't resolve just stays out of autoPrices; the price
-  // resolution below already falls back to the manual override / cost
-  // basis for anything missing here.
+  // ── Live prices (Yahoo Finance, best-effort) ──
+  // Fetched only on demand via the refresh button below, never on load —
+  // a ticker Yahoo can't resolve just stays out of autoPrices, and the
+  // price resolution below already falls back to the manual override /
+  // cost basis for anything missing here.
   const [autoPrices, setAutoPrices] = useState({});
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
   const tickerKey = holdings.map(h => h.ticker).sort().join(",");
-  useEffect(() => {
-    if (!tickerKey) return;
-    fetchQuotes(tickerKey.split(",")).then(q => setAutoPrices(prev => ({ ...prev, ...q })));
-  }, [tickerKey]);
+
+  async function handleRefreshPrices() {
+    if (!tickerKey || refreshingPrices) return;
+    setRefreshingPrices(true);
+    const before = tickerKey.split(",").length;
+    const q = await fetchQuotes(tickerKey.split(","), { force: true });
+    setAutoPrices(prev => ({ ...prev, ...q }));
+    setRefreshingPrices(false);
+    const got = Object.keys(q).length;
+    toast(got > 0 ? `${t(lang, "portfolio.pricesUpdated")} (${got}/${before})` : t(lang, "portfolio.pricesUpdateFailed"), got > 0 ? "success" : "error");
+  }
 
   function saveManualPrices(updated) {
     setManualPrices(updated);
@@ -184,11 +193,21 @@ export function PortfolioView({ lang = "it" }) {
           <div style={{ fontSize: 12, color: color.textMuted }}>{holdings.length} {t(lang, "portfolio.tickers")}</div>
           <div style={{ fontSize: 10, color: color.textMuted, marginTop: 2 }}>{t(lang, "portfolio.notTaxAdviceNote")}</div>
         </div>
-        <button onClick={() => setShowAdd(!showAdd)} style={{
-            background: showAdd ? color.accentSoft : "none", border: showAdd ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
-            borderRadius: 8, cursor: "pointer", color: showAdd ? color.accent : color.textMuted, fontSize: 16, padding: "4px 10px",
-          }}>{showAdd ? "✕" : "+"}</button>
+        <div style={{ display: "flex", gap: 6 }}>
+          {holdings.length > 0 && (
+            <button onClick={handleRefreshPrices} disabled={refreshingPrices} title={t(lang, "portfolio.refreshPrices")} style={{
+                background: "none", border: `1px solid ${color.border}`, borderRadius: 8, cursor: refreshingPrices ? "default" : "pointer",
+                color: color.textMuted, fontSize: 15, padding: "4px 10px", opacity: refreshingPrices ? 0.5 : 1,
+                animation: refreshingPrices ? "portfolio-refresh-spin 0.8s linear infinite" : "none",
+              }}>↻</button>
+          )}
+          <button onClick={() => setShowAdd(!showAdd)} style={{
+              background: showAdd ? color.accentSoft : "none", border: showAdd ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+              borderRadius: 8, cursor: "pointer", color: showAdd ? color.accent : color.textMuted, fontSize: 16, padding: "4px 10px",
+            }}>{showAdd ? "✕" : "+"}</button>
+        </div>
       </div>
+      <style>{"@keyframes portfolio-refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }"}</style>
 
       {/* Summary card */}
       {(holdings.length > 0 || closedHoldings.length > 0) && (

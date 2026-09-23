@@ -2378,8 +2378,12 @@ app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
       .slice(0, 30); // generous cap; well past any real portfolio's ticker count
     if (tickers.length === 0) return res.json({ quotes: {} });
 
+    // force=1 skips the cache read and re-fetches every requested ticker —
+    // still subject to quotesLimiter, so it can't be used to hammer Yahoo
+    // any faster than a normal page load could.
+    const force = req.query.force === "1" || req.query.force === "true";
     const now = Date.now();
-    const cached = await quotesCol.find({ ticker: { $in: tickers }, householdId: { $exists: false } }).toArray();
+    const cached = force ? [] : await quotesCol.find({ ticker: { $in: tickers }, householdId: { $exists: false } }).toArray();
     const cacheByTicker = new Map(cached.map(d => [d.ticker, d]));
 
     const quotes = {};

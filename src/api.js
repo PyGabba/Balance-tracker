@@ -857,10 +857,11 @@ export async function saveManualPricesRemote(prices) {
   } catch {}
 }
 
-export async function fetchQuotes(tickers) {
+export async function fetchQuotes(tickers, { force = false } = {}) {
   if (!currentHousehold || !tickers || tickers.length === 0) return {};
   try {
     const params = new URLSearchParams({ tickers: tickers.join(",") });
+    if (force) params.set("force", "1");
     const res = await fetch(`${API_BASE}/api/quotes?${params.toString()}`, {
       headers: authHeaders(),
       credentials: "include",
