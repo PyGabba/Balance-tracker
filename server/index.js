@@ -2286,6 +2286,38 @@ app.post("/api/positions", writeLimiter, requireHousehold, requireRole("member")
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
+app.put("/api/positions/:id", writeLimiter, requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
+    const b = req.body;
+    const update = {};
+    try {
+      if (b.ticker !== undefined) {
+        const ticker = String(b.ticker).toUpperCase().trim();
+        if (!/^[A-Z0-9.^=\-]{1,20}$/.test(ticker)) return sendError(res, 400, "INVALID_TICKER", "Ticker non valido (max 20 caratteri alfanumerici)");
+        update.ticker = ticker;
+      }
+      if (b.nome !== undefined) update.nome = sanitizeText(b.nome, 100);
+      if (b.quantita !== undefined) update.quantita = validatePositiveNumber(b.quantita, "quantita");
+      if (b.prezzoAcquisto !== undefined) {
+        update.prezzoAcquisto = validatePositiveNumber(b.prezzoAcquisto, "prezzoAcquisto");
+        update.prezzoAcquistoMinorUnits = toMinorUnits(update.prezzoAcquisto, b.valuta || "EUR"); // MOD-016
+      }
+      if (b.dataAcquisto !== undefined) update.dataAcquisto = b.dataAcquisto;
+      if (b.note !== undefined) update.note = sanitizeText(b.note, 500);
+      if (b.tipo !== undefined) update.tipo = validateEnum(b.tipo, POSITION_TIPI, "tipo");
+    } catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
+    }
+    if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
+    update.updatedAt = new Date();
+    const r = await db.collection("positions").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
+    if (r.matchedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovata");
+    res.json({ ok: true });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
 app.delete("/api/positions/:id", requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");

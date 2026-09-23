@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes, getSession } from "../../api.js";
+import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes, getSession } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -139,6 +139,42 @@ export function PortfolioView({ lang = "it" }) {
     delete updated[ticker];
     saveManualPrices(updated);
     setEditingTicker(null);
+  }
+
+  // ── Rename a ticker (all trades under it, in one go) ──
+  // A holding isn't its own DB entity — it's just position docs grouped
+  // client-side by ticker string (computeHoldingsBreakdown) — so renaming
+  // it means updating every trade that shares the old ticker, then
+  // carrying over any manual/live price keyed to the old symbol so it
+  // isn't orphaned.
+  const [renamingTicker, setRenamingTicker] = useState(null);
+  const [renameTickerVal, setRenameTickerVal] = useState("");
+
+  function startRenameTicker(ticker) {
+    setRenamingTicker(ticker);
+    setRenameTickerVal(ticker);
+  }
+
+  async function handleSaveRenameTicker(h) {
+    const newTicker = renameTickerVal.trim().toUpperCase();
+    setRenamingTicker(null);
+    if (!newTicker || newTicker === h.ticker) return;
+    try {
+      await Promise.all(h.trades.map(tr => updatePosition(tr.id, { ticker: newTicker })));
+    } catch (e) { toast(e.message || t(lang, "portfolio.tickerRenameFailed"), "error"); return; }
+    const ids = new Set(h.trades.map(tr => tr.id));
+    setPositions(prev => prev.map(p => ids.has(p.id) ? { ...p, ticker: newTicker } : p));
+    if (manualPrices[h.ticker] != null) {
+      const updated = { ...manualPrices, [newTicker]: manualPrices[h.ticker] };
+      delete updated[h.ticker];
+      saveManualPrices(updated);
+    }
+    if (autoPrices[h.ticker] != null) {
+      const updated = { ...autoPrices, [newTicker]: autoPrices[h.ticker] };
+      delete updated[h.ticker];
+      persistAutoPrices(updated);
+    }
+    toast(t(lang, "portfolio.tickerRenamed"), "success");
   }
 
   // Portfolio totals — manual price override wins, else the live quote,
@@ -348,13 +384,27 @@ export function PortfolioView({ lang = "it" }) {
             const pl = prezzoCorrente > 0 ? valoreCorrente - h.costoTotale : 0;
             const plPct = h.costoTotale > 0 && prezzoCorrente > 0 ? (pl / h.costoTotale * 100) : 0;
             const isEditing = editingTicker === h.ticker;
+            const isRenaming = renamingTicker === h.ticker;
 
             return (
               <div key={h.ticker} style={{ background: color.surface, borderRadius: 16, padding: "14px 16px", border: isEditing ? `1px solid ${color.accent}` : `1px solid ${color.border}`, transition: "border-color 0.2s" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
+                    {isRenaming ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                        <input
+                          type="text" autoFocus value={renameTickerVal}
+                          onChange={e => setRenameTickerVal(e.target.value.toUpperCase())}
+                          onKeyDown={e => { if (e.key === "Enter") handleSaveRenameTicker(h); if (e.key === "Escape") setRenamingTicker(null); }}
+                          style={{ width: 110, padding: "5px 8px", background: color.bg, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.textPrimary, fontSize: 14, fontWeight: 800, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", textTransform: "uppercase", outline: "none" }}
+                        />
+                        <button onClick={() => handleSaveRenameTicker(h)} style={{ background: "none", border: "none", color: color.positive, cursor: "pointer", fontSize: 15, padding: "2px 4px" }}>✓</button>
+                        <button onClick={() => setRenamingTicker(null)} style={{ background: "none", border: "none", color: color.textMuted, cursor: "pointer", fontSize: 14, padding: "2px 4px" }}>✕</button>
+                      </div>
+                    ) : (
                     <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 15, fontWeight: 800, color: color.textPrimary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{h.ticker}</span>
+                      <button onClick={() => startRenameTicker(h.ticker)} title={t(lang, "portfolio.renameTicker")} style={{ background: "none", border: "none", color: color.textMuted, cursor: "pointer", fontSize: 11, lineHeight: 1, padding: "2px 3px", flexShrink: 0 }}>✏</button>
                       <span style={{ fontSize: 11, color: color.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{h.nome}</span>
                       {isManuale && (
                         <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: `${alpha(color.warn, 0.13)}`, color: color.warn, letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.manualBadge")}</span>
@@ -363,6 +413,7 @@ export function PortfolioView({ lang = "it" }) {
                         <span title={t(lang, "portfolio.updatePriceAuto")} style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 4, background: `${alpha(color.positive, 0.13)}`, color: color.positive, letterSpacing: 0.3, flexShrink: 0 }}>{t(lang, "portfolio.autoBadge")}</span>
                       )}
                     </div>
+                    )}
                     <div style={{ fontSize: 11, color: color.textMuted, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {h.quantita.toFixed(h.quantita % 1 === 0 ? 0 : 2)} {t(lang, "portfolio.units")} × {formattaValuta(h.prezzoMedio)} {t(lang, "portfolio.avgSuffix")}
                     </div>
