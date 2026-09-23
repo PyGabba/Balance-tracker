@@ -23,7 +23,7 @@ No lint script is configured.
 
 ## Architecture
 
-Full-stack: React 18 (Vite) SPA in `src/`, single Express app in `server/index.js` (~3300 lines, monolithic — not split into route files), MongoDB. Deploy split: frontend on Vercel (`vercel.json` proxies `/api/*` to a Render-hosted API), backend on Render. `api/quotes.js` (repo root, outside `src`/`server`) is a separate Vercel serverless function for stock/crypto quotes — not part of the Express app.
+Full-stack: React 18 (Vite) SPA in `src/`, single Express app in `server/index.js` (~3300 lines, monolithic — not split into route files), MongoDB. Deploy split: frontend on Vercel (`vercel.json` proxies `/api/*` to a Render-hosted API), backend on Render. Don't add files under `api/` (repo root, outside `src`/`server`) — Vercel's filesystem routing for `api/*.js` serverless functions takes priority over the `vercel.json` rewrite, so any file there silently shadows the real Express route at the same path instead of reaching it (this bit `/api/quotes` in production: a leftover `api/quotes.js` intercepted every request and 404'd before Render's implementation ever ran).
 
 ### Auth & multi-tenancy model
 
