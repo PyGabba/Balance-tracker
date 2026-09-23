@@ -130,8 +130,10 @@ export function calcolaSaldiConti(conti, transazioni, valutaBase = "EUR") {
 }
 
 // Valore del portafoglio con contabilità a costo medio (le vendite riducono il
-// costo di qty × prezzo medio); prezzo manuale, altrimenti costo di carico.
-export function calcolaValorePortfolio(positions, manualPrices) {
+// costo di qty × prezzo medio); prezzo manuale, poi prezzo live (auto), altrimenti
+// costo di carico — stessa priorità di prezzoDi() in PortfolioView.jsx, così
+// "investimenti" in Home e "Valore portafoglio" in Portfolio non divergono.
+export function calcolaValorePortfolio(positions, manualPrices, autoPrices) {
   const map = {};
   const sorted = [...positions].sort((a, b) =>
     (a.dataAcquisto || "").localeCompare(b.dataAcquisto || "") ||
@@ -157,7 +159,7 @@ export function calcolaValorePortfolio(positions, manualPrices) {
   for (const k of Object.keys(map)) {
     const h = map[k];
     if (h.quantita <= 0.0001) continue;
-    const prezzo = (manualPrices && manualPrices[k]) || 0;
+    const prezzo = (manualPrices && manualPrices[k]) || (autoPrices && autoPrices[k]) || 0;
     investito += h.costoTotale;
     valore += prezzo > 0 ? h.quantita * prezzo : h.costoTotale;
   }

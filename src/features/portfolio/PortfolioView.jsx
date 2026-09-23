@@ -6,6 +6,7 @@ import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { DonutChart } from "../../components/ui/Charts.jsx";
 import { computeHoldingsBreakdown } from "../../services/portfolioService.js";
+import { readAutoPrices, writeAutoPrices } from "../../lib/autoPriceCache.js";
 
 export function PortfolioView({ lang = "it" }) {
   const [positions, setPositions] = useState([]);
@@ -83,31 +84,20 @@ export function PortfolioView({ lang = "it" }) {
 
   // ── Live prices (Yahoo Finance, best-effort) ──
   // Fetched only on demand via the refresh button below, never on load —
-  // but the last-fetched values are persisted to localStorage (scoped by
-  // household, same convention as offlineDb.js) so they survive a reload
-  // instead of vanishing until the next manual refresh. A ticker Yahoo
-  // can't resolve just stays out of autoPrices, and the price resolution
-  // below already falls back to the manual override / cost basis for
-  // anything missing here.
-  function autoPricesStorageKey() {
-    const householdId = getSession()?.householdId;
-    return householdId ? `portfolioAutoPrices:${householdId}` : null;
-  }
-  const [autoPrices, setAutoPrices] = useState(() => {
-    try {
-      const key = autoPricesStorageKey();
-      return key ? JSON.parse(localStorage.getItem(key) || "{}") : {};
-    } catch { return {}; }
-  });
+  // but the last-fetched values are persisted (src/lib/autoPriceCache.js,
+  // scoped by household) so they survive a reload instead of vanishing
+  // until the next manual refresh, and so HomeView's net-worth card can
+  // read the same cache to agree with this screen's total. A ticker
+  // Yahoo can't resolve just stays out of autoPrices, and the price
+  // resolution below already falls back to the manual override / cost
+  // basis for anything missing here.
+  const [autoPrices, setAutoPrices] = useState(() => readAutoPrices(getSession()?.householdId));
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const tickerKey = holdings.map(h => h.ticker).sort().join(",");
 
   function persistAutoPrices(updated) {
     setAutoPrices(updated);
-    try {
-      const key = autoPricesStorageKey();
-      if (key) localStorage.setItem(key, JSON.stringify(updated));
-    } catch {}
+    writeAutoPrices(getSession()?.householdId, updated);
   }
 
   async function handleRefreshPrices() {
