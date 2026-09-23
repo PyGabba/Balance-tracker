@@ -2368,15 +2368,20 @@ async function fetchYahooQuoteRaw(symbol) {
 }
 
 // A bare alphanumeric ticker (no exchange suffix, no crypto/forex/index
-// syntax already in it) resolves against the US market by default on
-// Yahoo — wrong for the common case here, an Italian household holding
-// Borsa Italiana-listed ETFs by their plain ticker (VWCE, not VWCE.MI).
-// Retry with .MI before giving up.
+// syntax already in it) is ambiguous: this Italian-first app's common
+// case is a Borsa Italiana-listed ETF entered by its plain ticker (VWCE,
+// not VWCE.MI), but some of those bare tickers *also* happen to be real,
+// resolvable US-market symbols for a completely unrelated instrument
+// (UST is a Milan-listed Nasdaq-100 tracker here, but also a real US
+// Treasury-bond ETF on Yahoo's US market) — silently wrong is worse than
+// silently missing, so try .MI first and only fall back to the bare
+// ticker if Milan doesn't have it.
 async function fetchYahooQuote(ticker) {
-  const price = await fetchYahooQuoteRaw(ticker);
-  if (price != null) return price;
-  if (/^[A-Z0-9]{1,10}$/.test(ticker)) return await fetchYahooQuoteRaw(`${ticker}.MI`);
-  return null;
+  if (/^[A-Z0-9]{1,10}$/.test(ticker)) {
+    const milan = await fetchYahooQuoteRaw(`${ticker}.MI`);
+    if (milan != null) return milan;
+  }
+  return await fetchYahooQuoteRaw(ticker);
 }
 
 app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
