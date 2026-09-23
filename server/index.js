@@ -2415,7 +2415,13 @@ app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
           { $set: { ticker, autoPrice: price, fetchedAt: new Date() } },
           { upsert: true }
         );
-      } catch { /* unresolved ticker — client falls back to manual price */ }
+      } catch (e) {
+        // A thrown fetch() (DNS failure, connection refused, our own
+        // AbortSignal timeout) never reaches fetchYahooQuoteRaw's status
+        // logging — log it here so a fully-unreachable Yahoo doesn't look
+        // identical to "no log line at all" in Render's logs.
+        console.error(`[quotes] ${ticker} -> fetch threw: ${e?.name || "Error"}: ${e?.message || e}`);
+      }
     }));
 
     res.json({ quotes });
