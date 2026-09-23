@@ -81,17 +81,14 @@ export function PortfolioView({ lang = "it" }) {
     fetchManualPrices().then(p => setManualPrices(p));
   }, []);
 
-  // ── Live prices (Yahoo Finance, best-effort, 24h server-side cache) ──
-  // A ticker Yahoo can't resolve just stays out of autoPrices; the price
-  // resolution below already falls back to the manual override / cost
-  // basis for anything missing here.
+  // ── Live prices (Yahoo Finance, best-effort) ──
+  // Fetched only on demand via the refresh button below, never on load —
+  // a ticker Yahoo can't resolve just stays out of autoPrices, and the
+  // price resolution below already falls back to the manual override /
+  // cost basis for anything missing here.
   const [autoPrices, setAutoPrices] = useState({});
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const tickerKey = holdings.map(h => h.ticker).sort().join(",");
-  useEffect(() => {
-    if (!tickerKey) return;
-    fetchQuotes(tickerKey.split(",")).then(q => setAutoPrices(prev => ({ ...prev, ...q })));
-  }, [tickerKey]);
 
   async function handleRefreshPrices() {
     if (!tickerKey || refreshingPrices) return;
