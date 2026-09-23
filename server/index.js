@@ -2353,9 +2353,17 @@ async function fetchYahooQuoteRaw(symbol) {
     signal: AbortSignal.timeout(8000),
     headers: { "User-Agent": "Mozilla/5.0 (compatible; BalanceTracker/1.0)" },
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    // Swallowed by the caller either way (a flaky quote must never break
+    // the request), but log the real status — Yahoo's unofficial endpoint
+    // is known to 401/429 server-to-server callers, which reads from the
+    // client as an identical "unresolved ticker" to a plain 404.
+    console.error(`[quotes] Yahoo ${symbol} -> HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 200)}`);
+    return null;
+  }
   const data = await res.json();
   const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  if (price == null) console.error(`[quotes] Yahoo ${symbol} -> 200 OK but no regularMarketPrice: ${JSON.stringify(data?.chart?.error || data).slice(0, 200)}`);
   return typeof price === "number" && Number.isFinite(price) ? price : null;
 }
 
