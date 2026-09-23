@@ -358,7 +358,7 @@ server-side via a Mongo aggregation for its own response.
 | POST | `/api/positions` | session | Idempotency-Key supported. Body: `{ ticker, quantita, prezzoAcquisto, dataAcquisto?, valuta?, note?, tipo? ("buy"\|"sell") }`. |
 | DELETE | `/api/positions/:id` | session | |
 | GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — takes priority over the live quote below when both exist. |
-| GET | `/api/quotes` | session | `?tickers=AAPL,BTC-USD,...` (≤30, `&force=1` bypasses the cache). Best-effort Yahoo Finance lookup, server-cached 24h per ticker in `quotes_cache` (global, no `householdId`); a bare ticker that Yahoo doesn't resolve is retried with `.MI` before giving up. Returns `{ quotes: { TICKER: price } }` — a ticker Yahoo still can't resolve is simply omitted, not an error. |
+| GET | `/api/quotes` | session | `?tickers=AAPL,BTC-USD,...` (≤30, `&force=1` bypasses the cache). Best-effort Yahoo Finance lookup, server-cached 24h per ticker in `quotes_cache` (global, no `householdId`); a bare ticker is tried as Borsa Italiana (`.MI`) first and only falls back to the plain US-market symbol if Milan doesn't have it — some bare tickers (e.g. `UST`) also resolve to an unrelated real US instrument, so guessing US-first risks a silently wrong price rather than a missing one. Returns `{ quotes: { TICKER: price } }` — a ticker Yahoo still can't resolve at all is simply omitted, not an error. |
 
 ### Cost-basis accounting (MOD-018)
 
