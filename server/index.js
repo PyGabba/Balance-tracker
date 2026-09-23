@@ -2850,7 +2850,17 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
     });
     const totConti = sumAmounts(conti.map(c => c.saldo));
 
-    // Portfolio a costo medio, prezzo manuale o costo di carico
+    // Portfolio a costo medio: prezzo manuale, poi prezzo live (auto,
+    // quotes_cache senza householdId — stesso dato che alimenta il pulsante
+    // di refresh in Portfolio), altrimenti costo di carico. Stessa priorità
+    // di prezzoDi() in PortfolioView.jsx e calcolaValorePortfolio in
+    // lib/finance.js, così il widget non mostra un patrimonio diverso.
+    const tickers = [...new Set(positions.map(p => p.ticker))];
+    const autoPriceDocs = tickers.length > 0
+      ? await quotesCol.find({ ticker: { $in: tickers }, householdId: { $exists: false } }).toArray()
+      : [];
+    const autoPrices = {};
+    for (const d of autoPriceDocs) if (typeof d.autoPrice === "number") autoPrices[d.ticker] = d.autoPrice;
     const prices = {};
     for (const d of priceDocs) prices[d.ticker] = d.manualPrice;
     const holdings = {};
@@ -2869,7 +2879,8 @@ app.get("/api/widget", widgetLimiter, async (req, res) => {
     for (const k of Object.keys(holdings)) {
       const h = holdings[k];
       if (h.q <= 0.0001) continue;
-      totInvestimenti += (prices[k] > 0) ? h.q * prices[k] : h.c;
+      const prezzo = (prices[k] > 0) ? prices[k] : (autoPrices[k] > 0 ? autoPrices[k] : 0);
+      totInvestimenti += prezzo > 0 ? h.q * prezzo : h.c;
     }
 
     res.json({
