@@ -328,6 +328,10 @@ async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
   await db.collection("accounts").createIndex({ householdId: 1 });
   await db.collection("goals").createIndex({ householdId: 1 });
   await db.collection("positions").createIndex({ householdId: 1 });
+  // Live-quote cache docs (ticker, autoPrice, fetchedAt) live in the same
+  // collection as manual price overrides but never carry a householdId —
+  // that's what separates the two kinds of quotes_cache document.
+  await quotesCol.createIndex({ ticker: 1 }, { sparse: true });
   // MOD-011: capability tokens (widget key, calendar key, trip share token)
   // are stored as a SHA-256 hash, never plaintext — see hashCapabilityToken
   // below. The legacy plaintext fields (shareToken/calendarKey/widgetKey)
@@ -2334,9 +2338,76 @@ app.put("/api/positions/prices", requireHousehold, requireRole("member"), async 
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
-// Stock quotes endpoint — DISABLED, only manual prices are supported now.
+// ─── Live stock/ETF/crypto quotes (Yahoo Finance, best-effort) ───
+// Global cache (no householdId — same ticker means same price for everyone)
+// with a 24h TTL, per README. A ticker Yahoo can't resolve, or a request
+// that fails outright, is simply omitted from the response — the client
+// already falls back to the manual price / cost basis for anything missing,
+// so a flaky upstream degrades gracefully instead of erroring the request.
+const QUOTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const QUOTE_TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
+
+async function fetchYahooQuoteRaw(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(8000),
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; BalanceTracker/1.0)" },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  return typeof price === "number" && Number.isFinite(price) ? price : null;
+}
+
+// A bare alphanumeric ticker (no exchange suffix, no crypto/forex/index
+// syntax already in it) resolves against the US market by default on
+// Yahoo — wrong for the common case here, an Italian household holding
+// Borsa Italiana-listed ETFs by their plain ticker (VWCE, not VWCE.MI).
+// Retry with .MI before giving up.
+async function fetchYahooQuote(ticker) {
+  const price = await fetchYahooQuoteRaw(ticker);
+  if (price != null) return price;
+  if (/^[A-Z0-9]{1,10}$/.test(ticker)) return await fetchYahooQuoteRaw(`${ticker}.MI`);
+  return null;
+}
+
 app.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
-  sendError(res, 410, "QUOTES_DISABLED", "API quotazioni rimossa. Usa i prezzi manuali.");
+  try {
+    const tickers = [...new Set(String(req.query.tickers || "").split(",").map(t => t.trim().toUpperCase()).filter(Boolean))]
+      .filter(t => QUOTE_TICKER_RE.test(t))
+      .slice(0, 30); // generous cap; well past any real portfolio's ticker count
+    if (tickers.length === 0) return res.json({ quotes: {} });
+
+    const now = Date.now();
+    const cached = await quotesCol.find({ ticker: { $in: tickers }, householdId: { $exists: false } }).toArray();
+    const cacheByTicker = new Map(cached.map(d => [d.ticker, d]));
+
+    const quotes = {};
+    const toFetch = [];
+    for (const ticker of tickers) {
+      const c = cacheByTicker.get(ticker);
+      if (c && typeof c.autoPrice === "number" && now - new Date(c.fetchedAt).getTime() < QUOTE_CACHE_TTL_MS) {
+        quotes[ticker] = c.autoPrice;
+      } else {
+        toFetch.push(ticker);
+      }
+    }
+
+    await Promise.all(toFetch.map(async (ticker) => {
+      try {
+        const price = await fetchYahooQuote(ticker);
+        if (price == null) return;
+        quotes[ticker] = price;
+        await quotesCol.updateOne(
+          { ticker, householdId: { $exists: false } },
+          { $set: { ticker, autoPrice: price, fetchedAt: new Date() } },
+          { upsert: true }
+        );
+      } catch { /* unresolved ticker — client falls back to manual price */ }
+    }));
+
+    res.json({ quotes });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
 // Savings Goals

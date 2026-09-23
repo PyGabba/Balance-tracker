@@ -116,7 +116,7 @@ Every route is behind one of these `express-rate-limit` instances (per IP,
 | `registerLimiter` | 60 min | 5 | `POST /api/auth/register` |
 | `forgotPinLimiter` | 10 min | 5 | forgot-PIN request/confirm |
 | `adminLimiter` | 15 min | 5 | `/api/admin/*` |
-| `quotesLimiter` | 60 s | 5 | `GET /api/quotes` (disabled endpoint) |
+| `quotesLimiter` | 60 s | 5 | `GET /api/quotes` |
 | `writeLimiter` | 60 s | 120 | most create/update/delete routes |
 | `exportLimiter` | 60 s | 30 | `GET /api/transactions` (paginated list/export) |
 | `widgetLimiter` | 60 s | 30 | `GET /api/widget` |
@@ -357,8 +357,8 @@ server-side via a Mongo aggregation for its own response.
 | GET | `/api/positions` | session | |
 | POST | `/api/positions` | session | Idempotency-Key supported. Body: `{ ticker, quantita, prezzoAcquisto, dataAcquisto?, valuta?, note?, tipo? ("buy"\|"sell") }`. |
 | DELETE | `/api/positions/:id` | session | |
-| GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — the live-quote endpoint below is disabled, so this is the only price source. |
-| GET | `/api/quotes` | session | **Disabled.** Always `410 Gone` — "Usa i prezzi manuali." Kept only so old clients get a clear error instead of a 404. |
+| GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — takes priority over the live quote below when both exist. |
+| GET | `/api/quotes` | session | `?tickers=AAPL,BTC-USD,...` (≤30). Best-effort Yahoo Finance lookup, server-cached 24h per ticker in `quotes_cache` (global, no `householdId`). Returns `{ quotes: { TICKER: price } }` — a ticker Yahoo can't resolve is simply omitted, not an error. |
 
 ### Cost-basis accounting (MOD-018)
 

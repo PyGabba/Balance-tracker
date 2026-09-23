@@ -1050,9 +1050,24 @@ paths:
   /quotes:
     get:
       summary: Live stock/fund quote lookup
-      description: Disabled — always 410. Kept only so old clients get a clear error instead of a 404.
+      description: Best-effort lookup against Yahoo Finance, cached server-side for 24h per ticker. A ticker that can't be resolved is omitted from the response rather than causing an error.
+      parameters:
+        - name: tickers
+          in: query
+          required: true
+          schema: { type: string }
+          description: Comma-separated ticker list (max 30), Yahoo syntax (e.g. `AAPL,BTC-USD,^GSPC,SWDA.MI`).
       responses:
-        "410": { description: "Gone — \"Usa i prezzi manuali.\"" }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quotes:
+                    type: object
+                    additionalProperties: { type: number }
 
   /trips:
     get:

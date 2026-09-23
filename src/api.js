@@ -857,7 +857,20 @@ export async function saveManualPricesRemote(prices) {
   } catch {}
 }
 
-// fetchQuotes removed — Yahoo API disabled, use manual prices only
+export async function fetchQuotes(tickers) {
+  if (!currentHousehold || !tickers || tickers.length === 0) return {};
+  try {
+    const params = new URLSearchParams({ tickers: tickers.join(",") });
+    const res = await fetch(`${API_BASE}/api/quotes?${params.toString()}`, {
+      headers: authHeaders(),
+      credentials: "include",
+      signal: AbortSignal.timeout(12000),
+    });
+    if (await checkAuthError(res)) return {};
+    if (res.ok) return (await res.json()).quotes || {};
+  } catch {}
+  return {};
+}
 
 // ─── Savings Goals ─── (MOD-003: routed through the offline outbox)
 export async function fetchGoals() {
