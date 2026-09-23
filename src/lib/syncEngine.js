@@ -217,6 +217,22 @@ export async function runSync(ctxProvider) {
   }
 }
 
+// enqueueWrite and enqueueTripExpenseWrite below both read the whole
+// outbox, compact the new op in, then destructively replace it (replaceOutbox
+// deletes every existing row for the household and reinserts the given
+// list). That read-modify-write isn't atomic across two concurrent calls —
+// e.g. Promise.all over several updatePosition() calls for one renamed
+// holding's trades — so one call's write can silently clobber another's
+// freshly-queued op before it ever reaches the outbox. Serialize just that
+// critical section so concurrent callers still each get their op durably
+// queued, one at a time, in call order.
+let outboxWriteChain = Promise.resolve();
+function withOutboxLock(fn) {
+  const run = outboxWriteChain.then(fn);
+  outboxWriteChain = run.catch(() => {});
+  return run;
+}
+
 /**
  * The single entry point every write (create/update/delete) on any of the
  * five entity types goes through. Durably queues the operation, applies it
@@ -233,8 +249,10 @@ export async function enqueueWrite(ctxProvider, { entityType, operation, entityI
   const newOp = makeOperation({ entityType, entityId: finalEntityId, operation, payload, householdId });
 
   // 1) Durable BEFORE any UI-visible state changes (MOD-003).
-  const compacted = compactEnqueue(await getOutboxOps(householdId), newOp);
-  await replaceOutbox(householdId, compacted);
+  await withOutboxLock(async () => {
+    const compacted = compactEnqueue(await getOutboxOps(householdId), newOp);
+    await replaceOutbox(householdId, compacted);
+  });
 
   // 2) Optimistic local cache update.
   if (operation === "delete") {
@@ -295,8 +313,10 @@ export async function enqueueTripExpenseWrite(ctxProvider, { operation, tripId, 
   const opPayload = operation === "delete" ? { tripId } : { ...payload, tripId };
   const newOp = makeOperation({ entityType: "tripExpenses", entityId: finalExpenseId, operation, payload: opPayload, householdId });
 
-  const compacted = compactEnqueue(await getOutboxOps(householdId), newOp);
-  await replaceOutbox(householdId, compacted);
+  await withOutboxLock(async () => {
+    const compacted = compactEnqueue(await getOutboxOps(householdId), newOp);
+    await replaceOutbox(householdId, compacted);
+  });
 
   // Optimistic local update: mutate the parent trip's cached expenses
   // array directly — there's no standalone entity store for expenses.
