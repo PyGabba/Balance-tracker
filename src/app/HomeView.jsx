@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { calcolaSaldiConti, calcolaValorePortfolio, filtraTransazioni, contaFiltriAttivi } from "../lib/finance.js";
+import { readAutoPrices } from "../lib/autoPriceCache.js";
+import { getSession } from "../api.js";
 import { t, mese } from "../lib/i18n.js";
 import { formattaValuta } from "../lib/format.js";
 import { filterLabelStyle, inputStyle, color, alpha, moneyFont, displayFont } from "../components/ui/styles.js";
@@ -116,7 +118,8 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
       {(conti.length > 0 || positions.length > 0) && (() => {
         const saldi = calcolaSaldiConti(conti, transazioni, valutaBase);
         const totConti = conti.reduce((s, c) => s + (saldi[c.id] || 0), 0);
-        const { valore: totInvestimenti } = calcolaValorePortfolio(positions, manualPrices);
+        const autoPrices = readAutoPrices(getSession()?.householdId);
+        const { valore: totInvestimenti } = calcolaValorePortfolio(positions, manualPrices, autoPrices);
         const patrimonio = totConti + totInvestimenti;
         const accantonati = (goals || []).reduce((s, g) => s + (g.contoId ? (g.currentAmount || 0) : 0), 0);
         return (
