@@ -777,6 +777,10 @@ export async function addPosition(pos) {
   return enqueueWrite(syncCtx, { entityType: "positions", operation: "create", payload: pos });
 }
 
+export async function updatePosition(id, updates) {
+  return enqueueWrite(syncCtx, { entityType: "positions", operation: "update", entityId: id, payload: updates });
+}
+
 export async function deletePosition(id) {
   return enqueueWrite(syncCtx, { entityType: "positions", operation: "delete", entityId: id, payload: null });
 }

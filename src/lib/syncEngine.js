@@ -30,7 +30,7 @@ const ENTITY_ENDPOINTS = {
   accounts: { base: "/api/accounts", hasUpdate: true },
   goals: { base: "/api/goals", hasUpdate: true },
   trips: { base: "/api/trips", hasUpdate: true },
-  positions: { base: "/api/positions", hasUpdate: false },
+  positions: { base: "/api/positions", hasUpdate: true },
   // tripExpenses is deliberately NOT here — it's not a top-level REST
   // resource (no /api/tripExpenses, no dedicated IndexedDB entity store).
   // buildRequest and the ack handling in runSync special-case it below.
