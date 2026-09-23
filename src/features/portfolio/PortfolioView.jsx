@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes } from "../../api.js";
+import { fetchPositions, addPosition, deletePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes, getSession } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -83,19 +83,39 @@ export function PortfolioView({ lang = "it" }) {
 
   // ── Live prices (Yahoo Finance, best-effort) ──
   // Fetched only on demand via the refresh button below, never on load —
-  // a ticker Yahoo can't resolve just stays out of autoPrices, and the
-  // price resolution below already falls back to the manual override /
-  // cost basis for anything missing here.
-  const [autoPrices, setAutoPrices] = useState({});
+  // but the last-fetched values are persisted to localStorage (scoped by
+  // household, same convention as offlineDb.js) so they survive a reload
+  // instead of vanishing until the next manual refresh. A ticker Yahoo
+  // can't resolve just stays out of autoPrices, and the price resolution
+  // below already falls back to the manual override / cost basis for
+  // anything missing here.
+  function autoPricesStorageKey() {
+    const householdId = getSession()?.householdId;
+    return householdId ? `portfolioAutoPrices:${householdId}` : null;
+  }
+  const [autoPrices, setAutoPrices] = useState(() => {
+    try {
+      const key = autoPricesStorageKey();
+      return key ? JSON.parse(localStorage.getItem(key) || "{}") : {};
+    } catch { return {}; }
+  });
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const tickerKey = holdings.map(h => h.ticker).sort().join(",");
+
+  function persistAutoPrices(updated) {
+    setAutoPrices(updated);
+    try {
+      const key = autoPricesStorageKey();
+      if (key) localStorage.setItem(key, JSON.stringify(updated));
+    } catch {}
+  }
 
   async function handleRefreshPrices() {
     if (!tickerKey || refreshingPrices) return;
     setRefreshingPrices(true);
     const before = tickerKey.split(",").length;
     const q = await fetchQuotes(tickerKey.split(","), { force: true });
-    setAutoPrices(prev => ({ ...prev, ...q }));
+    persistAutoPrices({ ...autoPrices, ...q });
     setRefreshingPrices(false);
     const got = Object.keys(q).length;
     toast(got > 0 ? `${t(lang, "portfolio.pricesUpdated")} (${got}/${before})` : t(lang, "portfolio.pricesUpdateFailed"), got > 0 ? "success" : "error");
