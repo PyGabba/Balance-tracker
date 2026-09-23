@@ -358,7 +358,7 @@ server-side via a Mongo aggregation for its own response.
 | POST | `/api/positions` | session | Idempotency-Key supported. Body: `{ ticker, quantita, prezzoAcquisto, dataAcquisto?, valuta?, note?, tipo? ("buy"\|"sell") }`. |
 | DELETE | `/api/positions/:id` | session | |
 | GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — takes priority over the live quote below when both exist. |
-| GET | `/api/quotes` | session | `?tickers=AAPL,BTC-USD,...` (≤30). Best-effort Yahoo Finance lookup, server-cached 24h per ticker in `quotes_cache` (global, no `householdId`). Returns `{ quotes: { TICKER: price } }` — a ticker Yahoo can't resolve is simply omitted, not an error. |
+| GET | `/api/quotes` | session | `?tickers=AAPL,BTC-USD,...` (≤30, `&force=1` bypasses the cache). Best-effort Yahoo Finance lookup, server-cached 24h per ticker in `quotes_cache` (global, no `householdId`); a bare ticker that Yahoo doesn't resolve is retried with `.MI` before giving up. Returns `{ quotes: { TICKER: price } }` — a ticker Yahoo still can't resolve is simply omitted, not an error. |
 
 ### Cost-basis accounting (MOD-018)
 

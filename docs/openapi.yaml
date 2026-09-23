@@ -1057,6 +1057,11 @@ paths:
           required: true
           schema: { type: string }
           description: Comma-separated ticker list (max 30), Yahoo syntax (e.g. `AAPL,BTC-USD,^GSPC,SWDA.MI`).
+        - name: force
+          in: query
+          required: false
+          schema: { type: string, enum: ["1", "true"] }
+          description: Bypass the 24h cache and re-fetch every requested ticker.
       responses:
         "200":
           description: OK
