@@ -6,6 +6,18 @@ import { COLORI_EXTRA } from "../../../lib/appHelpers.js";
 
 // ─── Multi-person split selector ───
 
+// 100 rarely divides evenly by the participant count; spread the leftover
+// 1%s across the first few people instead of dumping the whole rounding
+// error onto whoever's last (100/8 -> 13,13,13,13,13,13,13,9 previously —
+// a 4-point swing onto one person instead of the ±1 every "equal" split
+// should be limited to).
+function equalQuotas(n) {
+  if (n <= 0) return [];
+  const base = Math.floor(100 / n);
+  const remainder = 100 - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+
 export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone, lang = "it" }) {
   const [showAddExtra, setShowAddExtra] = useState(false);
   const [newName, setNewName] = useState("");
@@ -19,18 +31,16 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
       // Remove, redistribute
       const remaining = current.filter(s => s.personaId !== pid);
       if (remaining.length > 0) {
-        const each = Math.round(100 / remaining.length);
-        const adjusted = remaining.map((s, i) => ({ ...s, quota: i === remaining.length - 1 ? 100 - each * (remaining.length - 1) : each }));
-        setSplits(adjusted);
+        const quotas = equalQuotas(remaining.length);
+        setSplits(remaining.map((s, i) => ({ ...s, quota: quotas[i] })));
       } else {
         setSplits([]);
       }
     } else {
       // Add with equal split
       const newList = [...current, { personaId: pid, quota: 0 }];
-      const each = Math.round(100 / newList.length);
-      const adjusted = newList.map((s, i) => ({ ...s, quota: i === newList.length - 1 ? 100 - each * (newList.length - 1) : each }));
-      setSplits(adjusted);
+      const quotas = equalQuotas(newList.length);
+      setSplits(newList.map((s, i) => ({ ...s, quota: quotas[i] })));
     }
   }
 
@@ -41,8 +51,8 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
   function splitEqual() {
     const current = splits || [];
     if (current.length === 0) return;
-    const each = Math.round(100 / current.length);
-    setSplits(current.map((s, i) => ({ ...s, quota: i === current.length - 1 ? 100 - each * (current.length - 1) : each })));
+    const quotas = equalQuotas(current.length);
+    setSplits(current.map((s, i) => ({ ...s, quota: quotas[i] })));
   }
 
   function addExtraPerson() {
@@ -53,8 +63,8 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
     setExtraPersone([...(extraPersone || []), ep]);
     // Auto-add to split
     const newSplits = [...(splits || []), { personaId: id, quota: 0 }];
-    const each = Math.round(100 / newSplits.length);
-    setSplits(newSplits.map((s, i) => ({ ...s, quota: i === newSplits.length - 1 ? 100 - each * (newSplits.length - 1) : each })));
+    const quotas = equalQuotas(newSplits.length);
+    setSplits(newSplits.map((s, i) => ({ ...s, quota: quotas[i] })));
     setNewName("");
     setShowAddExtra(false);
   }
