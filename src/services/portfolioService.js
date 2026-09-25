@@ -60,32 +60,47 @@ export function computeHoldingsBreakdown(positions) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
 
-// Weekly portfolio value series + a short forward projection.
+// Per-range display window/granularity + how far the projection reaches.
+const RANGE_CONFIG = {
+  week:  { windowDays: 7,        stepDays: 1, predictDays: 7 },
+  month: { windowDays: 30,       stepDays: 2, predictDays: 14 },
+  max:   { windowDays: Infinity, stepDays: 7, predictDays: 42 },
+};
+
+// Portfolio value series for a given range ("week" | "month" | "max") + a
+// short forward projection.
 //
 // No historical price feed exists (fetchQuotes only returns *current*
-// quotes), so past weekly values are an estimate: at each week we take the
+// quotes), so past values are an estimate: at each bucket date we take the
 // real cost basis held as of that date (from computeHoldingsBreakdown on
 // the trades up to that date) and scale it by the portfolio's overall gain
-// ratio (currentValue / currentCost), interpolated linearly from 1.0 at the
-// first trade to the real ratio today. This reproduces the exact current
-// total exactly at the last point while giving earlier weeks a plausible
-// trajectory instead of a flat cost-basis line.
+// ratio (currentValue / currentCost), interpolated linearly by elapsed time
+// from 1.0 at the first trade to the real ratio today — the gain-rate
+// anchor always spans the *whole* trade history, independent of the
+// display window, so switching range never changes what "today's value"
+// or the projection mean. This reproduces the exact current total exactly
+// at the last point while giving earlier buckets a plausible trajectory
+// instead of a flat cost-basis line.
 //
-// The prediction segment compounds that same overall gain rate forward
-// (constant weekly rate implied by the gain since inception) — "based on
-// the gain" per the product ask, not a separate forecasting model.
-export function computeValueHistory(positions, currentPriceByTicker = {}, { predictWeeks = 6, now = new Date() } = {}) {
+// The prediction segment compounds that same overall daily gain rate
+// forward — "based on the gain" per the product ask, not a separate
+// forecasting model.
+export function computeValueHistory(positions, currentPriceByTicker = {}, { range = "max", now = new Date() } = {}) {
   const trades = positions.filter(p => p.dataAcquisto);
   if (!trades.length) return { history: [], prediction: [] };
 
   const firstDate = trades.reduce((min, p) => p.dataAcquisto < min ? p.dataAcquisto : min, trades[0].dataAcquisto);
-  const start = new Date(firstDate);
+  const firstTradeTime = new Date(firstDate).getTime();
   const nowTime = now.getTime();
-  if (isNaN(start.getTime()) || start.getTime() >= nowTime) return { history: [], prediction: [] };
+  if (isNaN(firstTradeTime) || firstTradeTime >= nowTime) return { history: [], prediction: [] };
 
-  const totalWeeks = Math.max(1, Math.ceil((nowTime - start.getTime()) / WEEK_MS));
+  const cfg = RANGE_CONFIG[range] || RANGE_CONFIG.max;
+  const windowStart = Number.isFinite(cfg.windowDays)
+    ? Math.max(firstTradeTime, nowTime - cfg.windowDays * DAY_MS)
+    : firstTradeTime;
+  const stepMs = cfg.stepDays * DAY_MS;
+  const totalSpanMs = nowTime - firstTradeTime; // gain-rate anchor: full history, not just the display window
 
   const { holdings: currentHoldings } = computeHoldingsBreakdown(trades);
   const currentInvested = currentHoldings.reduce((s, h) => s + h.costoTotale, 0);
@@ -96,27 +111,30 @@ export function computeValueHistory(positions, currentPriceByTicker = {}, { pred
   const overallRatio = currentInvested > 0 && currentValue > 0 ? currentValue / currentInvested : 1;
 
   const history = [];
-  for (let w = 0; w <= totalWeeks; w++) {
-    const bucketTime = Math.min(start.getTime() + w * WEEK_MS, nowTime);
+  for (let t = windowStart; ; t += stepMs) {
+    const bucketTime = Math.min(t, nowTime);
     const bucketDate = new Date(bucketTime).toISOString().slice(0, 10);
     const tradesUpTo = trades.filter(p => p.dataAcquisto <= bucketDate);
     const { holdings } = computeHoldingsBreakdown(tradesUpTo);
     const invested = holdings.reduce((s, h) => s + h.costoTotale, 0);
-    const f = w / totalWeeks;
+    const f = totalSpanMs > 0 ? Math.min(1, Math.max(0, (bucketTime - firstTradeTime) / totalSpanMs)) : 1;
     const ratio = 1 + f * (overallRatio - 1);
-    const value = w === totalWeeks ? currentValue : invested * ratio;
+    const value = bucketTime >= nowTime ? currentValue : invested * ratio;
     history.push({ date: bucketDate, invested, value });
     if (bucketTime >= nowTime) break;
   }
 
-  const weeklyRate = currentInvested > 0 && currentValue > 0
-    ? Math.pow(currentValue / currentInvested, 1 / totalWeeks) - 1
+  const totalDays = Math.max(1, totalSpanMs / DAY_MS);
+  const dailyRate = currentInvested > 0 && currentValue > 0
+    ? Math.pow(currentValue / currentInvested, 1 / totalDays) - 1
     : 0;
   const lastValue = history[history.length - 1]?.value ?? 0;
+  const predictSteps = Math.max(1, Math.ceil(cfg.predictDays / cfg.stepDays));
   const prediction = [];
-  for (let k = 1; k <= predictWeeks; k++) {
-    const date = new Date(nowTime + k * WEEK_MS).toISOString().slice(0, 10);
-    prediction.push({ date, value: lastValue * Math.pow(1 + weeklyRate, k) });
+  for (let k = 1; k <= predictSteps; k++) {
+    const days = k * cfg.stepDays;
+    const date = new Date(nowTime + days * DAY_MS).toISOString().slice(0, 10);
+    prediction.push({ date, value: lastValue * Math.pow(1 + dailyRate, days) });
   }
 
   return { history, prediction };

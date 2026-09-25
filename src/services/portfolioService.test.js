@@ -109,32 +109,57 @@ describe("computeValueHistory", () => {
     expect(history[history.length - 1].date).toBe("2026-03-01");
   });
 
-  it("starts the history at the first trade date", () => {
+  it("starts the 'max' range history at the first trade date", () => {
     const positions = [
       { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
     ];
-    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now });
+    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "max" });
     expect(history[0].date).toBe("2026-01-01");
     expect(history[0].invested).toBeCloseTo(1000);
+  });
+
+  it("clamps the 'week' range to the last 7 days with daily buckets", () => {
+    const positions = [
+      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
+    ];
+    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "week" });
+    expect(history[0].date).toBe("2026-02-22"); // now (03-01) minus 7 days
+    expect(history[history.length - 1].date).toBe("2026-03-01");
+    expect(history).toHaveLength(8); // 7 days + today
+  });
+
+  it("clamps the 'week' range window to the first trade date when the position is newer than 7 days", () => {
+    const positions = [
+      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-02-28" },
+    ];
+    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "week" });
+    expect(history[0].date).toBe("2026-02-28");
+  });
+
+  it("uses a 30-day window for the 'month' range", () => {
+    const positions = [
+      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
+    ];
+    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "month" });
+    expect(history[0].date).toBe("2026-01-30"); // now (03-01) minus 30 days
   });
 
   it("projects prediction points forward from the last history value using the observed gain rate", () => {
     const positions = [
       { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
     ];
-    const { history, prediction } = computeValueHistory(positions, { AAPL: 150 }, { now, predictWeeks: 4 });
-    expect(prediction).toHaveLength(4);
+    const { history, prediction } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "max" });
     const last = history[history.length - 1].value;
     // Portfolio gained value, so a growth-based projection keeps climbing.
     expect(prediction[0].value).toBeGreaterThan(last);
-    expect(prediction[3].value).toBeGreaterThan(prediction[0].value);
+    expect(prediction[prediction.length - 1].value).toBeGreaterThan(prediction[0].value);
   });
 
   it("does not project growth when there is no gain (flat price)", () => {
     const positions = [
       { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
     ];
-    const { prediction } = computeValueHistory(positions, { AAPL: 100 }, { now, predictWeeks: 3 });
+    const { prediction } = computeValueHistory(positions, { AAPL: 100 }, { now, range: "max" });
     prediction.forEach(p => expect(p.value).toBeCloseTo(1000));
   });
 });

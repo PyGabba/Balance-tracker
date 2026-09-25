@@ -22,6 +22,7 @@ export function PortfolioView({ lang = "it" }) {
   const [tradeType, setTradeType] = useState("buy");
   const [sortPortfolio, setSortPortfolio] = useState("valore-desc");
   const [expandedTicker, setExpandedTicker] = useState(null);
+  const [chartRange, setChartRange] = useState("max");
 
   // Load positions
   useEffect(() => {
@@ -232,7 +233,7 @@ export function PortfolioView({ lang = "it" }) {
   });
 
   const currentPriceByTicker = Object.fromEntries(holdings.map(h => [h.ticker, prezzoDi(h.ticker)]));
-  const { history: valueHistory, prediction: valuePrediction } = computeValueHistory(positions, currentPriceByTicker);
+  const { history: valueHistory, prediction: valuePrediction } = computeValueHistory(positions, currentPriceByTicker, { range: chartRange });
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: color.textMuted }}>{t(lang, "portfolio.loading")}</div>;
 
@@ -639,12 +640,24 @@ export function PortfolioView({ lang = "it" }) {
       {/* Value over time + prediction */}
       {valueHistory.length >= 2 && (
         <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: `1px solid ${color.border}`, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "portfolio.valueOverTime")}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
               <span style={{ width: 10, height: 2, background: color.textMuted, display: "inline-block", borderRadius: 1 }} />
               <span style={{ fontSize: 9, color: color.textMuted }}>{t(lang, "portfolio.prediction")}</span>
             </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+            {["week", "month", "max"].map(r => (
+              <button key={r} onClick={() => setChartRange(r)} style={{
+                padding: "5px 12px", borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                border: `1px solid ${chartRange === r ? color.accent : color.border}`,
+                background: chartRange === r ? alpha(color.accent, 0.15) : "transparent",
+                color: chartRange === r ? color.accent : color.textMuted,
+              }}>
+                {t(lang, `portfolio.range.${r}`)}
+              </button>
+            ))}
           </div>
           <LineChart history={valueHistory} prediction={valuePrediction} formatValue={formattaValuta} />
         </div>
