@@ -849,16 +849,20 @@ export async function fetchManualPrices() {
 }
 
 export async function saveManualPricesRemote(prices) {
-  if (!currentHousehold) return;
+  if (!currentHousehold) return false;
   try {
-    await fetch(`${API_BASE}/api/positions/prices`, {
+    const res = await fetch(`${API_BASE}/api/positions/prices`, {
       method: "PUT",
       headers: authHeaders(),
       credentials: "include",
       body: JSON.stringify({ manualPrices: prices }),
       signal: AbortSignal.timeout(10000),
     });
-  } catch {}
+    if (await checkAuthError(res)) return false;
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchQuotes(tickers, { force = false } = {}) {
