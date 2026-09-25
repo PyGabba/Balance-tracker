@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { t } from "../../lib/i18n.js";
 import { inputStyle, color, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { equalQuotas } from "../../lib/appHelpers.js";
 
 export function TripExpenseForm({ trip, onAdd, categorie, lang = "it" }) {
   const [importo, setImporto] = useState("");
@@ -14,8 +15,8 @@ export function TripExpenseForm({ trip, onAdd, categorie, lang = "it" }) {
   useEffect(() => {
     if (allPars.length > 0) {
       setPagatoDa(allPars[0].id);
-      const each = Math.round(100 / allPars.length);
-      setSplits(allPars.map((p, i) => ({ personaId: p.id, quota: i === allPars.length - 1 ? 100 - each * (allPars.length - 1) : each })));
+      const quotas = equalQuotas(allPars.length);
+      setSplits(allPars.map((p, i) => ({ personaId: p.id, quota: quotas[i] })));
     }
   }, [trip.id]);
 

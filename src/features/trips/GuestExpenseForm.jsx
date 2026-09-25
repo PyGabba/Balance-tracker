@@ -3,6 +3,7 @@ import { addSharedTripExpense } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { toast } from "../../components/Toast.jsx";
 import { inputStyle, color, moneyFont } from "../../components/ui/styles.js";
+import { equalQuotas } from "../../lib/appHelpers.js";
 
 export function GuestExpenseForm({ trip, me, token, categorie, onAdded, lang = "it" }) {
   const [importo, setImporto] = useState("");
@@ -16,8 +17,8 @@ export function GuestExpenseForm({ trip, me, token, categorie, onAdded, lang = "
     if (!val || val <= 0) return;
     setBusy(true);
     try {
-      const each = Math.round(100 / allPars.length);
-      const splits = allPars.map((p, i) => ({ personaId: p.id, quota: i === allPars.length - 1 ? 100 - each * (allPars.length - 1) : each }));
+      const quotas = equalQuotas(allPars.length);
+      const splits = allPars.map((p, i) => ({ personaId: p.id, quota: quotas[i] }));
       await addSharedTripExpense(token, {
         importo: val, descrizione: descrizione.trim(), categoria,
         pagatoDa: me.id, data: new Date().toISOString().slice(0, 10), splits,

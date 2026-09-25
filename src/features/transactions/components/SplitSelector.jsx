@@ -2,21 +2,9 @@ import { useState } from "react";
 import { t } from "../../../lib/i18n.js";
 import { formattaValuta } from "../../../lib/format.js";
 import { labelStyle, inputStyle, color, moneyFont } from "../../../components/ui/styles.js";
-import { COLORI_EXTRA } from "../../../lib/appHelpers.js";
+import { COLORI_EXTRA, equalQuotas } from "../../../lib/appHelpers.js";
 
 // ─── Multi-person split selector ───
-
-// 100 rarely divides evenly by the participant count; spread the leftover
-// 1%s across the first few people instead of dumping the whole rounding
-// error onto whoever's last (100/8 -> 13,13,13,13,13,13,13,9 previously —
-// a 4-point swing onto one person instead of the ±1 every "equal" split
-// should be limited to).
-function equalQuotas(n) {
-  if (n <= 0) return [];
-  const base = Math.floor(100 / n);
-  const remainder = 100 - base * n;
-  return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
-}
 
 export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone, lang = "it" }) {
   const [showAddExtra, setShowAddExtra] = useState(false);
@@ -45,7 +33,9 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
   }
 
   function setQuota(pid, val) {
-    setSplits((splits || []).map(s => s.personaId === pid ? { ...s, quota: Math.max(0, Math.min(100, val)) } : s));
+    const clamped = Math.max(0, Math.min(100, val));
+    const rounded = Math.round(clamped * 100) / 100;
+    setSplits((splits || []).map(s => s.personaId === pid ? { ...s, quota: rounded } : s));
   }
 
   function splitEqual() {
@@ -69,7 +59,12 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
     setShowAddExtra(false);
   }
 
-  const totalQuota = (splits || []).reduce((s, x) => s + x.quota, 0);
+  // Rounded to 2 decimals and compared with the same tolerance the server
+  // uses (SPLIT_QUOTA_TOLERANCE) so this warning doesn't fire on drift the
+  // backend would accept anyway (e.g. three-way 33.33/33.33/33.34 splits
+  // can sum to 99.99999999999999 after float addition).
+  const totalQuota = Math.round((splits || []).reduce((s, x) => s + x.quota, 0) * 100) / 100;
+  const totalMismatch = Math.abs(totalQuota - 100) > 0.05;
   const val = parseFloat(importo) || 0;
 
   return (
@@ -151,16 +146,16 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
               <div key={s.personaId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${color.border}` }}>
                 <span style={{ fontSize: 16 }}>{p.emoji}</span>
                 <span style={{ fontSize: 12, color: p.colore, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</span>
-                <input type="number" inputMode="numeric" value={s.quota} onChange={e => setQuota(s.personaId, parseInt(e.target.value) || 0)}
-                  style={{ width: 50, padding: "4px 6px", background: color.surface, border: `1px solid ${color.border}`, borderRadius: 8, color: color.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", fontFamily: moneyFont, outline: "none" }} />
+                <input type="number" inputMode="decimal" step="0.01" value={s.quota} onChange={e => setQuota(s.personaId, parseFloat(e.target.value) || 0)}
+                  style={{ width: 62, padding: "4px 6px", background: color.surface, border: `1px solid ${color.border}`, borderRadius: 8, color: color.textPrimary, fontSize: 13, fontWeight: 700, textAlign: "center", fontFamily: moneyFont, outline: "none" }} />
                 <span style={{ fontSize: 11, color: color.textMuted, width: 14 }}>%</span>
                 {val > 0 && <span style={{ fontSize: 11, color: color.textSecondary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", minWidth: 55, textAlign: "right" }}>{formattaValuta(val * s.quota / Math.max(totalQuota, 1))}</span>}
               </div>
             );
           })}
-          {totalQuota !== 100 && (
+          {totalMismatch && (
             <div style={{ fontSize: 11, color: totalQuota > 100 ? color.negative : color.warn, marginTop: 6, fontWeight: 600 }}>
-              {t(lang, "home.total")}: {totalQuota}% {totalQuota !== 100 ? t(lang, "form.shouldBe100") : ""}
+              {t(lang, "home.total")}: {totalQuota}% {t(lang, "form.shouldBe100")}
             </div>
           )}
         </div>

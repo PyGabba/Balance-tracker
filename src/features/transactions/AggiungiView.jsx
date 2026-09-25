@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { fetchExchangeRates } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
-import { evalImporto, splitsTotalOk, generaId } from "../../lib/appHelpers.js";
+import { evalImporto, splitsTotalOk, generaId, equalQuotas } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { SplitSelector } from "./components/SplitSelector.jsx";
@@ -35,8 +35,10 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
     }
     return persone[0]?.id || "";
   });
-  const base = Math.floor(100 / persone.length);
-  const [splits, setSplits] = useState(persone.map((p, i) => ({ personaId: p.id, quota: i === persone.length - 1 ? 100 - base * (persone.length - 1) : base})));
+  const [splits, setSplits] = useState(() => {
+    const quotas = equalQuotas(persone.length);
+    return persone.map((p, i) => ({ personaId: p.id, quota: quotas[i] }));
+  });
   const [extraPersone, setExtraPersone] = useState([]);
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
   const [ricorrenza, setRicorrenza] = useState("no");
