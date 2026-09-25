@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes, getSession } from "../../api.js";
 import { t } from "../../lib/i18n.js";
-import { formattaValuta, importoOscurabile } from "../../lib/format.js";
+import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
-import { DonutChart } from "../../components/ui/Charts.jsx";
-import { computeHoldingsBreakdown } from "../../services/portfolioService.js";
+import { DonutChart, LineChart } from "../../components/ui/Charts.jsx";
+import { computeHoldingsBreakdown, computeValueHistory } from "../../services/portfolioService.js";
 import { readAutoPrices, writeAutoPrices } from "../../lib/autoPriceCache.js";
 
 export function PortfolioView({ lang = "it" }) {
@@ -231,13 +231,8 @@ export function PortfolioView({ lang = "it" }) {
     return vb - va;
   });
 
-  const holdingsByPL = [...holdings].sort((a, b) => {
-    const pa = prezzoDi(a.ticker);
-    const pb = prezzoDi(b.ticker);
-    const pla = pa > 0 ? (a.quantita * pa) - a.costoTotale : 0;
-    const plb = pb > 0 ? (b.quantita * pb) - b.costoTotale : 0;
-    return plb - pla;
-  });
+  const currentPriceByTicker = Object.fromEntries(holdings.map(h => [h.ticker, prezzoDi(h.ticker)]));
+  const { history: valueHistory, prediction: valuePrediction } = computeValueHistory(positions, currentPriceByTicker);
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: color.textMuted }}>{t(lang, "portfolio.loading")}</div>;
 
@@ -641,32 +636,17 @@ export function PortfolioView({ lang = "it" }) {
         </div>
       )}
 
-      {/* P&L Bar Chart */}
-      {holdings.length >= 1 && totalValore > 0 && (
+      {/* Value over time + prediction */}
+      {valueHistory.length >= 2 && (
         <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: `1px solid ${color.border}`, overflow: "hidden" }}>
-          <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>{t(lang, "portfolio.profitLoss")}</div>
-          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, minWidth: "max-content" }}>
-            {holdingsByPL.map(h => {
-              const prezzo = prezzoDi(h.ticker);
-              const valore = prezzo > 0 ? h.quantita * prezzo : 0;
-              const pl = prezzo > 0 ? valore - h.costoTotale : 0;
-              const maxPL = Math.max(...holdings.map(h => {
-                const p = prezzoDi(h.ticker);
-                return p > 0 ? Math.abs((h.quantita * p) - h.costoTotale) : 0;
-              }), 1);
-              const height = Math.max(2, (Math.abs(pl) / maxPL) * 80);
-              const isPositive = pl >= 0;
-              return (
-                <div key={h.ticker} style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 44, flexShrink: 0 }}>
-                  <div style={{ width: 28, height, background: isPositive ? color.positive : color.negative, borderRadius: "4px 4px 0 0", transition: "height 0.5s" }} />
-                  <span style={{ fontSize: 9, color: color.textMuted, marginTop: 4, whiteSpace: "nowrap" }}>{h.ticker}</span>
-                  <span style={{ fontSize: 8, color: isPositive ? color.positive : color.negative, whiteSpace: "nowrap" }}>{importoOscurabile(`${isPositive ? "+" : ""}${pl >= 1000 ? (pl/1000).toFixed(1) + "k" : pl.toFixed(0)}€`)}</span>
-                </div>
-              );
-            })}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "portfolio.valueOverTime")}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+              <span style={{ width: 10, height: 2, background: color.textMuted, display: "inline-block", borderRadius: 1 }} />
+              <span style={{ fontSize: 9, color: color.textMuted }}>{t(lang, "portfolio.prediction")}</span>
             </div>
           </div>
+          <LineChart history={valueHistory} prediction={valuePrediction} formatValue={formattaValuta} />
         </div>
       )}
     </div>
