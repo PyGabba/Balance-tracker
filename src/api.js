@@ -848,18 +848,32 @@ export async function fetchManualPrices() {
   return {};
 }
 
+async function putManualPrices(prices, timeoutMs) {
+  const res = await fetch(`${API_BASE}/api/positions/prices`, {
+    method: "PUT",
+    headers: authHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ manualPrices: prices }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (await checkAuthError(res)) return "auth";
+  return res.ok ? "ok" : "error";
+}
+
 export async function saveManualPricesRemote(prices) {
   if (!currentHousehold) return false;
   try {
-    const res = await fetch(`${API_BASE}/api/positions/prices`, {
-      method: "PUT",
-      headers: authHeaders(),
-      credentials: "include",
-      body: JSON.stringify({ manualPrices: prices }),
-      signal: AbortSignal.timeout(10000),
-    });
-    if (await checkAuthError(res)) return false;
-    return res.ok;
+    const outcome = await putManualPrices(prices, 10000);
+    if (outcome === "ok") return true;
+    if (outcome === "auth") return false;
+  } catch {}
+  // One retry with a longer timeout: App.jsx pings wakeupServer() on load
+  // to warm up Render, but that ping can still be in flight for several
+  // more seconds if the user acts quickly, so the first attempt here
+  // commonly races a cold-starting instance rather than hitting a real
+  // failure.
+  try {
+    return (await putManualPrices(prices, 20000)) === "ok";
   } catch {
     return false;
   }
