@@ -111,9 +111,19 @@ export function PortfolioView({ lang = "it" }) {
     toast(got > 0 ? `${t(lang, "portfolio.pricesUpdated")} (${got}/${before})` : t(lang, "portfolio.pricesUpdateFailed"), got > 0 ? "success" : "error");
   }
 
-  function saveManualPrices(updated) {
+  // Optimistic, but reverted on failure — otherwise a dropped PUT (network
+  // blip, cold-start timeout) leaves the UI showing AUTO/the new value
+  // while the server still has the old manual override, so it silently
+  // comes back on the next load/refetch with no indication anything failed.
+  async function saveManualPrices(updated) {
+    const previous = manualPrices;
     setManualPrices(updated);
-    saveManualPricesRemote(updated);
+    const ok = await saveManualPricesRemote(updated);
+    if (!ok) {
+      setManualPrices(previous);
+      toast(t(lang, "portfolio.manualPriceSaveFailed"), "error");
+    }
+    return ok;
   }
 
   function prezzoDi(ticker) {
