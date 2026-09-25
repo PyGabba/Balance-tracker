@@ -40,6 +40,22 @@ export function splitsTotalOk(splits) {
   return Math.abs(total - 100) <= SPLIT_TOTAL_TOLERANCE;
 }
 
+// Equal split for n participants, carrying 2 decimal places (matching
+// SPLIT_TOTAL_TOLERANCE above) so 100/n's rounding error is at most a
+// cent's worth of a percent per person (e.g. 14.29 x6 + 14.26 for 7
+// people) instead of a whole point, and still sums to exactly 100 — the
+// remainder is absorbed by the last entry. Shared by every place a split
+// gets defaulted or reset to equal shares (SplitSelector, the Add-
+// transaction form's initial state) so they can't drift out of sync with
+// each other or with this rounding behavior.
+export function equalQuotas(n) {
+  if (n <= 0) return [];
+  const rounded = Math.round((100 / n) * 100) / 100;
+  const quotas = Array(n).fill(rounded);
+  quotas[n - 1] = Math.round((100 - rounded * (n - 1)) * 100) / 100;
+  return quotas;
+}
+
 export function evalImporto(val) {
   if (!val) return 0;
   // Replace Italian comma with dot, allow both , and . in input

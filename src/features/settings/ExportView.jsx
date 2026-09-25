@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
-import { getAllPersone, COLORI_EXTRA } from "../../lib/appHelpers.js";
+import { getAllPersone, COLORI_EXTRA, equalQuotas } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { parseSplitwiseRows } from "./parseSplitwiseRows.js";
@@ -122,12 +122,8 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
           }
         }
         if (tipo === "uscita" && !splits) {
-          splits = persone.map((p, i) => ({
-            personaId: p.id,
-            quota: i === persone.length - 1
-              ? 100 - Math.floor(100 / persone.length) * (persone.length - 1)
-              : Math.floor(100 / persone.length),
-          }));
+          const quotas = equalQuotas(persone.length);
+          splits = persone.map((p, i) => ({ personaId: p.id, quota: quotas[i] }));
         }
 
         righe.push({ data, tipo, importo, categoria: tipo === "saldo" ? null : categoria, descrizione, pagatoDa, ricevutoDa, splits, extraPersone });
