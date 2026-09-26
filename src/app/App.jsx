@@ -393,7 +393,7 @@ export default function FinanzaApp() {
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} valutaBase={valutaBase} activePersonaId={activePersonaId} lang={lang} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} lang={lang} />}
-        {tab === "portfolio" && <PortfolioView lang={lang} />}
+        {tab === "portfolio" && <PortfolioView lang={lang} conti={conti} />}
         {tab === "viaggi" && <ViaggiView persone={persone} valutaBase={valutaBase} lang={lang} />}
         {tab === "impostazioni" && (
           <ImpostazioniView

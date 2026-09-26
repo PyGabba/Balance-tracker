@@ -355,11 +355,33 @@ server-side via a Mongo aggregation for its own response.
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | GET | `/api/positions` | session | |
-| POST | `/api/positions` | session | Idempotency-Key supported. Body: `{ ticker, quantita, prezzoAcquisto, dataAcquisto?, valuta?, note?, tipo? ("buy"\|"sell") }`. |
+| POST | `/api/positions` | session | Idempotency-Key supported. Body: `{ ticker, quantita, prezzoAcquisto, dataAcquisto?, valuta?, note?, tipo? ("buy"\|"sell"), contoId? }`. `contoId` must be a household account id — 400 `UNKNOWN_ACCOUNT` otherwise. |
 | PUT | `/api/positions/:id` | session | Partial update — any subset of the POST body fields. Renaming `ticker` only touches the one trade; the client renames a whole holding by looping this over every trade sharing the old ticker. |
 | DELETE | `/api/positions/:id` | session | |
 | GET / PUT | `/api/positions/prices` | session | Manual price overrides (`{ manualPrices: { TICKER: number } }`, ≤200 entries) — takes priority over the live quote below when both exist. |
 | GET | `/api/quotes` | session | `?tickers=AAPL,BTC-USD,...` (≤30, `&force=1` bypasses the cache). Best-effort Yahoo Finance lookup, server-cached 24h per ticker in `quotes_cache` (global, no `householdId`); a bare ticker is tried as Borsa Italiana (`.MI`) first and only falls back to the plain US-market symbol if Milan doesn't have it — some bare tickers (e.g. `UST`) also resolve to an unrelated real US instrument, so guessing US-first risks a silently wrong price rather than a missing one. Returns `{ quotes: { TICKER: price } }` — a ticker Yahoo still can't resolve at all is simply omitted, not an error. |
+
+### Funding a position from an account
+
+A position created/updated with a `contoId` gets a linked transaction
+(`tipo: "uscita"` for a buy, `"entrata"` for a sell; `categoria:
+"investimenti"`) so the account's balance actually reflects the cash
+leaving/entering it — otherwise a position would inflate net worth with no
+corresponding drop in the funding account. The position stores the linked
+transaction's id as `linkedTransactionId`; the transaction stores the
+position's id back as `positionId`. Both endpoints keep them in sync inside
+a Mongo transaction (`withTransaction`) so they can't diverge:
+- POST with `contoId` creates both atomically.
+- PUT that changes `quantita`/`prezzoAcquisto`/`dataAcquisto`/`tipo`/`ticker`/`contoId` updates the existing linked transaction in place (same id — moving `contoId` to a different account does not create a new transaction); clearing `contoId` deletes it; adding one where none existed creates it.
+- DELETE of a position with a `linkedTransactionId` also deletes the linked transaction.
+
+If the position's `valuta` differs from the household's base currency, the
+linked transaction is converted the same way a manually-entered foreign-
+currency transaction is (`applyValutaTransazione`) — a 422
+`EXCHANGE_RATE_UNAVAILABLE` is possible if no rate can be fetched right now.
+The linked transaction is otherwise an ordinary transaction (editable/
+deletable from `/api/transactions` like any other) — deleting or editing it
+directly there does not update `linkedTransactionId` back on the position.
 
 ### Cost-basis accounting (MOD-018)
 

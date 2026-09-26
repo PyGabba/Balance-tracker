@@ -8,7 +8,7 @@ import { DonutChart, LineChart } from "../../components/ui/Charts.jsx";
 import { computeHoldingsBreakdown, computeValueHistory } from "../../services/portfolioService.js";
 import { readAutoPrices, writeAutoPrices } from "../../lib/autoPriceCache.js";
 
-export function PortfolioView({ lang = "it" }) {
+export function PortfolioView({ lang = "it", conti = [] }) {
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -18,6 +18,7 @@ export function PortfolioView({ lang = "it" }) {
   const [prezzoAcquisto, setPrezzoAcquisto] = useState("");
   const [dataAcquisto, setDataAcquisto] = useState(new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
+  const [contoId, setContoId] = useState("");
   const [adding, setAdding] = useState(false);
   const [tradeType, setTradeType] = useState("buy");
   const [sortPortfolio, setSortPortfolio] = useState("valore-desc");
@@ -48,10 +49,10 @@ export function PortfolioView({ lang = "it" }) {
       const pos = await addPosition({
         ticker: ticker.trim().toUpperCase(), nome: nome.trim() || ticker.trim().toUpperCase(),
         quantita: parseFloat(quantita.replace(",", ".")), prezzoAcquisto: parseFloat(prezzoAcquisto.replace(",", ".")),
-        dataAcquisto, note: note.trim(), tipo: tradeType,
+        dataAcquisto, note: note.trim(), tipo: tradeType, contoId: contoId || null,
       });
       setPositions(prev => [...prev, pos]);
-      setTicker(""); setNome(""); setQuantita(""); setPrezzoAcquisto(""); setNote("");
+      setTicker(""); setNome(""); setQuantita(""); setPrezzoAcquisto(""); setNote(""); setContoId("");
       setShowAdd(false);
     } catch (e) { console.error(e); }
     setAdding(false);
@@ -344,6 +345,32 @@ export function PortfolioView({ lang = "it" }) {
                 style={{ ...inputStyle, background: color.bg }} />
             </div>
           </div>
+          {conti.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>{t(lang, "portfolio.fundingAccount")}</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button onClick={() => setContoId("")} style={{
+                  padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: displayFont,
+                  background: contoId === "" ? `${alpha(color.accent, 0.13)}` : color.bg,
+                  border: contoId === "" ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+                  color: contoId === "" ? color.accent : color.textMuted,
+                }}>{t(lang, "form.none")}</button>
+                {conti.map(c => (
+                  <button key={c.id} onClick={() => setContoId(c.id)} style={{
+                    padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: displayFont,
+                    background: contoId === c.id ? `${alpha(color.accent, 0.13)}` : color.bg,
+                    border: contoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+                    color: contoId === c.id ? color.accent : color.textMuted,
+                  }}>{c.icona} {c.nome}</button>
+                ))}
+              </div>
+              {contoId && (
+                <div style={{ fontSize: 10, color: color.textMuted, marginTop: 6 }}>
+                  {t(lang, tradeType === "sell" ? "portfolio.fundingAccountSellNote" : "portfolio.fundingAccountBuyNote")}
+                </div>
+              )}
+            </div>
+          )}
           <button onClick={handleAdd} disabled={adding || !ticker || !quantita || !prezzoAcquisto} style={{
             width: "100%", padding: "12px", border: "none", borderRadius: 12, cursor: "pointer",
             fontSize: 14, fontWeight: 700, color: "#fff",
