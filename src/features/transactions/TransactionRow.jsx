@@ -185,7 +185,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
       {/* Importo */}
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>{t(lang, "home.filterAmount")} (€)</label>
-        <input type="number" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)}
+        <input type="text" inputMode="decimal" value={importo} onChange={e => setImporto(e.target.value)}
           style={{ ...inputStyle, fontSize: 22, fontWeight: 800, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", textAlign: "center", color: tipo === "uscita" ? color.negative : color.positive, background: color.bg }} />
       </div>
 
