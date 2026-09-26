@@ -16,6 +16,7 @@ const CATEGORIE_BASE = [
   { id: "svago", emoji: "🎮", colore: "#FFEAA7" },
   { id: "shopping", emoji: "🛍️", colore: "#DDA0DD" },
   { id: "bollette", emoji: "💡", colore: "#F0A500" },
+  { id: "investimenti", emoji: "📈", colore: "#00B894" },
   { id: "altro", emoji: "📦", colore: "#A8A8A8" },
   { id: "entrata", emoji: "💰", colore: "#4ECDC4" },
 ];

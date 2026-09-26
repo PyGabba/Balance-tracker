@@ -229,6 +229,19 @@ components:
             currency regardless of this field (MOD-018 known limitation).
         note: { type: string }
         tipo: { type: string, enum: [buy, sell], default: buy }
+        contoId:
+          type: string
+          nullable: true
+          description: >
+            Household account this position's cash moved to/from. Setting
+            it creates/updates a linked transaction (uscita for a buy,
+            entrata for a sell, categoria "investimenti") so the account's
+            balance reflects the purchase; clearing it deletes that
+            transaction. See "Funding a position from an account" in API.md.
+        linkedTransactionId:
+          type: string
+          readOnly: true
+          description: Id of the transaction linked via contoId, if any. Server-managed — not settable directly.
       required: [id, ticker, quantita, prezzoAcquisto]
 
     TripPartecipante:

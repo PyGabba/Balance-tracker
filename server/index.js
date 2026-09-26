@@ -2232,6 +2232,60 @@ async function isHouseholdAccount(id, householdId) {
   return !!acc;
 }
 
+// ─── Position <-> linked transaction (money moved to/from a tracked account) ───
+// Buying/selling a position "from" a household account creates a matching
+// expense/income transaction (categoria "investimenti") so the account's
+// balance (calcolaSaldiConti, client + widget) reflects the cash actually
+// leaving/entering it — otherwise a position would inflate net worth with
+// no corresponding drop in the funding account. The transaction is a
+// system-managed side effect of its position, not an independent user
+// record: kept in sync (created/updated/deleted) by the position endpoints
+// below and tagged with positionId, never edited on its own.
+function positionTransactionFields(position, contoId) {
+  const valuta = position.valuta || "EUR";
+  const importo = roundAmount(position.quantita * position.prezzoAcquisto, valuta);
+  return {
+    householdId: position.householdId,
+    tipo: position.tipo === "sell" ? "entrata" : "uscita",
+    data: position.dataAcquisto,
+    categoria: "investimenti",
+    descrizione: sanitizeText(`${position.ticker} — portfolio`, 500),
+    contoId,
+    positionId: position._id.toString(),
+    importo,
+    importoMinorUnits: toMinorUnits(importo, valuta),
+  };
+}
+
+// Creates or updates (in place, preserving its id) the transaction linked
+// to `position`, converting into the household's base currency first if
+// the position's own currency differs (same helper the real transaction
+// endpoints use) — throws ConversionUnavailableError if that conversion
+// can't be done right now, same as those endpoints. Returns the linked
+// transaction's id.
+async function upsertPositionTransaction(session, position, contoId, valutaBase) {
+  const txDoc = positionTransactionFields(position, contoId);
+  if (position.valuta && position.valuta !== valutaBase) {
+    await applyValutaTransazione(txDoc, txDoc.importo, position.valuta, valutaBase);
+  }
+  if (position.linkedTransactionId && ObjectId.isValid(position.linkedTransactionId)) {
+    await transactionsCol.updateOne(
+      { _id: new ObjectId(position.linkedTransactionId), householdId: position.householdId },
+      { $set: txDoc },
+      { session }
+    );
+    return position.linkedTransactionId;
+  }
+  const txId = new ObjectId();
+  await transactionsCol.insertOne({ _id: txId, ...txDoc, createdAt: new Date() }, { session });
+  return txId.toString();
+}
+
+async function deletePositionTransaction(session, position) {
+  if (!position.linkedTransactionId || !ObjectId.isValid(position.linkedTransactionId)) return;
+  await transactionsCol.deleteOne({ _id: new ObjectId(position.linkedTransactionId), householdId: position.householdId }, { session });
+}
+
 app.get("/api/positions", requireHousehold, requirePortfolioAccess, async (req, res) => {
   try {
     const col = db.collection("positions");
@@ -2265,7 +2319,13 @@ app.post("/api/positions", writeLimiter, requireHousehold, requireRole("member")
       if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
       throw ve;
     }
+    let contoId = null;
+    if (b.contoId) {
+      if (!(await isHouseholdAccount(b.contoId, req.householdId))) return sendError(res, 400, "UNKNOWN_ACCOUNT", "Conto non valido", { contoId: b.contoId });
+      contoId = b.contoId;
+    }
     const doc = {
+      _id: new ObjectId(),
       householdId: req.householdId,
       ticker,
       nome: sanitizeText(b.nome || ticker, 100),
@@ -2276,10 +2336,25 @@ app.post("/api/positions", writeLimiter, requireHousehold, requireRole("member")
       valuta,
       note: sanitizeText(b.note, 500),
       tipo,
+      contoId,
       createdAt: new Date(),
     };
-    const result = await db.collection("positions").insertOne(doc);
-    const id = result.insertedId.toString(); delete doc.householdId;
+    try {
+      if (contoId) {
+        await withTransaction(async (session) => {
+          doc.linkedTransactionId = await upsertPositionTransaction(session, doc, contoId, req.household.valutaBase || "EUR");
+          await db.collection("positions").insertOne(doc, { session });
+        });
+      } else {
+        await db.collection("positions").insertOne(doc);
+      }
+    } catch (ce) {
+      if (ce instanceof ConversionUnavailableError) {
+        return res.status(422).json({ error: { code: "EXCHANGE_RATE_UNAVAILABLE", message: "Cambio valuta non disponibile al momento, riprova più tardi." } });
+      }
+      throw ce;
+    }
+    const id = doc._id.toString(); delete doc._id; delete doc.householdId;
     const responseBody = { id, ...doc };
     await finalizeIdempotencyKey(req.householdId, idemKey, 201, responseBody);
     res.status(201).json(responseBody);
@@ -2289,6 +2364,9 @@ app.post("/api/positions", writeLimiter, requireHousehold, requireRole("member")
 app.put("/api/positions/:id", writeLimiter, requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
+    const existing = await db.collection("positions").findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (!existing) return sendError(res, 404, "NOT_FOUND", "Non trovata");
+
     const b = req.body;
     const update = {};
     try {
@@ -2301,7 +2379,7 @@ app.put("/api/positions/:id", writeLimiter, requireHousehold, requireRole("membe
       if (b.quantita !== undefined) update.quantita = validatePositiveNumber(b.quantita, "quantita");
       if (b.prezzoAcquisto !== undefined) {
         update.prezzoAcquisto = validatePositiveNumber(b.prezzoAcquisto, "prezzoAcquisto");
-        update.prezzoAcquistoMinorUnits = toMinorUnits(update.prezzoAcquisto, b.valuta || "EUR"); // MOD-016
+        update.prezzoAcquistoMinorUnits = toMinorUnits(update.prezzoAcquisto, existing.valuta || "EUR"); // MOD-016
       }
       if (b.dataAcquisto !== undefined) update.dataAcquisto = b.dataAcquisto;
       if (b.note !== undefined) update.note = sanitizeText(b.note, 500);
@@ -2310,10 +2388,50 @@ app.put("/api/positions/:id", writeLimiter, requireHousehold, requireRole("membe
       if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
       throw ve;
     }
+
+    let newContoId = existing.contoId ?? null;
+    if (b.contoId !== undefined) {
+      if (b.contoId) {
+        if (!(await isHouseholdAccount(b.contoId, req.householdId))) return sendError(res, 400, "UNKNOWN_ACCOUNT", "Conto non valido", { contoId: b.contoId });
+        newContoId = b.contoId;
+      } else {
+        newContoId = null;
+      }
+      update.contoId = newContoId;
+    }
+
     if (Object.keys(update).length === 0) return sendError(res, 400, "NO_FIELDS_TO_UPDATE", "Nessun campo da aggiornare");
     update.updatedAt = new Date();
-    const r = await db.collection("positions").updateOne({ _id: new ObjectId(req.params.id), householdId: req.householdId }, { $set: update });
-    if (r.matchedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovata");
+
+    // Keep the linked transaction (if any is involved) in sync with
+    // whatever changed here — otherwise its amount/date/ticker/account
+    // would silently drift from the position it's meant to mirror.
+    const linkedFieldsTouched = ["ticker", "quantita", "prezzoAcquisto", "dataAcquisto", "tipo", "contoId"].some(k => update[k] !== undefined);
+    try {
+      if (linkedFieldsTouched && (newContoId || existing.linkedTransactionId)) {
+        const merged = { ...existing, ...update };
+        await withTransaction(async (session) => {
+          const setOp = { ...update };
+          const unsetOp = {};
+          if (newContoId) {
+            setOp.linkedTransactionId = await upsertPositionTransaction(session, merged, newContoId, req.household.valutaBase || "EUR");
+          } else if (existing.linkedTransactionId) {
+            await deletePositionTransaction(session, existing);
+            unsetOp.linkedTransactionId = "";
+          }
+          const mongoUpdate = { $set: setOp };
+          if (Object.keys(unsetOp).length > 0) mongoUpdate.$unset = unsetOp;
+          await db.collection("positions").updateOne({ _id: existing._id, householdId: req.householdId }, mongoUpdate, { session });
+        });
+      } else {
+        await db.collection("positions").updateOne({ _id: existing._id, householdId: req.householdId }, { $set: update });
+      }
+    } catch (ce) {
+      if (ce instanceof ConversionUnavailableError) {
+        return res.status(422).json({ error: { code: "EXCHANGE_RATE_UNAVAILABLE", message: "Cambio valuta non disponibile al momento, riprova più tardi." } });
+      }
+      throw ce;
+    }
     res.json({ ok: true });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
@@ -2321,8 +2439,20 @@ app.put("/api/positions/:id", writeLimiter, requireHousehold, requireRole("membe
 app.delete("/api/positions/:id", requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
-    const r = await db.collection("positions").deleteOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
-    if (r.deletedCount === 0) return sendError(res, 404, "NOT_FOUND", "Non trovata");
+    const existing = await db.collection("positions").findOne({ _id: new ObjectId(req.params.id), householdId: req.householdId });
+    if (!existing) return sendError(res, 404, "NOT_FOUND", "Non trovata");
+    if (existing.linkedTransactionId) {
+      // Deleting a position that funded itself from an account must also
+      // remove the linked transaction — otherwise the account balance
+      // stays permanently down by the purchase amount with nothing left
+      // to explain why.
+      await withTransaction(async (session) => {
+        await deletePositionTransaction(session, existing);
+        await db.collection("positions").deleteOne({ _id: existing._id, householdId: req.householdId }, { session });
+      });
+    } else {
+      await db.collection("positions").deleteOne({ _id: existing._id, householdId: req.householdId });
+    }
     res.json({ deleted: true, id: req.params.id });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
