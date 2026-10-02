@@ -474,7 +474,7 @@ zero-holdings).
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | GET | `/api/backup` | session | Full JSON export of everything for the household: transactions, accounts, goals, trips, positions, manual prices, plus household metadata. `formato: "balance-tracker-backup"`, `versione: 1`. |
-| POST | `/api/backup/restore` | session | Re-imports a backup produced by the endpoint above. **Additive, not destructive** — nothing existing is deleted first; restored rows get a `restoredAt` timestamp. Account ids are remapped (old→new) so restored transactions/goals still point at the right restored account. Custom categories are only restored if the household currently has none set. |
+| POST | `/api/backup/restore` | session | Re-imports a backup produced by the endpoint above. **Additive, not destructive** — nothing existing is deleted first; restored rows get a `restoredAt` timestamp. Account ids are remapped (old→new) so restored transactions/goals still point at the right restored account. Custom categories are only restored if the household currently has none set. The whole restore (every collection, plus the audit log entry) runs as one Mongo transaction (`withTransaction`) — a failure partway through rolls back everything already inserted, so a 500 never leaves a half-restored backup. |
 
 ## Widget — `/api/widget*`, capability-token auth
 
