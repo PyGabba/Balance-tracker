@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { IconX, IconConfetti } from "@tabler/icons-react";
 import { login, loginWithPassword, register, changePin, requestPinReset, confirmPinReset } from "../../api.js";
 import { t, detectGuestLang } from "../../lib/i18n.js";
 import { labelStyle, inputStyle, color, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
@@ -372,7 +373,7 @@ export function LoginScreen({ onLogin }) {
           </>
         ) : regSuccesso ? (
           <div style={{ textAlign: "center", padding: 20 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🎉</div>
+            <div style={{ display: "flex", justifyContent: "center", color: color.positive, marginBottom: 12 }}><IconConfetti size={40} /></div>
             <div style={{ fontSize: 18, fontWeight: 700, color: color.positive }}>{t(lang, "login.accountCreated")}</div>
             <div style={{ fontSize: 13, color: color.textSecondary, marginTop: 6 }}>{t(lang, "login.loggingIn")}</div>
           </div>
@@ -403,7 +404,7 @@ export function LoginScreen({ onLogin }) {
                       <input type="text" value={p.nome} onChange={e => updatePersonaNome(i, e.target.value)}
                         placeholder={`${t(lang, "login.personPrefix")} ${i + 1}`} style={{ ...smallInput, flex: 1 }} />
                       {regPersone.length > 1 && (
-                        <button onClick={() => removePersona(i)} style={{ background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textSecondary, cursor: "pointer", padding: "8px 10px", fontSize: 14, flexShrink: 0 }}>×</button>
+                        <button onClick={() => removePersona(i)} style={{ background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textSecondary, cursor: "pointer", padding: "8px 10px", display: "flex", flexShrink: 0 }}><IconX size={14} /></button>
                       )}
                     </div>
                     {/* Emoji picker panel */}
@@ -478,7 +479,7 @@ export function LoginScreen({ onLogin }) {
           <div style={{ background: color.surface, borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, border: `1px solid ${color.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: color.textPrimary }}>{t(lang, "login.forgotPinTitle")}</div>
-              <button onClick={closeForgotPin} style={{ background: "none", border: "none", color: color.textMuted, fontSize: 18, cursor: "pointer" }}>✕</button>
+              <button onClick={closeForgotPin} style={{ background: "none", border: "none", color: color.textMuted, display: "flex", cursor: "pointer" }}><IconX size={18} /></button>
             </div>
 
             {forgotStep === "email" ? (

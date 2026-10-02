@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconChevronLeft, IconChevronDown, IconCheck, IconX } from "@tabler/icons-react";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { generaId } from "../../lib/appHelpers.js";
@@ -53,7 +54,7 @@ export function DebitiView({ meseVis, debitiMese, debitiGlobale, allPeople, tran
   return (
     <div style={{ position: "fixed", inset: 0, maxWidth: 430, margin: "0 auto", background: color.bg, zIndex: 200, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 18px", borderBottom: `1px solid ${color.border}` }}>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: color.textSecondary, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>‹</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: color.textSecondary, display: "flex", cursor: "pointer", padding: "0 6px" }}><IconChevronLeft size={22} /></button>
         <div style={{ fontSize: 16, fontWeight: 700, color: color.textPrimary, fontFamily: displayFont }}>{t(lang, "home.debtBalance")}</div>
       </div>
 
@@ -126,7 +127,7 @@ export function DebitiView({ meseVis, debitiMese, debitiGlobale, allPeople, tran
           <div style={{ marginTop: 26, borderTop: `1px solid ${color.border}`, paddingTop: 16 }}>
             <button onClick={() => setShowStoricoSaldi(v => !v)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: showStoricoSaldi ? 12 : 0 }}>
               <span style={{ fontSize: 11, color: color.textMuted, letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "home.settleHistory")} ({saldati.length})</span>
-              <span style={{ fontSize: 10, color: color.accent, transform: showStoricoSaldi ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
+              <span style={{ color: color.accent, transform: showStoricoSaldi ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-flex" }}><IconChevronDown size={12} /></span>
             </button>
             {showStoricoSaldi && (
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -135,11 +136,11 @@ export function DebitiView({ meseVis, debitiMese, debitiGlobale, allPeople, tran
                   const pA = allPeople.find(p => p.id === s.ricevutoDa) || { nome: s.ricevutoDa, emoji: "👤" };
                   return (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
-                      <span style={{ fontSize: 13, color: color.positive }}>✓</span>
+                      <span style={{ display: "flex", color: color.positive }}><IconCheck size={13} /></span>
                       <span style={{ fontSize: 12, color: color.textMuted, flex: 1 }}>{pDa.nome} → {pA.nome}</span>
                       <span style={{ fontSize: 12, color: color.positive, fontFamily: moneyFont, fontWeight: 600 }}>{formattaValuta(s.importo)}</span>
                       <span style={{ fontSize: 11, color: color.textMuted, marginLeft: 4 }}>{formattaData(s.data)}</span>
-                      <button onClick={() => onDelete(s.id)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, cursor: "pointer", fontSize: 12, padding: "0 2px", lineHeight: 1 }} title={t(lang, "home.deleteSettle")}>✕</button>
+                      <button onClick={() => onDelete(s.id)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, cursor: "pointer", display: "flex", padding: "0 2px" }} title={t(lang, "home.deleteSettle")}><IconX size={12} /></button>
                     </div>
                   );
                 })}

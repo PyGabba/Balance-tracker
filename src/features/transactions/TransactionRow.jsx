@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { IconArrowsLeftRight, IconX, IconRepeat, IconAlertTriangle, IconUsers } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { splitsTotalOk } from "../../lib/appHelpers.js";
@@ -6,6 +7,7 @@ import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { SplitSelector } from "./components/SplitSelector.jsx";
 import { initialSplits } from "./helpers.js";
+import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
 
 // ─── Transaction Row with inline edit ───
 export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
@@ -67,15 +69,15 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
     const cA = conti.find(c => c.id === tx.contoA);
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: color.surface, borderRadius: 14, padding: "12px 14px", border: `1px solid ${color.border}` }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${alpha(color.accent, 0.13)}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>⇄</div>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${alpha(color.accent, 0.13)}`, display: "flex", alignItems: "center", justifyContent: "center", color: color.accent, flexShrink: 0 }}><IconArrowsLeftRight size={20} /></div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: color.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.descrizione || t(lang, "form.transfer")}</div>
-          <div style={{ fontSize: 11, color: color.textMuted }}>
-            {formattaData(tx.data)} · {cDa ? `${cDa.icona} ${cDa.nome}` : "?"} → {cA ? `${cA.icona} ${cA.nome}` : "?"}
+          <div style={{ fontSize: 11, color: color.textMuted, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            {formattaData(tx.data)} · {cDa ? <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><AccountIcon icona={cDa.icona} size={11} /> {cDa.nome}</span> : "?"} → {cA ? <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><AccountIcon icona={cA.icona} size={11} /> {cA.nome}</span> : "?"}
           </div>
         </div>
         <div style={{ fontSize: 15, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent, flexShrink: 0 }}>{formattaValuta(tx.importo)}</div>
-        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.33)}`, cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✕</button>
+        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.33)}`, cursor: "pointer", display: "flex", padding: "0 2px", flexShrink: 0 }}><IconX size={14} /></button>
       </div>
     );
   }
@@ -90,12 +92,12 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: color.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {tx.descrizione || cat.nome}
-            {tx.ricorrenza && <span style={{ fontSize: 10, marginLeft: 5, color: color.accent }}>🔁</span>}
-            {tx.daVerificare && <span title={t(lang, "form.checkAmountTitle")} style={{ fontSize: 10, marginLeft: 5, color: color.warn }}>⚠️</span>}
+            {tx.ricorrenza && <span style={{ display: "inline-flex", marginLeft: 5, color: color.accent, verticalAlign: "middle" }}><IconRepeat size={11} /></span>}
+            {tx.daVerificare && <span title={t(lang, "form.checkAmountTitle")} style={{ display: "inline-flex", marginLeft: 5, color: color.warn, verticalAlign: "middle" }}><IconAlertTriangle size={11} /></span>}
           </div>
           <div style={{ fontSize: 11, color: color.textMuted, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
             {formattaData(tx.data)}
-            {(() => { const c = conti.find(x => x.id === tx.contoId); return c ? <span title={c.nome} style={{ fontSize: 10 }}>{c.icona}</span> : null; })()}
+            {(() => { const c = conti.find(x => x.id === tx.contoId); return c ? <span title={c.nome} style={{ display: "flex" }}><AccountIcon icona={c.icona} size={10} /></span> : null; })()}
             {persona && tx.tipo === "uscita" && (() => {
               // Ottieni lista partecipanti con quote
               let participants = [];
@@ -121,7 +123,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
               const isEqualSplit = totalParticipants === 2 && participants[0]?.quota === 50 && participants[1]?.quota === 50;
             
               // Costruisci label concisa
-              let splitLabel = "";
+              let splitLabel = null;
               if (totalParticipants === 2 && isEqualSplit) {
                 // 50/50: mostra solo l'altra persona
                 const other = participants.find(p => p.id !== tx.pagatoDa);
@@ -132,9 +134,9 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
                 splitLabel = ` · ${p1.quota}% / ${p2.quota}%`;
               } else if (totalParticipants > 2) {
                 // Più di 2: mostra solo il numero di partecipanti
-                splitLabel = ` · 👥 ${totalParticipants}`;
+                splitLabel = <> · <IconUsers size={9} style={{ verticalAlign: -1 }} /> {totalParticipants}</>;
               }
-            
+
               return (
                 <span style={{
                   background: persona.colore + "33",
@@ -167,7 +169,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
     <div style={{ background: color.surface, borderRadius: 16, padding: "16px", border: `2px solid ${color.accent}`, position: "relative", zIndex: 10, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: color.textPrimary }}>{t(lang, "form.editTransaction")}</div>
-        <button onClick={onCancel} style={{ background: "none", border: "none", color: color.textMuted, fontSize: 18, cursor: "pointer" }}>✕</button>
+        <button onClick={onCancel} style={{ background: "none", border: "none", color: color.textMuted, display: "flex", cursor: "pointer" }}><IconX size={18} /></button>
       </div>
 
       {/* Tipo */}
@@ -261,7 +263,8 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
                 background: eContoId === c.id ? `${alpha(color.accent, 0.13)}` : color.bg,
                 border: eContoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: eContoId === c.id ? color.accent : color.textMuted,
-              }}>{c.icona} {c.nome}</button>
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}><AccountIcon icona={c.icona} size={12} /> {c.nome}</button>
             ))}
           </div>
         </div>

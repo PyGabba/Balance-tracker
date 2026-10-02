@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { IconChevronLeft, IconChevronRight, IconUsers, IconTag, IconBuildingBank, IconTrash, IconDeviceMobile, IconCalendar, IconDeviceFloppy, IconMail, IconExchange, IconWorld, IconRepeat, IconLock, IconLockOpen, IconX } from "@tabler/icons-react";
 import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential, addPersona, removePersona } from "../../api.js";
 import { LANGUAGES, t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
@@ -15,7 +16,7 @@ const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
 function SubHeader({ title, onBack }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: color.textSecondary, fontSize: 22, cursor: "pointer", padding: "0 6px 0 0", lineHeight: 1 }}>‹</button>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: color.textSecondary, display: "flex", cursor: "pointer", padding: "0 6px 0 0" }}><IconChevronLeft size={22} /></button>
       <div style={{ fontSize: 18, fontWeight: 700, color: color.textPrimary }}>{title}</div>
     </div>
   );
@@ -358,17 +359,17 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
       : null;
 
     const rows = [
-      { id: "persone", icon: "👥", label: t(lang, "settings.people") },
-      { id: "categorie", icon: "🏷️", label: t(lang, "settings.row.categorie") },
-      { id: "conti", icon: "🏦", label: t(lang, "settings.row.conti") },
-      { id: "cestino", icon: "🗑️", label: t(lang, "settings.row.cestino"), badge: cestinoLoading ? null : String(cestino.length) },
-      { id: "widget", icon: "📲", label: t(lang, "settings.row.widget") },
-      { id: "calendario", icon: "📅", label: t(lang, "settings.row.calendario") },
-      { id: "backup", icon: "💾", label: t(lang, "settings.row.backup") },
-      { id: "email", icon: "✉️", label: t(lang, "settings.row.email") },
-      { id: "valuta", icon: "💱", label: t(lang, "settings.row.valuta") },
-      { id: "lingua", icon: "🌐", label: `${t(lang, "settings.row.lingua")} — ${currentLangLabel}` },
-      { id: "ricorrenti", icon: "🔁", label: t(lang, "settings.row.ricorrenti") },
+      { id: "persone", icon: IconUsers, label: t(lang, "settings.people") },
+      { id: "categorie", icon: IconTag, label: t(lang, "settings.row.categorie") },
+      { id: "conti", icon: IconBuildingBank, label: t(lang, "settings.row.conti") },
+      { id: "cestino", icon: IconTrash, label: t(lang, "settings.row.cestino"), badge: cestinoLoading ? null : String(cestino.length) },
+      { id: "widget", icon: IconDeviceMobile, label: t(lang, "settings.row.widget") },
+      { id: "calendario", icon: IconCalendar, label: t(lang, "settings.row.calendario") },
+      { id: "backup", icon: IconDeviceFloppy, label: t(lang, "settings.row.backup") },
+      { id: "email", icon: IconMail, label: t(lang, "settings.row.email") },
+      { id: "valuta", icon: IconExchange, label: t(lang, "settings.row.valuta") },
+      { id: "lingua", icon: IconWorld, label: `${t(lang, "settings.row.lingua")} — ${currentLangLabel}` },
+      { id: "ricorrenti", icon: IconRepeat, label: t(lang, "settings.row.ricorrenti") },
     ];
 
     return (
@@ -386,10 +387,10 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
               display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer",
               borderBottom: i < rows.length - 1 ? `1px solid ${color.border}` : "none",
             }}>
-              <span style={{ fontSize: 16 }}>{row.icon}</span>
+              <span style={{ display: "flex", color: color.textSecondary }}><row.icon size={18} stroke={1.7} /></span>
               <span style={{ flex: 1, fontSize: 13, color: color.textPrimary }}>{row.label}</span>
               {row.badge && <span style={{ fontSize: 11, color: color.warn, fontFamily: moneyFont }}>{row.badge}</span>}
-              <span style={{ color: color.textMuted, fontSize: 14 }}>›</span>
+              <span style={{ color: color.textMuted, display: "flex" }}><IconChevronRight size={14} /></span>
             </div>
           ))}
         </div>
@@ -441,17 +442,17 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
               <button
                 onClick={() => editingCredId === p.id ? setEditingCredId(null) : startEditCred(p)}
                 title={p.hasCredential ? t(lang, "settings.credentialChange") : t(lang, "settings.credentialSet")}
-                style={{ background: "none", border: "none", color: p.hasCredential ? color.positive : color.textMuted, cursor: "pointer", fontSize: 13, padding: "3px 4px" }}
+                style={{ background: "none", border: "none", color: p.hasCredential ? color.positive : color.textMuted, cursor: "pointer", display: "flex", padding: "3px 4px" }}
               >
-                {p.hasCredential ? "🔐" : "🔓"}
+                {p.hasCredential ? <IconLock size={14} /> : <IconLockOpen size={14} />}
               </button>
               {isOwnerSession && p.id !== activePersonaId && (
                 <button
                   onClick={() => handleRemovePersona(p)}
                   disabled={removeBusyId === p.id}
                   title={t(lang, "confirm.removePersonaPrefix")}
-                  style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 13, padding: "3px 4px", opacity: removeBusyId === p.id ? 0.5 : 1 }}
-                >✕</button>
+                  style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex", padding: "3px 4px", opacity: removeBusyId === p.id ? 0.5 : 1 }}
+                ><IconX size={13} /></button>
               )}
             </div>
 
@@ -491,7 +492,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                       style={{ padding: "6px 10px", background: "none", border: `1px solid ${alpha(color.negative, 0.27)}`, borderRadius: 8, color: color.negative, fontSize: 11, cursor: "pointer" }}
                     >{t(lang, "settings.credentialRemove")}</button>
                   )}
-                  <button onClick={() => setEditingCredId(null)} style={{ padding: "6px 10px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 11, cursor: "pointer" }}>✕</button>
+                  <button onClick={() => setEditingCredId(null)} style={{ padding: "6px 10px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, display: "flex", alignItems: "center", cursor: "pointer" }}><IconX size={13} /></button>
                 </div>
               </div>
             )}
@@ -610,7 +611,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                     </div>
                   </div>
                   <button disabled={busy} onClick={() => handleRestore(item.id)} style={{ background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, fontSize: 11, fontWeight: 700, padding: "6px 10px", cursor: busy ? "default" : "pointer" }}>{t(lang, "common.restore")}</button>
-                  <button disabled={busy} onClick={() => handlePermanentDelete(item.id)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
+                  <button disabled={busy} onClick={() => handlePermanentDelete(item.id)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, display: "flex", cursor: busy ? "default" : "pointer", padding: "0 2px" }}><IconX size={16} /></button>
                 </div>
               );
             })}
@@ -861,7 +862,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
 
       {fase === "done" && (
         <div style={{ textAlign: "center", padding: "10px 0" }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🗑️</div>
+          <div style={{ display: "flex", justifyContent: "center", color: color.positive, marginBottom: 8 }}><IconTrash size={32} /></div>
           <div style={{ color: color.positive, fontWeight: 700 }}>Account eliminato</div>
         </div>
       )}

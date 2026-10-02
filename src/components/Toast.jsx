@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { IconCheck, IconX, IconInfoCircle } from "@tabler/icons-react";
 import { color, alpha, displayFont } from "./ui/styles.js";
 
 // ─── Toast leggeri, senza dipendenze ───
@@ -28,9 +29,9 @@ export function ToastHost() {
   if (toasts.length === 0) return null;
 
   const colors = {
-    success: { bg: `${alpha(color.positive, 0.09)}`, border: `${alpha(color.positive, 0.33)}`, text: color.positive, icon: "✓" },
-    error:   { bg: `${alpha(color.negative, 0.09)}`, border: `${alpha(color.negative, 0.33)}`, text: color.negative, icon: "✕" },
-    info:    { bg: `${alpha(color.accent, 0.09)}`, border: `${alpha(color.accent, 0.33)}`, text: color.accent, icon: "ℹ" },
+    success: { bg: `${alpha(color.positive, 0.09)}`, border: `${alpha(color.positive, 0.33)}`, text: color.positive, icon: IconCheck },
+    error:   { bg: `${alpha(color.negative, 0.09)}`, border: `${alpha(color.negative, 0.33)}`, text: color.negative, icon: IconX },
+    info:    { bg: `${alpha(color.accent, 0.09)}`, border: `${alpha(color.accent, 0.33)}`, text: color.accent, icon: IconInfoCircle },
   };
 
   return (
@@ -48,7 +49,7 @@ export function ToastHost() {
             boxShadow: "0 8px 24px rgba(0,0,0,.55)", fontFamily: displayFont,
             animation: "toastIn 0.25s ease",
           }}>
-            <span style={{ color: c.text, fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{c.icon}</span>
+            <span style={{ color: c.text, flexShrink: 0, display: "flex", marginTop: 1 }}><c.icon size={15} stroke={2.5} /></span>
             <span style={{ color: color.textPrimary, fontSize: 13, lineHeight: 1.4, whiteSpace: "pre-line" }}>{t.message}</span>
           </div>
         );

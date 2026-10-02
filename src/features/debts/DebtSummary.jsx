@@ -1,3 +1,4 @@
+import { IconScale, IconChevronRight } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { color, moneyFont } from "../../components/ui/styles.js";
@@ -22,7 +23,7 @@ export function DebtSummary({ debitiGlobale, allPeople, onOpen, lang = "it" }) {
       cursor: "pointer", display: "flex", alignItems: "center", gap: 10, boxSizing: "border-box",
       font: "inherit",
     }}>
-      <span style={{ fontSize: 17 }}>⚖</span>
+      <span style={{ color: color.debt, display: "flex" }}><IconScale size={17} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 11, color: color.debt, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 700 }}>{t(lang, "home.debtBalance")}</div>
         <div style={{ fontSize: 13, color: color.textSecondary, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -32,7 +33,7 @@ export function DebtSummary({ debitiGlobale, allPeople, onOpen, lang = "it" }) {
       {!allSquare && (
         <div style={{ fontSize: 17, fontWeight: 700, fontFamily: moneyFont, color: color.debt, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{formattaValuta(top.importo)}</div>
       )}
-      <span style={{ color: color.textMuted, fontSize: 16, flexShrink: 0 }}>›</span>
+      <span style={{ color: color.textMuted, display: "flex", flexShrink: 0 }}><IconChevronRight size={16} /></span>
     </button>
   );
 }

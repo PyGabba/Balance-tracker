@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { IconX } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { inputStyle, color, alpha, displayFont } from "../../components/ui/styles.js";
+import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
 
 // Goals form component
 export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
@@ -60,7 +62,8 @@ export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
                 background: contoId === c.id ? `${alpha(color.accent, 0.13)}` : "transparent",
                 border: contoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: contoId === c.id ? color.accent : color.textMuted,
-              }}>{c.icona} {c.nome}</button>
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}><AccountIcon icona={c.icona} size={12} /> {c.nome}</button>
             ))}
           </div>
         </div>
@@ -93,7 +96,7 @@ export function GoalsForm({ onAdd, onCancel, conti = [], lang = "it" }) {
         <span style={{ fontSize: 12, color: color.textSecondary }}>{t(lang, "goals.autoApplyToIncome")}</span>
       </label>
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 12 }}>✕</button>
+        <button onClick={onCancel} style={{ padding: "8px 12px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, display: "flex", alignItems: "center" }}><IconX size={14} /></button>
         <button onClick={handleSubmit} disabled={!nome.trim() || !targetAmount} style={{ flex: 1, padding: "8px", background: nome.trim() && targetAmount ? color.accent : color.border, border: "none", borderRadius: 8, color: nome.trim() && targetAmount ? "#fff" : color.textMuted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.add")}</button>
       </div>
     </div>

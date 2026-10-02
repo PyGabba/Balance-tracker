@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconChevronUp, IconChevronDown, IconX } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -59,7 +60,7 @@ export function RecurringManagerSection({ transazioni, categorie, onEdit, onDele
         <div style={{ fontSize: 14, fontWeight: 700, color: color.textPrimary }}>
           {t(lang, "recurManager.title")}{templates.length > 0 && <span style={{ color: color.textMuted, fontWeight: 600 }}> ({templates.length})</span>}
         </div>
-        <span style={{ fontSize: 13, color: color.textMuted }}>{aperto ? "▲" : "▼"}</span>
+        <span style={{ color: color.textMuted, display: "flex" }}>{aperto ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}</span>
       </div>
       {aperto && (
         <div style={{ marginTop: 14 }}>
@@ -85,7 +86,7 @@ export function RecurringManagerSection({ transazioni, categorie, onEdit, onDele
                           {tx.tipo === "entrata" ? "+" : "-"}{formattaValuta(tx.importo)} · {t(lang, "recurManager.next")} {formattaData(tx.ricorrenza.prossimaData)}
                         </div>
                       </div>
-                      <button disabled={busy} onClick={() => handleDelete(tx)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, fontSize: 16, cursor: busy ? "default" : "pointer", padding: "0 2px" }}>✕</button>
+                      <button disabled={busy} onClick={() => handleDelete(tx)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, display: "flex", cursor: busy ? "default" : "pointer", padding: "0 2px" }}><IconX size={16} /></button>
                     </div>
 
                     {/* Frequency picker */}

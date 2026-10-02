@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { IconEye, IconEyeOff, IconSettings } from "@tabler/icons-react";
 import { App as CapApp } from "@capacitor/app";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId, runDueRecurringNow } from "../api.js";
 import { PersonaSwitcher } from "../features/auth/PersonaSwitcher.jsx";
@@ -369,11 +370,11 @@ export default function FinanzaApp() {
             background: nascondiImporti ? color.accentSoft : "none", border: nascondiImporti ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
             borderRadius: 8, cursor: "pointer", color: nascondiImporti ? color.accent : color.textSecondary,
             fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
-          }}>{nascondiImporti ? "🙈" : "👁"}</button>
+          }}>{nascondiImporti ? <IconEyeOff size={14} /> : <IconEye size={14} />}</button>
           <button onClick={() => setTab("impostazioni")} title={t(lang, "header.settings")} style={{
             background: "none", border: `1px solid ${color.border}`, borderRadius: 8, cursor: "pointer",
-            color: color.textSecondary, fontSize: 14, padding: "4px 8px", display: "flex", alignItems: "center",
-          }}>⚙</button>
+            color: color.textSecondary, padding: "4px 8px", display: "flex", alignItems: "center",
+          }}><IconSettings size={14} /></button>
           <button onClick={handleLogout} title={t(lang, "header.logout")} style={{
             background: "none", border: `1px solid ${color.border}`, borderRadius: 8, cursor: "pointer",
             color: color.textSecondary, fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",

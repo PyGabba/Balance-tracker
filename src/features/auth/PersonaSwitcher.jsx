@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconCheck, IconX } from "@tabler/icons-react";
 import { personaLogin } from "../../api.js";
 import { toast } from "../../components/Toast.jsx";
 import { t } from "../../lib/i18n.js";
@@ -85,7 +86,7 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
                   }}>
                     <span style={{ fontSize: 16 }}>{p.emoji}</span>
                     <span style={{ flex: 1 }}>{p.nome}</span>
-                    {p.id === activePersonaId && <span style={{ fontSize: 10, color: color.positive }}>✓</span>}
+                    {p.id === activePersonaId && <span style={{ display: "flex", color: color.positive }}><IconCheck size={11} /></span>}
                   </button>
                 ))}
                 {active && (
@@ -109,7 +110,7 @@ export function PersonaSwitcher({ persone, activePersonaId, onSwitched, lang = "
                     flex: 1, padding: "8px", background: color.accent, border: "none", borderRadius: 10,
                     color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: !password ? 0.5 : 1,
                   }}>{t(lang, "login.login")}</button>
-                  <button onClick={() => setSelectedId(null)} style={{ padding: "8px 10px", background: "none", border: `1px solid ${color.border}`, borderRadius: 10, color: color.textSecondary, fontSize: 12, cursor: "pointer" }}>✕</button>
+                  <button onClick={() => setSelectedId(null)} style={{ padding: "8px 10px", background: "none", border: `1px solid ${color.border}`, borderRadius: 10, color: color.textSecondary, display: "flex", alignItems: "center", cursor: "pointer" }}><IconX size={13} /></button>
                 </div>
               </div>
             )}

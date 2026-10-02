@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { IconAlertTriangle, IconRefresh, IconClock, IconX } from "@tabler/icons-react";
 import { fetchSyncStatus, onSyncStatusChange, fetchFailedSyncOperations, discardSyncOperation, retrySyncOperation } from "../api.js";
 import { t } from "../lib/i18n.js";
 import { color, alpha, displayFont } from "./ui/styles.js";
@@ -59,7 +60,7 @@ export function SyncStatusBadge({ lang = "it" }) {
   if (status.pending === 0 && status.failed === 0 && !status.syncing) return null;
 
   const tone = status.failed > 0 ? color.negative : status.syncing ? color.accent : color.warn;
-  const icon = status.failed > 0 ? "⚠️" : status.syncing ? "🔄" : "⏳";
+  const StatusIcon = status.failed > 0 ? IconAlertTriangle : status.syncing ? IconRefresh : IconClock;
   const count = status.failed > 0 ? status.failed : status.pending;
   const label = status.failed > 0
     ? t(lang, "sync.needsAttention")
@@ -84,7 +85,7 @@ export function SyncStatusBadge({ lang = "it" }) {
         color: tone, fontSize: 11, fontWeight: 700, cursor: "pointer",
         fontFamily: displayFont,
       }}>
-        <span style={{ fontSize: 12 }}>{icon}</span>
+        <span style={{ display: "flex" }}><StatusIcon size={12} /></span>
         <span>{count}</span>
       </button>
 
@@ -97,7 +98,7 @@ export function SyncStatusBadge({ lang = "it" }) {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: color.textPrimary }}>{label}</div>
-            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: color.textSecondary, fontSize: 14, cursor: "pointer" }}>✕</button>
+            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: color.textSecondary, display: "flex", cursor: "pointer" }}><IconX size={14} /></button>
           </div>
 
           {status.pending > 0 && (

@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { IconPlus, IconPencil, IconX } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { GoalGauge } from "./GoalGauge.jsx";
 import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
 
 // Goal row component
 export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
@@ -76,8 +78,8 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
               </span>
             )}
             {conto && (
-              <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: color.border, color: color.textSecondary }}>
-                {conto.icona} {conto.nome}
+              <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: color.border, color: color.textSecondary, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <AccountIcon icona={conto.icona} size={10} /> {conto.nome}
               </span>
             )}
           </div>
@@ -90,9 +92,9 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
           )}
         </div>
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-          {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title={t(lang, "goals.deposit")} style={{ background: mode === "versa" ? `${alpha(color.positive, 0.13)}` : "none", border: mode === "versa" ? `1px solid ${color.positive}` : `1px solid ${color.border}`, borderRadius: 7, color: color.positive, cursor: "pointer", fontSize: 13, padding: "3px 8px", fontWeight: 700 }}>+</button>}
-          <button onClick={openEdit} style={{ background: "none", border: "none", color: color.accent, cursor: "pointer", fontSize: 14 }}>✏</button>
-          <button onClick={() => { if (confirm(t(lang, "confirm.deleteGoal"))) onDelete(goal.id); }} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 14 }}>×</button>
+          {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title={t(lang, "goals.deposit")} style={{ background: mode === "versa" ? `${alpha(color.positive, 0.13)}` : "none", border: mode === "versa" ? `1px solid ${color.positive}` : `1px solid ${color.border}`, borderRadius: 7, color: color.positive, cursor: "pointer", display: "flex", padding: "4px 7px" }}><IconPlus size={13} /></button>}
+          <button onClick={openEdit} style={{ background: "none", border: "none", color: color.accent, cursor: "pointer", display: "flex", padding: "4px" }}><IconPencil size={14} /></button>
+          <button onClick={() => { if (confirm(t(lang, "confirm.deleteGoal"))) onDelete(goal.id); }} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex", padding: "4px" }}><IconX size={14} /></button>
         </div>
       </div>
 
@@ -133,7 +135,8 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
                   background: eConto === c.id ? `${alpha(color.accent, 0.13)}` : "transparent",
                   border: eConto === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                   color: eConto === c.id ? color.accent : color.textMuted,
-                }}>{c.icona} {c.nome}</button>
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}><AccountIcon icona={c.icona} size={11} /> {c.nome}</button>
               ))}
             </div>
           )}
@@ -159,7 +162,7 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
             </>
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setMode(null)} style={{ padding: "8px 12px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, fontSize: 12, cursor: "pointer" }}>✕</button>
+            <button onClick={() => setMode(null)} style={{ padding: "8px 12px", background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, display: "flex", alignItems: "center", cursor: "pointer" }}><IconX size={14} /></button>
             <button onClick={handleSaveEdit} disabled={!eNome.trim() || !eTarget} style={{ flex: 1, padding: "8px", background: eNome.trim() && eTarget ? color.accent : color.border, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t(lang, "common.save")}</button>
           </div>
         </div>
