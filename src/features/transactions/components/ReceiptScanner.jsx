@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { IconCamera, IconScan } from "@tabler/icons-react";
 import { Camera } from "@capacitor/camera";
 import Tesseract from "tesseract.js";
 import { parseReceiptText } from "../helpers.js";
@@ -95,13 +96,13 @@ export function ReceiptScanner({ onScanComplete }) {
           color: color.accent, fontSize: 14, fontWeight: 700, fontFamily: displayFont,
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>
-          <span style={{ fontSize: 18 }}>📷</span>
+          <IconCamera size={18} />
           Scansiona scontrino
         </button>
       )}
       {scanning && (
         <div style={{ padding: 20, background: color.surface, borderRadius: 14, textAlign: "center" }}>
-          <div style={{ fontSize: 24, marginBottom: 10 }}>🔍</div>
+          <div style={{ display: "flex", justifyContent: "center", color: color.accent, marginBottom: 10 }}><IconScan size={24} /></div>
           <div style={{ fontSize: 14, color: color.accent, marginBottom: 8, fontFamily: displayFont }}>Analisi scontrino...</div>
           <div style={{ height: 4, background: color.border, borderRadius: 2, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${progress}%`, background: accentGradient, borderRadius: 2, transition: "width 0.3s" }} />

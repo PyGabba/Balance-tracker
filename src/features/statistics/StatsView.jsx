@@ -1,3 +1,4 @@
+import { IconTrendingUp, IconTrendingDown, IconArrowRight, IconTrophy, IconBulb, IconAlertTriangle, IconTag, IconCalendar, IconChartBar } from "@tabler/icons-react";
 import { calcolaDebitiMatrix, forecastNextMonthExpenses, quotaPersonale } from "../../lib/finance.js";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
@@ -87,23 +88,23 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   // Generate smart insights
   const insights = [];
   if (deltaPct !== null) {
-    if (deltaPct > 15) insights.push({ icon: "📈", color: color.negative, text: `${t(lang, "stats.expensesUpPrefix")} ${Math.round(deltaPct)}% ${t(lang, "stats.comparedTo")} ${mese(mesePrecedente.getMonth(), lang)}` });
-    else if (deltaPct < -15) insights.push({ icon: "📉", color: color.positive, text: `${t(lang, "stats.expensesDownPrefix")} ${Math.round(Math.abs(deltaPct))}% ${t(lang, "stats.comparedTo")} ${mese(mesePrecedente.getMonth(), lang)}` });
-    else insights.push({ icon: "➡️", color: color.warn, text: `${t(lang, "stats.expensesStablePrefix")} ${mese(mesePrecedente.getMonth(), lang)} (${deltaPct >= 0 ? "+" : ""}${Math.round(deltaPct)}%)` });
+    if (deltaPct > 15) insights.push({ icon: IconTrendingUp, color: color.negative, text: `${t(lang, "stats.expensesUpPrefix")} ${Math.round(deltaPct)}% ${t(lang, "stats.comparedTo")} ${mese(mesePrecedente.getMonth(), lang)}` });
+    else if (deltaPct < -15) insights.push({ icon: IconTrendingDown, color: color.positive, text: `${t(lang, "stats.expensesDownPrefix")} ${Math.round(Math.abs(deltaPct))}% ${t(lang, "stats.comparedTo")} ${mese(mesePrecedente.getMonth(), lang)}` });
+    else insights.push({ icon: IconArrowRight, color: color.warn, text: `${t(lang, "stats.expensesStablePrefix")} ${mese(mesePrecedente.getMonth(), lang)} (${deltaPct >= 0 ? "+" : ""}${Math.round(deltaPct)}%)` });
   }
-  if (savingRate > 20) insights.push({ icon: "💪", color: color.positive, text: `${t(lang, "stats.savingRateLabel")}: ${Math.round(savingRate)}% ${t(lang, "stats.excellentSuffix")}` });
-  else if (savingRate > 0) insights.push({ icon: "💡", color: color.warn, text: `${t(lang, "stats.savingRateLabel")}: ${Math.round(savingRate)}%` });
-  else if (totalEntrate > 0) insights.push({ icon: "⚠️", color: color.negative, text: t(lang, "stats.spendingMoreThanEarn") });
+  if (savingRate > 20) insights.push({ icon: IconTrophy, color: color.positive, text: `${t(lang, "stats.savingRateLabel")}: ${Math.round(savingRate)}% ${t(lang, "stats.excellentSuffix")}` });
+  else if (savingRate > 0) insights.push({ icon: IconBulb, color: color.warn, text: `${t(lang, "stats.savingRateLabel")}: ${Math.round(savingRate)}%` });
+  else if (totalEntrate > 0) insights.push({ icon: IconAlertTriangle, color: color.negative, text: t(lang, "stats.spendingMoreThanEarn") });
   if (maxTx) {
     const maxCat = categorie.find(c=>c.id===maxTx.categoria);
-    insights.push({ icon: "🏷️", color: "#DDA0DD", text: `${t(lang, "stats.biggestExpense")}: ${formattaValuta(maxTx.importo)} — ${maxTx.descrizione || maxCat?.nome || ""}` });
+    insights.push({ icon: IconTag, color: "#DDA0DD", text: `${t(lang, "stats.biggestExpense")}: ${formattaValuta(maxTx.importo)} — ${maxTx.descrizione || maxCat?.nome || ""}` });
   }
-  if (topDay.totale > 0) insights.push({ icon: "📅", color: "#45B7D1", text: `${t(lang, "stats.mostExpensiveDay")}: ${topDay.giorno} ${mese(meseVis.getMonth(), lang)} (${formattaValuta(topDay.totale)})` });
+  if (topDay.totale > 0) insights.push({ icon: IconCalendar, color: "#45B7D1", text: `${t(lang, "stats.mostExpensiveDay")}: ${topDay.giorno} ${mese(meseVis.getMonth(), lang)} (${formattaValuta(topDay.totale)})` });
   const catUp = catTrends.find(c => c.delta > 30 && c.curr > 20);
   const catDown = catTrends.find(c => c.delta < -30 && c.prev > 20);
   if (catUp) insights.push({ icon: catUp.emoji, color: catUp.colore, text: `${catUp.nome} +${Math.round(catUp.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catUp.curr)})` });
   if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catDown.curr)})` });
-  if (mediaGiornaliera > 0) insights.push({ icon: "📊", color: color.accent, text: `${t(lang, "stats.dailyAverage")}: ${formattaValuta(mediaGiornaliera)}/${t(lang, "stats.perDay")}` });
+  if (mediaGiornaliera > 0) insights.push({ icon: IconChartBar, color: color.accent, text: `${t(lang, "stats.dailyAverage")}: ${formattaValuta(mediaGiornaliera)}/${t(lang, "stats.perDay")}` });
 
   // Previsione prossimo mese — media mobile sugli ultimi 3 mesi completi,
   // sempre relativa a "oggi" (non al mese che l'utente sta visualizzando).
@@ -307,7 +308,9 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {insights.map((ins, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                    <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1.2 }}>{ins.icon}</span>
+                    <span style={{ flexShrink: 0, lineHeight: 1.2, display: "flex", color: ins.color, marginTop: 1 }}>
+                      {typeof ins.icon === "string" ? <span style={{ fontSize: 18 }}>{ins.icon}</span> : <ins.icon size={18} />}
+                    </span>
                     <span style={{ fontSize: 13, color: color.textSecondary, fontFamily: displayFont, lineHeight: 1.4 }}>{ins.text}</span>
                   </div>
                 ))}

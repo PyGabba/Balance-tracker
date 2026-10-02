@@ -1,3 +1,4 @@
+import { IconBackspace } from "@tabler/icons-react";
 import { color, accentGradient, displayFont } from "./styles.js";
 
 export function PinDots({ value, maxLen, shake }) {
@@ -42,7 +43,7 @@ export function NumPad({ onDigit, onDelete, disabled }) {
               fontFamily: isDel ? displayFont : "'IBM Plex Mono', monospace",
               opacity: disabled ? 0.4 : 1,
             }}
-          >{k}</button>
+          >{isDel ? <IconBackspace size={22} /> : k}</button>
         );
       })}
     </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { IconSettings, IconX, IconPlus, IconPencil, IconLink, IconChevronDown } from "@tabler/icons-react";
 import { fetchTripCategories, saveTripCategories, fetchTrips, addTrip, deleteTrip, addTripExpense, deleteTripExpense, settleTrip, createTripShareLink, revokeTripShareLink } from "../../api.js";
 import { calcolaSettleViaggio } from "../../lib/finance.js";
 import { t } from "../../lib/i18n.js";
@@ -207,8 +208,8 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary }}>{t(lang, "viaggi.title")}</div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? color.accent : color.textMuted, fontSize: 16, padding: "4px 8px" }}>⚙</button>
-          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? color.border : accentGradient, border: "none", borderRadius: 10, cursor: "pointer", color: showAdd ? color.textMuted : "#fff", fontSize: 13, fontWeight: 700, padding: "8px 14px", fontFamily: displayFont }}>{showAdd ? "✕" : `+ ${t(lang, "viaggi.newTrip")}`}</button>
+          <button onClick={() => setShowCatManager(!showCatManager)} style={{ background: "none", border: "none", cursor: "pointer", color: showCatManager ? color.accent : color.textMuted, display: "flex", padding: "4px 8px" }}><IconSettings size={16} /></button>
+          <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? color.border : accentGradient, border: "none", borderRadius: 10, cursor: "pointer", color: showAdd ? color.textMuted : "#fff", fontSize: 13, fontWeight: 700, padding: "8px 14px", fontFamily: displayFont, display: "flex", alignItems: "center", gap: 6 }}>{showAdd ? <IconX size={14} /> : <><IconPlus size={14} /> {t(lang, "viaggi.newTrip")}</>}</button>
         </div>
       </div>
 
@@ -237,8 +238,8 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   <span style={{ fontSize: 16, marginRight: 8 }}>{c.emoji}</span>
                   <span style={{ flex: 1, color: color.textSecondary, fontSize: 14 }}>{c.nome}</span>
                   <div style={{ width: 16, height: 16, borderRadius: 4, background: c.colore, marginRight: 8 }} />
-                  <button onClick={() => { setEditingCatId(c.id); setEditForm(c); }} style={{ background: "none", border: "none", color: color.textMuted, cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>✏</button>
-                  <button onClick={() => handleDeleteTripCat(c.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 14, padding: "4px 8px" }}>×</button>
+                  <button onClick={() => { setEditingCatId(c.id); setEditForm(c); }} style={{ background: "none", border: "none", color: color.textMuted, cursor: "pointer", display: "flex", padding: "4px 8px" }}><IconPencil size={14} /></button>
+                  <button onClick={() => handleDeleteTripCat(c.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex", padding: "4px 8px" }}><IconX size={14} /></button>
                 </div>
               )}
             </div>
@@ -324,12 +325,12 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                     {!trip.settled && (
                       trip.shareToken ? (
-                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, cursor: "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                        <button onClick={() => handleCopyShareLink(trip.shareToken)} title={t(lang, "viaggi.copyInviteLink")} style={{ background: `${alpha(color.accent, 0.13)}`, border: `1px solid ${color.accent}`, borderRadius: 8, color: color.accent, cursor: "pointer", display: "flex", padding: "6px 8px" }}><IconLink size={14} /></button>
                       ) : (
-                        <button onClick={() => handleShareTrip(trip.id)} disabled={shareBusyId === trip.id} title={t(lang, "viaggi.inviteSomeone")} style={{ background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, cursor: shareBusyId === trip.id ? "default" : "pointer", fontSize: 11, fontWeight: 700, padding: "6px 8px" }}>🔗</button>
+                        <button onClick={() => handleShareTrip(trip.id)} disabled={shareBusyId === trip.id} title={t(lang, "viaggi.inviteSomeone")} style={{ background: "none", border: `1px solid ${color.border}`, borderRadius: 8, color: color.textMuted, cursor: shareBusyId === trip.id ? "default" : "pointer", display: "flex", padding: "6px 8px" }}><IconLink size={14} /></button>
                       )
                     )}
-                    <button onClick={() => handleDeleteTrip(trip.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 18 }}>×</button>
+                    <button onClick={() => handleDeleteTrip(trip.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex" }}><IconX size={18} /></button>
                   </div>
                 </div>
 
@@ -364,7 +365,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                   <div style={{ marginBottom: 10 }}>
                     <button onClick={() => toggleExpenses(trip.id)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: color.bg, border: `1px solid ${color.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer", marginBottom: expandedExpenses[trip.id] ? 6 : 0 }}>
                       <span style={{ fontSize: 12, color: color.textMuted, fontFamily: displayFont }}>{t(lang, "viaggi.expenses")} ({trip.expenses.length})</span>
-                      <span style={{ fontSize: 11, color: color.accent, transform: expandedExpenses[trip.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-block" }}>▼</span>
+                      <span style={{ color: color.accent, transform: expandedExpenses[trip.id] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", display: "inline-flex" }}><IconChevronDown size={14} /></span>
                     </button>
                     {expandedExpenses[trip.id] && trip.expenses.map((e, i) => (
                       <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${color.border}`, fontFamily: displayFont }}>
@@ -374,7 +375,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ fontSize: 13, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent }}>{formattaValuta(e.importo)}</div>
-                          {!trip.settled && <button onClick={() => handleDeleteExpense(trip.id, e.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", fontSize: 14 }}>×</button>}
+                          {!trip.settled && <button onClick={() => handleDeleteExpense(trip.id, e.id)} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex" }}><IconX size={14} /></button>}
                         </div>
                       </div>
                     ))}

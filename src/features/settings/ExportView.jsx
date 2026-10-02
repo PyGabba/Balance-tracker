@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconFolderOpen, IconCheck, IconAlertTriangle, IconDownload } from "@tabler/icons-react";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, importoOscurabile } from "../../lib/format.js";
 import { getAllPersone, COLORI_EXTRA, equalQuotas } from "../../lib/appHelpers.js";
@@ -362,7 +363,7 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
         border: `2px dashed ${color.border}`, background: color.surface, textAlign: "center",
         color: importFile ? color.textSecondary : color.textMuted, fontSize: 13, marginBottom: 12, transition: "all 0.2s",
       }}>
-        <span style={{ fontSize: 22, display: "block", marginBottom: 6 }}>📂</span>
+        <span style={{ display: "flex", justifyContent: "center", marginBottom: 6 }}><IconFolderOpen size={22} /></span>
         {importFile ? importFile.name : t(lang, "export.chooseFile")}
         <input type="file" accept=".xlsx,.csv" style={{ display: "none" }}
           onChange={e => {
@@ -382,12 +383,12 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       {importPreview && !importando && (
         <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${color.border}` }}>
           <div style={{ fontWeight: 700, color: color.textPrimary, marginBottom: 10, fontSize: 14 }}>{t(lang, "export.importPreview")}</div>
-          <div style={{ fontSize: 13, color: color.positive, marginBottom: importPreview.errori.length ? 8 : 0 }}>
-            ✓ {importPreview.righe.length} {t(lang, "export.validTransactions")}
+          <div style={{ fontSize: 13, color: color.positive, marginBottom: importPreview.errori.length ? 8 : 0, display: "flex", alignItems: "center", gap: 6 }}>
+            <IconCheck size={14} /> {importPreview.righe.length} {t(lang, "export.validTransactions")}
           </div>
           {importPreview.errori.length > 0 && (
             <div style={{ fontSize: 11, color: color.negative, marginBottom: 8, lineHeight: 1.6 }}>
-              {importPreview.errori.map((e, i) => <div key={i}>⚠ {e}</div>)}
+              {importPreview.errori.map((e, i) => <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 5 }}><IconAlertTriangle size={12} style={{ marginTop: 2, flexShrink: 0 }} /> {e}</div>)}
             </div>
           )}
           {importPreview.righe.length > 0 && (
@@ -423,12 +424,12 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       {importPortfolioPreview && !importando && (
         <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 16, border: `1px solid ${color.border}` }}>
           <div style={{ fontWeight: 700, color: color.textPrimary, marginBottom: 8, fontSize: 14 }}>{t(lang, "export.portfolioFound")}</div>
-          <div style={{ fontSize: 13, color: color.positive, marginBottom: importPortfolioPreview.errori.length ? 8 : 0 }}>
-            ✓ {importPortfolioPreview.posizioni.length} {t(lang, "export.validPositions")}
+          <div style={{ fontSize: 13, color: color.positive, marginBottom: importPortfolioPreview.errori.length ? 8 : 0, display: "flex", alignItems: "center", gap: 6 }}>
+            <IconCheck size={14} /> {importPortfolioPreview.posizioni.length} {t(lang, "export.validPositions")}
           </div>
           {importPortfolioPreview.errori.length > 0 && (
             <div style={{ fontSize: 11, color: color.negative, marginBottom: 8, lineHeight: 1.6 }}>
-              {importPortfolioPreview.errori.map((e, i) => <div key={i}>⚠ {e}</div>)}
+              {importPortfolioPreview.errori.map((e, i) => <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 5 }}><IconAlertTriangle size={12} style={{ marginTop: 2, flexShrink: 0 }} /> {e}</div>)}
             </div>
           )}
           <div style={{ borderTop: `1px solid ${color.border}`, marginTop: 6, paddingTop: 6 }}>
@@ -491,7 +492,7 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
                   border: `1px solid ${active ? color.accent : color.borderStrong}`,
                   background: active ? color.accentSoft : "transparent",
                   color: color.accent, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center",
-                }}>{active ? "✓" : ""}</div>
+                }}>{active ? <IconCheck size={13} /> : null}</div>
                 <span style={{ fontSize: 13, color: color.textPrimary }}>{t(lang, `col.${id}`)}</span>
               </button>
             );
@@ -533,7 +534,7 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
             border: includiPortfolio ? `2px solid ${color.accent}` : `2px solid ${color.borderStrong}`,
             background: includiPortfolio ? color.accent : "transparent",
             display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s",
-          }}>{includiPortfolio && <span style={{ color: "#fff", fontSize: 13, lineHeight: 1 }}>✓</span>}</div>
+          }}>{includiPortfolio && <IconCheck size={14} color="#fff" />}</div>
           <div>
             <div style={{ fontSize: 13, color: color.textSecondary, fontWeight: 600 }}>{t(lang, "export.includePortfolio")}</div>
             <div style={{ fontSize: 11, color: color.textMuted }}>{positions.length} {t(lang, "export.positionsToSheet")}</div>
@@ -550,14 +551,14 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
           color: ordinate.length > 0 ? color.accent : color.textMuted,
           border: ordinate.length > 0 ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
           opacity: esportando ? 0.6 : 1,
-          transition: "all 0.3s",
-        }}>↓ {esportando ? t(lang, "export.generatingFile") : "XLSX"}</button>
+          transition: "all 0.3s", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}><IconDownload size={16} /> {esportando ? t(lang, "export.generatingFile") : "XLSX"}</button>
         <button onClick={esportaCsv} disabled={ordinate.length === 0 || esportando} style={{
           flex: 1, padding: "15px", border: `1px solid ${color.border}`, borderRadius: 14, cursor: ordinate.length > 0 ? "pointer" : "default",
           fontFamily: displayFont, fontSize: 14, fontWeight: 700,
           background: "none", color: ordinate.length > 0 ? color.textSecondary : color.textMuted,
-          opacity: esportando ? 0.6 : 1,
-        }}>↓ CSV</button>
+          opacity: esportando ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}><IconDownload size={16} /> CSV</button>
       </div>
       <div style={{ fontSize: 11, color: color.textMuted, textAlign: "center", marginTop: 10 }}>
         {ordinate.length === 0 ? t(lang, "export.noTransactionsInPeriod") : `${ordinate.length} ${t(lang, "export.rowsPlain")}`}

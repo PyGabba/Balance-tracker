@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { IconArrowsLeftRight } from "@tabler/icons-react";
 import { fetchExchangeRates } from "../../api.js";
+import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { evalImporto, splitsTotalOk, generaId, equalQuotas } from "../../lib/appHelpers.js";
@@ -287,7 +289,8 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
                 background: contoDa === c.id ? `${alpha(color.negative, 0.13)}` : color.surface,
                 border: contoDa === c.id ? `1px solid ${color.negative}` : `1px solid ${color.border}`,
                 color: contoDa === c.id ? color.negative : color.textMuted,
-              }}>{c.icona} {c.nome}</button>
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}><AccountIcon icona={c.icona} size={13} /> {c.nome}</button>
             ))}
           </div>
           <label style={labelStyle}>{t(lang, "aggiungi.toAccount")}</label>
@@ -299,12 +302,13 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
                 border: contoA === c.id ? `1px solid ${color.positive}` : `1px solid ${color.border}`,
                 color: c.id === contoDa ? color.textMuted : contoA === c.id ? color.positive : color.textMuted,
                 opacity: c.id === contoDa ? 0.4 : 1,
-              }}>{c.icona} {c.nome}</button>
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}><AccountIcon icona={c.icona} size={13} /> {c.nome}</button>
             ))}
           </div>
           {contoDa && contoA && contoDa !== contoA && (
-            <div style={{ fontSize: 11, color: color.accent, marginTop: 8 }}>
-              ⇄ {conti.find(c => c.id === contoDa)?.nome} → {conti.find(c => c.id === contoA)?.nome}
+            <div style={{ fontSize: 11, color: color.accent, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}>
+              <IconArrowsLeftRight size={13} /> {conti.find(c => c.id === contoDa)?.nome} → {conti.find(c => c.id === contoA)?.nome}
             </div>
           )}
         </div>
@@ -325,7 +329,8 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
                 background: contoId === c.id ? `${alpha(color.accent, 0.13)}` : color.surface,
                 border: contoId === c.id ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
                 color: contoId === c.id ? color.accent : color.textMuted,
-              }}>{c.icona} {c.nome}</button>
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}><AccountIcon icona={c.icona} size={13} /> {c.nome}</button>
             ))}
           </div>
         </div>

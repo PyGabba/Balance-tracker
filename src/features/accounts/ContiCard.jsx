@@ -1,18 +1,19 @@
 import { useState } from "react";
+import { IconX, IconPlus, IconTarget } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { calcolaSaldiConti } from "../../lib/finance.js";
 import { toast } from "../../components/Toast.jsx";
 import { color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { AccountIcon, ACCOUNT_ICON_KEYS } from "../../components/ui/AccountIcon.jsx";
 
 export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, valutaBase = "EUR", lang = "it" }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState(null);
   const [nome, setNome] = useState("");
-  const [icona, setIcona] = useState("🏦");
+  const [icona, setIcona] = useState("bank");
   const [saldoIniziale, setSaldoIniziale] = useState("");
   const [saving, setSaving] = useState(false);
-  const ICONE = ["🏦", "💳", "💵", "🐖", "📱", "💰"];
 
   // Saldo (person-to-person) transactions are intentionally excluded.
   const saldi = calcolaSaldiConti(conti, transazioni, valutaBase);
@@ -23,8 +24,8 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
     if (g.contoId && saldi[g.contoId] !== undefined) accantonati[g.contoId] = (accantonati[g.contoId] || 0) + (g.currentAmount || 0);
   }
 
-  function openAdd() { setEditId(null); setNome(""); setIcona("🏦"); setSaldoIniziale(""); setShowAdd(true); }
-  function openEdit(c) { setShowAdd(false); setEditId(c.id); setNome(c.nome); setIcona(c.icona || "🏦"); setSaldoIniziale(String(c.saldoIniziale ?? 0)); }
+  function openAdd() { setEditId(null); setNome(""); setIcona("bank"); setSaldoIniziale(""); setShowAdd(true); }
+  function openEdit(c) { setShowAdd(false); setEditId(c.id); setNome(c.nome); setIcona(c.icona || "bank"); setSaldoIniziale(String(c.saldoIniziale ?? 0)); }
   function closeForm() { setShowAdd(false); setEditId(null); }
 
   async function handleSave() {
@@ -58,8 +59,8 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
           )}
           <button onClick={() => formOpen ? closeForm() : openAdd()} style={{
             background: formOpen ? color.accentSoft : "none", border: formOpen ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
-            borderRadius: 8, cursor: "pointer", color: formOpen ? color.accent : color.textSecondary, fontSize: 14, padding: "2px 8px",
-          }}>{formOpen ? "✕" : "+"}</button>
+            borderRadius: 8, cursor: "pointer", color: formOpen ? color.accent : color.textSecondary, display: "flex", alignItems: "center", padding: "4px 7px",
+          }}>{formOpen ? <IconX size={14} /> : <IconPlus size={14} />}</button>
         </div>
       </div>
 
@@ -73,12 +74,12 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
           background: editId === c.id ? color.accentSoft : color.bg, marginBottom: 6,
           border: editId === c.id ? `1px solid ${alpha(color.accent, 0.33)}` : "1px solid transparent",
         }}>
-          <span style={{ fontSize: 16 }}>{c.icona || "🏦"}</span>
+          <AccountIcon icona={c.icona} size={18} color={color.textSecondary} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: color.textSecondary, fontFamily: displayFont, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</div>
             {(accantonati[c.id] || 0) > 0 && (
-              <div style={{ fontSize: 10, color: color.textMuted, marginTop: 1 }}>
-                🎯 {formattaValuta(accantonati[c.id])} {t(lang, "conti.inGoals")} · <span style={{ color: color.textSecondary }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} {t(lang, "conti.free")}</span>
+              <div style={{ fontSize: 10, color: color.textMuted, marginTop: 1, display: "flex", alignItems: "center", gap: 3 }}>
+                <IconTarget size={11} /> {formattaValuta(accantonati[c.id])} {t(lang, "conti.inGoals")} · <span style={{ color: color.textSecondary }}>{formattaValuta((saldi[c.id] || 0) - accantonati[c.id])} {t(lang, "conti.free")}</span>
               </div>
             )}
           </div>
@@ -94,12 +95,13 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
             {editId ? t(lang, "conti.editAccount") : t(lang, "conti.newAccount")}
           </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-            {ICONE.map(ic => (
-              <button key={ic} onClick={() => setIcona(ic)} style={{
-                fontSize: 16, padding: "6px 8px", borderRadius: 8, cursor: "pointer",
-                background: icona === ic ? color.accentSoft : "transparent",
-                border: icona === ic ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
-              }}>{ic}</button>
+            {ACCOUNT_ICON_KEYS.map(key => (
+              <button key={key} onClick={() => setIcona(key)} style={{
+                padding: "7px 9px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center",
+                background: icona === key ? color.accentSoft : "transparent",
+                border: icona === key ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
+                color: icona === key ? color.accent : color.textMuted,
+              }}><AccountIcon icona={key} size={18} /></button>
             ))}
           </div>
           <input type="text" value={nome} onChange={e => setNome(e.target.value)} placeholder={t(lang, "conti.namePlaceholder")}

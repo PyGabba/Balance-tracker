@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from "react";
+import { IconRefresh } from "@tabler/icons-react";
 
 // ─── Pull-to-refresh ───
 // Replaces the header's explicit reload button: pulling down past THRESHOLD
@@ -80,11 +81,11 @@ export function PullToRefresh({ children, onRefresh, style }) {
         transition: refreshing || pullDistance === 0 ? "height 0.2s ease" : "none",
       }}>
         <span style={{
-          display: "inline-block", fontSize: 18,
+          display: "inline-flex",
           color: readyToRelease || refreshing ? "#6C5CE7" : "#555",
           transform: refreshing ? "none" : `rotate(${pullDistance * 3}deg)`,
           animation: refreshing ? "ptr-spin 0.6s linear infinite" : "none",
-        }}>↻</span>
+        }}><IconRefresh size={18} /></span>
       </div>
       <style>{"@keyframes ptr-spin { to { transform: rotate(360deg); } }"}</style>
       {children}

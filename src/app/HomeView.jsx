@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import { IconRepeat, IconAlertTriangle, IconX, IconPlus, IconSearch, IconFilter } from "@tabler/icons-react";
 import { calcolaSaldiConti, calcolaValorePortfolio, filtraTransazioni, contaFiltriAttivi } from "../lib/finance.js";
+import { AccountIcon } from "../components/ui/AccountIcon.jsx";
 import { readAutoPrices } from "../lib/autoPriceCache.js";
 import { getSession } from "../api.js";
 import { t, mese } from "../lib/i18n.js";
@@ -87,7 +89,7 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
       {/* Recurring transactions banner */}
       {ricorrentiInScadenza.length > 0 && (
         <div style={{ background: color.surface, borderRadius: 14, padding: "12px 14px", marginBottom: 12, border: `1px solid ${color.accentSoft}`, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18 }}>🔁</span>
+          <span style={{ display: "flex", color: color.accent }}><IconRepeat size={18} /></span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: color.accent }}>
               {ricorrentiInScadenza.length === 1
@@ -102,7 +104,7 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
       {/* Variable recurring — needs amount check */}
       {daVerificareList.length > 0 && (
         <div style={{ background: color.surface, borderRadius: 14, padding: "12px 14px", marginBottom: 12, border: `1px solid ${alpha(color.warn, 0.27)}`, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18 }}>⚠️</span>
+          <span style={{ display: "flex", color: color.warn }}><IconAlertTriangle size={18} /></span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: color.warn }}>
               {daVerificareList.length === 1
@@ -169,8 +171,8 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
               </span>
             )}
             <button onClick={() => setShowAddGoal(!showAddGoal)} style={{
-              background: "none", border: "none", color: color.accent, cursor: "pointer", fontSize: 14,
-            }}>{showAddGoal ? "✕" : "+"}</button>
+              background: "none", border: "none", color: color.accent, cursor: "pointer", display: "flex",
+            }}>{showAddGoal ? <IconX size={14} /> : <IconPlus size={14} />}</button>
           </div>
         </div>
 
@@ -199,7 +201,7 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
         <div style={{ fontSize: 12, color: color.textMuted, fontFamily: moneyFont }}>{txOrdinate.length}</div>
       </div>
       <div style={{ position: "relative", marginBottom: 8 }}>
-        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: color.textMuted, pointerEvents: "none" }}>🔍</span>
+        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: color.textMuted, pointerEvents: "none", display: "flex" }}><IconSearch size={14} /></span>
         <input
           type="text"
           value={search}
@@ -208,10 +210,10 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
           style={{ ...inputStyle, paddingLeft: 36, paddingRight: 70, paddingTop: 10, paddingBottom: 10, fontSize: 13 }}
         />
         {search && (
-          <button onClick={() => setSearch("")} style={{ position: "absolute", right: 44, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: color.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 2 }}>✕</button>
+          <button onClick={() => setSearch("")} style={{ position: "absolute", right: 44, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: color.textMuted, cursor: "pointer", display: "flex", padding: 2 }}><IconX size={16} /></button>
         )}
-        <button onClick={() => setShowFiltri(!showFiltri)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: showFiltri || nFiltriAttivi > 0 ? color.accentSoft : "none", border: "1px solid " + (showFiltri || nFiltriAttivi > 0 ? `${alpha(color.accent, 0.4)}` : "transparent"), borderRadius: 8, color: nFiltriAttivi > 0 ? color.accent : color.textSecondary, cursor: "pointer", fontSize: 13, padding: "4px 7px", display: "flex", alignItems: "center", gap: 3 }}>
-          ⚙{nFiltriAttivi > 0 && <span style={{ fontSize: 10, fontWeight: 800, fontFamily: moneyFont }}>{nFiltriAttivi}</span>}
+        <button onClick={() => setShowFiltri(!showFiltri)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: showFiltri || nFiltriAttivi > 0 ? color.accentSoft : "none", border: "1px solid " + (showFiltri || nFiltriAttivi > 0 ? `${alpha(color.accent, 0.4)}` : "transparent"), borderRadius: 8, color: nFiltriAttivi > 0 ? color.accent : color.textSecondary, cursor: "pointer", padding: "5px 7px", display: "flex", alignItems: "center", gap: 3 }}>
+          <IconFilter size={14} />{nFiltriAttivi > 0 && <span style={{ fontSize: 10, fontWeight: 800, fontFamily: moneyFont }}>{nFiltriAttivi}</span>}
         </button>
       </div>
 
@@ -254,7 +256,9 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
               <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
                 <FilterChip active={!filtri.contoId} onClick={() => setFiltri({ ...filtri, contoId: "" })}>{t(lang, "home.filterAllAccounts")}</FilterChip>
                 {conti.map(c => (
-                  <FilterChip key={c.id} active={filtri.contoId === c.id} onClick={() => setFiltri({ ...filtri, contoId: filtri.contoId === c.id ? "" : c.id })}>{c.icona} {c.nome}</FilterChip>
+                  <FilterChip key={c.id} active={filtri.contoId === c.id} onClick={() => setFiltri({ ...filtri, contoId: filtri.contoId === c.id ? "" : c.id })}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AccountIcon icona={c.icona} size={11} /> {c.nome}</span>
+                  </FilterChip>
                 ))}
               </div>
             </div>
