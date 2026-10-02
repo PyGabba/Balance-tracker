@@ -1334,7 +1334,9 @@ paths:
         a restoredAt timestamp. Account ids are remapped (old→new) so
         restored transactions/goals still point at the right restored
         account. Custom categories are only restored if the household
-        currently has none set.
+        currently has none set. Runs as a single Mongo transaction — a
+        failure partway through rolls back every collection already
+        restored, including the audit log entry.
       requestBody:
         required: true
         content:
