@@ -63,6 +63,10 @@ Three `tipo` values matter across balance/debt/stats calculations: `"uscita"` (e
 
 Group expenses for participants outside the household (temporary guests, no login). Has its own share-link flow (`/api/trips/:id/share`, `/api/trips/shared/:token`) separate from the household auth model — guests join and add expenses via the shared token, not a household PIN. A trip auto-settles and closes once its end date passes (minimal-settlement transaction recorded automatically).
 
+### Content Security Policy
+
+The real CSP lives in `vercel.json`'s `headers` block (not in `server/index.js` — the Express API never serves the HTML document, see the comment above `helmet(...)` there). It's intentionally strict: `script-src 'self'` with no `'unsafe-inline'`/`'unsafe-eval'` (the production Vite build has no inline `<script>`s), `style-src` allows `'unsafe-inline'` only for the one inline `<style>` block in `index.html` plus `fonts.googleapis.com`, `img-src` allows `data:` for the inline SVG chevron background and the receipt-scanner's base64 photo preview. Adding a new external script/font/API domain, or a new inline `<script>`, means updating this policy too — it won't fail loudly, it'll just silently block the new resource in production. Verify a change with `npm run build` + serving `dist/` behind the same header (a plain static server with the header attached) and checking the browser console for `Refused to`/CSP violation messages before shipping.
+
 ### External integrations
 
 - **Widget** (`/api/widget`, `/api/widget/transaction`): a separate API-key-based auth path (not the JWT cookie), meant for a home-screen Scriptable widget. Treat the widget key like a password.
