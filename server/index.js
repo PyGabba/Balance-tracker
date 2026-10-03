@@ -31,7 +31,11 @@ app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3001;
 
 // ─── Security headers ───
-app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled: SPA handles its own
+// No CSP here on purpose — this app never serves the HTML document (every
+// route is /api/* JSON, proxied to from the Vercel-hosted SPA). The real
+// CSP is attached by Vercel to the actual document response (see the
+// "headers" block in vercel.json at the repo root).
+app.use(helmet({ contentSecurityPolicy: false }));
 
 // ─── CORS: restrict to known origins ───
 const ALLOWED_ORIGINS = [
