@@ -274,25 +274,33 @@ router.get("/api/positions/prices", requireHousehold, async (req, res) => {
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
+const MANUAL_PRICE_TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
+
+// Incremental upsert — only sets/updates the tickers present in the
+// request body, never touches any other ticker's existing manual price.
+// Previously this deleted every manual price for the household first and
+// re-inserted only what was in THIS request's payload, which silently
+// wiped out manual prices for any ticker missing from it — e.g. a second
+// household member (or the same client, if its initial GET was still in
+// flight or had failed) saving a price for one ticker would erase every
+// other ticker's manual override with no error shown anywhere. Clearing a
+// ticker's override is now DELETE /api/positions/prices/:ticker instead
+// of "omit it from the next PUT".
 router.put("/api/positions/prices", requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const { manualPrices } = req.body || {};
     if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
       return sendError(res, 400, "INVALID_MANUAL_PRICES", "manualPrices deve essere un oggetto");
-    const TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
     const entries = Object.entries(manualPrices);
     if (entries.length > 200)
-      return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali");
-    // Remove all existing manual prices for this household, then upsert
-    // validated ones — one transaction, so a crash after the delete but
-    // before every upsert has run can never leave the household with
-    // fewer manual prices than it started with (previously: gone for
-    // good, since the delete had already committed on its own).
+      return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali per richiesta");
+    // One transaction so a batch of several tickers in the same request is
+    // all-or-nothing — a failure partway through never leaves only some of
+    // this request's tickers updated.
     await withTransaction(async (session) => {
-      await quotesCol.deleteMany({ householdId: req.householdId, manualPrice: { $exists: true } }, { session });
       for (const [rawTicker, rawPrice] of entries) {
         const ticker = String(rawTicker).toUpperCase().trim();
-        if (!TICKER_RE.test(ticker)) continue; // skip malformed keys
+        if (!MANUAL_PRICE_TICKER_RE.test(ticker)) continue; // skip malformed keys
         const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
         if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
         // eslint-disable-next-line no-await-in-loop
@@ -303,6 +311,15 @@ router.put("/api/positions/prices", requireHousehold, requireRole("member"), asy
         );
       }
     });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+router.delete("/api/positions/prices/:ticker", requireHousehold, requireRole("member"), async (req, res) => {
+  try {
+    const ticker = String(req.params.ticker).toUpperCase().trim();
+    if (!MANUAL_PRICE_TICKER_RE.test(ticker)) return sendError(res, 400, "INVALID_TICKER", "Ticker non valido");
+    await quotesCol.deleteOne({ ticker, householdId: req.householdId, manualPrice: { $exists: true } });
     res.json({ ok: true });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });

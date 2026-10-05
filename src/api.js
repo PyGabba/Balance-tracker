@@ -860,6 +860,12 @@ async function putManualPrices(prices, timeoutMs) {
   return res.ok ? "ok" : "error";
 }
 
+// `prices` should be only the ticker(s) actually changed by this call, not
+// the caller's whole local manualPrices snapshot — the server upserts
+// exactly what's sent here and never touches any other ticker's saved
+// price, so sending the full snapshot is unnecessary (and if that
+// snapshot were ever stale/incomplete, used to silently delete every
+// other ticker's manual price — see server/routes/positions.js).
 export async function saveManualPricesRemote(prices) {
   if (!currentHousehold) return false;
   try {
@@ -874,6 +880,31 @@ export async function saveManualPricesRemote(prices) {
   // failure.
   try {
     return (await putManualPrices(prices, 20000)) === "ok";
+  } catch {
+    return false;
+  }
+}
+
+async function deleteManualPriceOnce(ticker, timeoutMs) {
+  const res = await fetch(`${API_BASE}/api/positions/prices/${encodeURIComponent(ticker)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+    credentials: "include",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (await checkAuthError(res)) return "auth";
+  return res.ok ? "ok" : "error";
+}
+
+export async function deleteManualPriceRemote(ticker) {
+  if (!currentHousehold) return false;
+  try {
+    const outcome = await deleteManualPriceOnce(ticker, 10000);
+    if (outcome === "ok") return true;
+    if (outcome === "auth") return false;
+  } catch {}
+  try {
+    return (await deleteManualPriceOnce(ticker, 20000)) === "ok";
   } catch {
     return false;
   }

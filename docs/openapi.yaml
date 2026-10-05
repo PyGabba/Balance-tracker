@@ -1058,7 +1058,7 @@ paths:
                   manualPrices: { type: object, additionalProperties: { type: number } }
     put:
       summary: Set manual price overrides
-      description: The only price source — the live-quote endpoint is disabled.
+      description: Incremental upsert — only sets/updates the ticker(s) named in the request body; any other ticker's already-saved manual price is left untouched. Send only what changed, not the whole local snapshot.
       requestBody:
         required: true
         content:
@@ -1073,6 +1073,19 @@ paths:
                   maxProperties: 200
       responses:
         "200": { description: "{ ok: true }." }
+
+  /positions/prices/{ticker}:
+    delete:
+      summary: Clear one ticker's manual price override
+      description: Removes only the named ticker's manual override; every other ticker's saved price is unaffected. Returns 200 even if the ticker had no manual price set.
+      parameters:
+        - name: ticker
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: "{ ok: true }." }
+        "400": { description: Malformed ticker. }
 
   /quotes:
     get:

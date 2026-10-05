@@ -99,8 +99,8 @@ describe("account deletion + reference detachment is atomic", () => {
   });
 });
 
-describe("manual price replacement is atomic", () => {
-  it("a failure partway through the upserts rolls back the earlier delete of existing prices", async () => {
+describe("manual price upsert is atomic per batch", () => {
+  it("a failure partway through a multi-ticker PUT rolls back every ticker in that same request", async () => {
     const agent = request.agent(app);
     const reg = await agent.post("/api/auth/register")
       .send({ nome: "Atomic Prices Household", persone: ["Gabriele"], pin: "385291" });
@@ -112,14 +112,20 @@ describe("manual price replacement is atomic", () => {
 
     failOnceForCollection("updateOne", "quotes_cache");
 
-    const second = await agent.put("/api/positions/prices").send({ manualPrices: { MSFT: 300 } });
+    // A second request setting two NEW tickers in one batch — the second
+    // ticker's upsert is the one that fails, so neither should land.
+    const second = await agent.put("/api/positions/prices").send({ manualPrices: { MSFT: 300, GOOG: 140 } });
     expect(second.status).toBe(500);
 
-    // The old price must still be there — not wiped out by the delete that
-    // ran before the failed upsert, in the same rolled-back transaction.
     const db = getDb();
-    const doc = await db.collection("quotes_cache").findOne({ householdId, ticker: "AAPL" });
-    expect(doc).toBeTruthy();
-    expect(doc.manualPrice).toBe(150);
+    // AAPL, from the earlier successful request, must be untouched.
+    const aapl = await db.collection("quotes_cache").findOne({ householdId, ticker: "AAPL" });
+    expect(aapl).toBeTruthy();
+    expect(aapl.manualPrice).toBe(150);
+    // Neither ticker from the failed batch should have landed.
+    const msft = await db.collection("quotes_cache").findOne({ householdId, ticker: "MSFT" });
+    expect(msft).toBeFalsy();
+    const goog = await db.collection("quotes_cache").findOne({ householdId, ticker: "GOOG" });
+    expect(goog).toBeFalsy();
   });
 });
