@@ -286,6 +286,17 @@ const MANUAL_PRICE_TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
 // other ticker's manual override with no error shown anywhere. Clearing a
 // ticker's override is now DELETE /api/positions/prices/:ticker instead
 // of "omit it from the next PUT".
+//
+// Deliberately NOT wrapped in withTransaction (unlike the old delete-then-
+// recreate version, which genuinely needed all-or-nothing semantics to
+// avoid a crash wiping every price and restoring none): each ticker is now
+// an independent upsert, already atomic on its own — a failure partway
+// through a multi-ticker request just leaves whichever tickers were
+// already upserted in place, which is a fine, recoverable outcome, not a
+// data-loss one. This also means saving a manual price no longer needs
+// the target MongoDB to support multi-document transactions (a replica
+// set) — plain standalone MongoDB works too, same as every other read/
+// write in this route file.
 router.put("/api/positions/prices", requireHousehold, requireRole("member"), async (req, res) => {
   try {
     const { manualPrices } = req.body || {};
@@ -294,23 +305,18 @@ router.put("/api/positions/prices", requireHousehold, requireRole("member"), asy
     const entries = Object.entries(manualPrices);
     if (entries.length > 200)
       return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali per richiesta");
-    // One transaction so a batch of several tickers in the same request is
-    // all-or-nothing — a failure partway through never leaves only some of
-    // this request's tickers updated.
-    await withTransaction(async (session) => {
-      for (const [rawTicker, rawPrice] of entries) {
-        const ticker = String(rawTicker).toUpperCase().trim();
-        if (!MANUAL_PRICE_TICKER_RE.test(ticker)) continue; // skip malformed keys
-        const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
-        if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
-        // eslint-disable-next-line no-await-in-loop
-        await quotesCol.updateOne(
-          { ticker, householdId: req.householdId },
-          { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
-          { upsert: true, session }
-        );
-      }
-    });
+    for (const [rawTicker, rawPrice] of entries) {
+      const ticker = String(rawTicker).toUpperCase().trim();
+      if (!MANUAL_PRICE_TICKER_RE.test(ticker)) continue; // skip malformed keys
+      const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
+      if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
+      // eslint-disable-next-line no-await-in-loop
+      await quotesCol.updateOne(
+        { ticker, householdId: req.householdId },
+        { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
     res.json({ ok: true });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
