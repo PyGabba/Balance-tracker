@@ -99,33 +99,11 @@ describe("account deletion + reference detachment is atomic", () => {
   });
 });
 
-describe("manual price upsert is atomic per batch", () => {
-  it("a failure partway through a multi-ticker PUT rolls back every ticker in that same request", async () => {
-    const agent = request.agent(app);
-    const reg = await agent.post("/api/auth/register")
-      .send({ nome: "Atomic Prices Household", persone: ["Gabriele"], pin: "385291" });
-    expect(reg.status).toBe(201);
-    const householdId = reg.body.householdId;
-
-    const first = await agent.put("/api/positions/prices").send({ manualPrices: { AAPL: 150 } });
-    expect(first.status).toBe(200);
-
-    failOnceForCollection("updateOne", "quotes_cache");
-
-    // A second request setting two NEW tickers in one batch — the second
-    // ticker's upsert is the one that fails, so neither should land.
-    const second = await agent.put("/api/positions/prices").send({ manualPrices: { MSFT: 300, GOOG: 140 } });
-    expect(second.status).toBe(500);
-
-    const db = getDb();
-    // AAPL, from the earlier successful request, must be untouched.
-    const aapl = await db.collection("quotes_cache").findOne({ householdId, ticker: "AAPL" });
-    expect(aapl).toBeTruthy();
-    expect(aapl.manualPrice).toBe(150);
-    // Neither ticker from the failed batch should have landed.
-    const msft = await db.collection("quotes_cache").findOne({ householdId, ticker: "MSFT" });
-    expect(msft).toBeFalsy();
-    const goog = await db.collection("quotes_cache").findOne({ householdId, ticker: "GOOG" });
-    expect(goog).toBeFalsy();
-  });
-});
+// Manual price overrides (PUT /api/positions/prices) used to live here too
+// — it was the one write in this file still needing withTransaction, back
+// when it worked by deleting every price for the household and
+// re-inserting them all. It's a plain incremental per-ticker upsert now
+// (see server/routes/positions.js), with no transaction and no atomicity
+// property left to test: a failure partway through a multi-ticker request
+// just leaves whichever tickers were already upserted in place, which is
+// fine, not a rollback case. See server/api.manual-prices.test.js instead.

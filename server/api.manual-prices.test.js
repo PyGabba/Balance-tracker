@@ -68,6 +68,19 @@ describe("PUT /api/positions/prices", () => {
     expect(prices.AAPL).toBe(160);
     expect(prices.VWCE).toBe(95.5);
   });
+
+  // Each ticker is upserted independently now (no transaction wrapping the
+  // batch — see server/routes/positions.js) — a malformed entry elsewhere
+  // in the same request must not stop a valid one in that request from
+  // being saved.
+  it("applies the valid ticker in a batch even when another entry in the same request is invalid", async () => {
+    const res = await agent.put("/api/positions/prices").send({ manualPrices: { TSLA: 220, BAD: -5 } });
+    expect(res.status).toBe(200);
+
+    const prices = await getManualPrices();
+    expect(prices.TSLA).toBe(220);
+    expect(prices.BAD).toBeUndefined(); // negative price, skipped
+  });
 });
 
 describe("DELETE /api/positions/prices/:ticker", () => {
