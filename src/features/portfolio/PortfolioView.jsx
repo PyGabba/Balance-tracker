@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { IconRefresh, IconX, IconPlus, IconCheck, IconPencil, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
-import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, saveManualPricesRemote, fetchQuotes, getSession } from "../../api.js";
+import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, saveManualPricesRemote, deleteManualPriceRemote, fetchQuotes, getSession } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
@@ -119,10 +119,32 @@ export function PortfolioView({ lang = "it", conti = [] }) {
   // blip, cold-start timeout) leaves the UI showing AUTO/the new value
   // while the server still has the old manual override, so it silently
   // comes back on the next load/refetch with no indication anything failed.
-  async function saveManualPrices(updated) {
+  //
+  // Sends only the single changed ticker, never the whole manualPrices
+  // snapshot — the server upserts exactly what's sent and leaves every
+  // other ticker's saved price untouched. Sending the full local snapshot
+  // used to be how this worked, and the server used to replace the whole
+  // set with it: if this client's snapshot was stale or incomplete (its
+  // initial load still in flight, or a household member on another device
+  // saving a different ticker), that save would silently delete every
+  // other ticker's manual price with no error shown anywhere.
+  async function setManualPrice(ticker, val) {
     const previous = manualPrices;
+    setManualPrices({ ...manualPrices, [ticker]: val });
+    const ok = await saveManualPricesRemote({ [ticker]: val });
+    if (!ok) {
+      setManualPrices(previous);
+      toast(t(lang, "portfolio.manualPriceSaveFailed"), "error");
+    }
+    return ok;
+  }
+
+  async function clearManualPrice(ticker) {
+    const previous = manualPrices;
+    const updated = { ...manualPrices };
+    delete updated[ticker];
     setManualPrices(updated);
-    const ok = await saveManualPricesRemote(updated);
+    const ok = await deleteManualPriceRemote(ticker);
     if (!ok) {
       setManualPrices(previous);
       toast(t(lang, "portfolio.manualPriceSaveFailed"), "error");
@@ -142,16 +164,14 @@ export function PortfolioView({ lang = "it", conti = [] }) {
   function handleSaveManualPrice(ticker) {
     const val = parseFloat(editPriceVal.replace(",", "."));
     if (!isNaN(val) && val > 0) {
-      saveManualPrices({ ...manualPrices, [ticker]: val });
+      setManualPrice(ticker, val);
     }
     setEditingTicker(null);
     setEditPriceVal("");
   }
 
   function handleClearManualPrice(ticker) {
-    const updated = { ...manualPrices };
-    delete updated[ticker];
-    saveManualPrices(updated);
+    clearManualPrice(ticker);
     setEditingTicker(null);
   }
 
@@ -179,9 +199,8 @@ export function PortfolioView({ lang = "it", conti = [] }) {
     const ids = new Set(h.trades.map(tr => tr.id));
     setPositions(prev => prev.map(p => ids.has(p.id) ? { ...p, ticker: newTicker } : p));
     if (manualPrices[h.ticker] != null) {
-      const updated = { ...manualPrices, [newTicker]: manualPrices[h.ticker] };
-      delete updated[h.ticker];
-      saveManualPrices(updated);
+      setManualPrice(newTicker, manualPrices[h.ticker]);
+      clearManualPrice(h.ticker);
     }
     if (autoPrices[h.ticker] != null) {
       const updated = { ...autoPrices, [newTicker]: autoPrices[h.ticker] };
