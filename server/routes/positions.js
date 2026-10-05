@@ -168,6 +168,72 @@ router.post("/api/positions", writeLimiter, requireHousehold, requireRole("membe
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
+// ─── Manual price overrides (stored in quotes_cache, scoped by householdId) ───
+router.get("/api/positions/prices", requireHousehold, async (req, res) => {
+  try {
+    const docs = await quotesCol.find({ householdId: req.householdId, manualPrice: { $exists: true } }).toArray();
+    const manualPrices = {};
+    for (const d of docs) manualPrices[d.ticker] = d.manualPrice;
+    res.json({ manualPrices });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+const MANUAL_PRICE_TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
+
+// Incremental upsert — only sets/updates the tickers present in the
+// request body, never touches any other ticker's existing manual price.
+// Previously this deleted every manual price for the household first and
+// re-inserted only what was in THIS request's payload, which silently
+// wiped out manual prices for any ticker missing from it — e.g. a second
+// household member (or the same client, if its initial GET was still in
+// flight or had failed) saving a price for one ticker would erase every
+// other ticker's manual override with no error shown anywhere. Clearing a
+// ticker's override is now DELETE /api/positions/prices/:ticker instead
+// of "omit it from the next PUT".
+//
+// Deliberately NOT wrapped in withTransaction (unlike the old delete-then-
+// recreate version, which genuinely needed all-or-nothing semantics to
+// avoid a crash wiping every price and restoring none): each ticker is now
+// an independent upsert, already atomic on its own — a failure partway
+// through a multi-ticker request just leaves whichever tickers were
+// already upserted in place, which is a fine, recoverable outcome, not a
+// data-loss one. This also means saving a manual price no longer needs
+// the target MongoDB to support multi-document transactions (a replica
+// set) — plain standalone MongoDB works too, same as every other read/
+// write in this route file.
+router.put("/api/positions/prices", requireHousehold, requireRole("member"), async (req, res) => {
+  try {
+    const { manualPrices } = req.body || {};
+    if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
+      return sendError(res, 400, "INVALID_MANUAL_PRICES", "manualPrices deve essere un oggetto");
+    const entries = Object.entries(manualPrices);
+    if (entries.length > 200)
+      return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali per richiesta");
+    for (const [rawTicker, rawPrice] of entries) {
+      const ticker = String(rawTicker).toUpperCase().trim();
+      if (!MANUAL_PRICE_TICKER_RE.test(ticker)) continue; // skip malformed keys
+      const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
+      if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
+      // eslint-disable-next-line no-await-in-loop
+      await quotesCol.updateOne(
+        { ticker, householdId: req.householdId },
+        { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+router.delete("/api/positions/prices/:ticker", requireHousehold, requireRole("member"), async (req, res) => {
+  try {
+    const ticker = String(req.params.ticker).toUpperCase().trim();
+    if (!MANUAL_PRICE_TICKER_RE.test(ticker)) return sendError(res, 400, "INVALID_TICKER", "Ticker non valido");
+    await quotesCol.deleteOne({ ticker, householdId: req.householdId, manualPrice: { $exists: true } });
+    res.json({ ok: true });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
 router.put("/api/positions/:id", writeLimiter, requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) return sendError(res, 400, "INVALID_ID", "ID non valido");
@@ -261,72 +327,6 @@ router.delete("/api/positions/:id", requireHousehold, requireRole("member"), req
       await db.collection("positions").deleteOne({ _id: existing._id, householdId: req.householdId });
     }
     res.json({ deleted: true, id: req.params.id });
-  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
-});
-
-// ─── Manual price overrides (stored in quotes_cache, scoped by householdId) ───
-router.get("/api/positions/prices", requireHousehold, async (req, res) => {
-  try {
-    const docs = await quotesCol.find({ householdId: req.householdId, manualPrice: { $exists: true } }).toArray();
-    const manualPrices = {};
-    for (const d of docs) manualPrices[d.ticker] = d.manualPrice;
-    res.json({ manualPrices });
-  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
-});
-
-const MANUAL_PRICE_TICKER_RE = /^[A-Z0-9.^=\-]{1,20}$/;
-
-// Incremental upsert — only sets/updates the tickers present in the
-// request body, never touches any other ticker's existing manual price.
-// Previously this deleted every manual price for the household first and
-// re-inserted only what was in THIS request's payload, which silently
-// wiped out manual prices for any ticker missing from it — e.g. a second
-// household member (or the same client, if its initial GET was still in
-// flight or had failed) saving a price for one ticker would erase every
-// other ticker's manual override with no error shown anywhere. Clearing a
-// ticker's override is now DELETE /api/positions/prices/:ticker instead
-// of "omit it from the next PUT".
-//
-// Deliberately NOT wrapped in withTransaction (unlike the old delete-then-
-// recreate version, which genuinely needed all-or-nothing semantics to
-// avoid a crash wiping every price and restoring none): each ticker is now
-// an independent upsert, already atomic on its own — a failure partway
-// through a multi-ticker request just leaves whichever tickers were
-// already upserted in place, which is a fine, recoverable outcome, not a
-// data-loss one. This also means saving a manual price no longer needs
-// the target MongoDB to support multi-document transactions (a replica
-// set) — plain standalone MongoDB works too, same as every other read/
-// write in this route file.
-router.put("/api/positions/prices", requireHousehold, requireRole("member"), async (req, res) => {
-  try {
-    const { manualPrices } = req.body || {};
-    if (typeof manualPrices !== "object" || manualPrices === null || Array.isArray(manualPrices))
-      return sendError(res, 400, "INVALID_MANUAL_PRICES", "manualPrices deve essere un oggetto");
-    const entries = Object.entries(manualPrices);
-    if (entries.length > 200)
-      return sendError(res, 400, "TOO_MANY_PRICES", "Massimo 200 prezzi manuali per richiesta");
-    for (const [rawTicker, rawPrice] of entries) {
-      const ticker = String(rawTicker).toUpperCase().trim();
-      if (!MANUAL_PRICE_TICKER_RE.test(ticker)) continue; // skip malformed keys
-      const price = typeof rawPrice === "number" ? rawPrice : parseFloat(rawPrice);
-      if (!Number.isFinite(price) || price < 0) continue; // skip non-numeric or negative
-      // eslint-disable-next-line no-await-in-loop
-      await quotesCol.updateOne(
-        { ticker, householdId: req.householdId },
-        { $set: { ticker, householdId: req.householdId, manualPrice: price, updatedAt: new Date() } },
-        { upsert: true }
-      );
-    }
-    res.json({ ok: true });
-  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
-});
-
-router.delete("/api/positions/prices/:ticker", requireHousehold, requireRole("member"), async (req, res) => {
-  try {
-    const ticker = String(req.params.ticker).toUpperCase().trim();
-    if (!MANUAL_PRICE_TICKER_RE.test(ticker)) return sendError(res, 400, "INVALID_TICKER", "Ticker non valido");
-    await quotesCol.deleteOne({ ticker, householdId: req.householdId, manualPrice: { $exists: true } });
-    res.json({ ok: true });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 
