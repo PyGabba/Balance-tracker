@@ -2,7 +2,7 @@ import express from "express";
 import { toMinorUnits } from "../../src/lib/money.js";
 import {
   sendError, requireHousehold, writeLimiter, db, transactionsCol, tripsCol,
-  quotesCol, householdsCol, withTransaction, sanitizePersone, sanitizeText,
+  quotesCol, householdsCol, auditCol, withTransaction, sanitizePersone, sanitizeText,
 } from "../shared.js";
 
 const router = express.Router();

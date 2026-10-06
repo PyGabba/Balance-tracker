@@ -4,6 +4,7 @@ import {
   sendError, requireHousehold, requireRole, writeLimiter, householdsCol, db,
   transactionsCol, tripsCol, audit, clientIp, sanitizePersone, personaIdFromNome,
   DEFAULT_EMOJIS, PERSONA_COLORS, sanitizeValuta, fetchRatesTable, sanitizeText,
+  clearLock, revokeTokensForPersona,
 } from "../shared.js";
 
 const router = express.Router();

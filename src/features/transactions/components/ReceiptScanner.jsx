@@ -1,7 +1,6 @@
 import { useState, useRef } from "react";
 import { IconCamera, IconScan } from "@tabler/icons-react";
 import { Camera } from "@capacitor/camera";
-import Tesseract from "tesseract.js";
 import { parseReceiptText } from "../helpers.js";
 import { color, alpha, accentGradient, displayFont } from "../../../components/ui/styles.js";
 
@@ -17,6 +16,7 @@ export function ReceiptScanner({ onScanComplete }) {
     setScanning(true);
     setProgress(10);
 
+    const { default: Tesseract } = await import("tesseract.js");
     const result = await Tesseract.recognize(imageData, "eng+ita", {
       logger: (m) => {
         if (m.status === "recognizing text") {
