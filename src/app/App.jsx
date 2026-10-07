@@ -284,8 +284,10 @@ export default function FinanzaApp() {
 
   async function aggiungiTransazione(tx) {
     try {
+      const primaSpesa = tx.tipo === "uscita" && !transazioni.some(x => x.tipo === "uscita");
       const saved = await addTransaction(tx);
       setTransazioni(prev => [...prev, saved]);
+      if (primaSpesa) toast(t(lang, "onboarding.firstExpenseDone"), "success");
       
       // Auto-apply goal contributions on entrata — which goals qualify and by
       // how much is decided by services/goalsService.js (pure, tested in
@@ -397,7 +399,7 @@ export default function FinanzaApp() {
       {/* Scrollable content — pulling down past the top reloads, replacing
           the old explicit reload button (MOD: pull-to-refresh) */}
       <PullToRefresh onRefresh={() => window.location.reload()} style={{ flex: 1, paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} debitiGlobale={debitiGlobale} allPeople={allPeopleDebt} onOpenDebt={() => setDebtOpen(true)} onSettle={aggiungiSaldo} onUndoSettle={eliminaTransazione} lang={lang} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} debitiGlobale={debitiGlobale} allPeople={allPeopleDebt} onOpenDebt={() => setDebtOpen(true)} onSettle={aggiungiSaldo} onUndoSettle={eliminaTransazione} householdName={householdName} onGoToAdd={() => setTab("aggiungi")} lang={lang} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
         <Suspense fallback={null}>
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} valutaBase={valutaBase} activePersonaId={activePersonaId} lang={lang} />}

@@ -237,7 +237,8 @@ export function LoginScreen({ onLogin }) {
       <div style={{ fontSize: 36, fontWeight: 800, letterSpacing: -1, marginBottom: 4 }}>
         <span style={{ background: accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span>
       </div>
-      <div style={{ fontSize: 11, color: color.textMuted, letterSpacing: 2, textTransform: "uppercase", marginBottom: 32 }}>{t(lang, "header.tracker")}</div>
+      <div style={{ fontSize: 11, color: color.textMuted, letterSpacing: 2, textTransform: "uppercase", marginBottom: mode === "change-pin" ? 32 : 10 }}>{t(lang, "header.tracker")}</div>
+      {mode !== "change-pin" && <div style={{ fontSize: 14, color: color.textSecondary, textAlign: "center", maxWidth: 280, lineHeight: 1.45, marginBottom: 24 }}>{t(lang, "login.tagline")}</div>}
 
       {/* PIN change screen */}
       {mode === "change-pin" && (
