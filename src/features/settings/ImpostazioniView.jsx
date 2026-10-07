@@ -161,7 +161,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
     }
   }
 
-  const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done
+  const [fase, setFase] = useState("idle"); // idle | confirm | pin | deleting | done (idle = not started; the page shows the first step)
   const [pin, setPin] = useState("");
   const [errore, setErrore] = useState("");
 
@@ -396,7 +396,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
           ))}
         </div>
 
-        <button onClick={() => setScreen("elimina")} style={{
+        <button onClick={() => { setFase("confirm"); setPin(""); setErrore(""); setScreen("elimina"); }} style={{
           width: "100%", padding: "13px", border: `1px solid ${alpha(color.negative, 0.4)}`, borderRadius: 12,
           background: alpha(color.negative, 0.1), color: color.negative, fontFamily: displayFont,
           fontSize: 13, fontWeight: 700, cursor: "pointer",
@@ -797,18 +797,27 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
     </div>
   );
 
-  // ─── Elimina il gruppo (multi-step confirm, unchanged logic) ───
+  // ─── Elimina il gruppo (conferma a più passaggi: confirm → pin → done) ───
+  // `passo` non è mai "idle": se per qualunque motivo si arriva qui senza aver
+  // avviato la conferma si parte dal primo passo, invece di una pagina vuota
+  // (era il bug: il pulsante apriva la pagina senza impostare il passo, e
+  // l'eliminazione dell'account risultava irraggiungibile).
+  const passo = fase === "idle" ? "confirm" : fase;
+  const chiudiElimina = () => { setFase("idle"); setPin(""); setErrore(""); back(); };
   return (
     <div style={{ padding: "20px 16px" }}>
-      <SubHeader title={t(lang, "settings.dangerZone")} onBack={fase === "idle" ? back : () => setFase("idle")} />
+      <SubHeader
+        title={t(lang, "settings.dangerZone")}
+        onBack={passo === "pin" ? () => { setFase("confirm"); setPin(""); setErrore(""); } : passo === "deleting" ? () => {} : chiudiElimina}
+      />
 
-      {fase === "confirm" && (
+      {passo === "confirm" && (
         <div>
           <div style={{ fontSize: 13, color: color.warn, marginBottom: 14, textAlign: "center", lineHeight: 1.5 }}>
             {t(lang, "settings.confirmDeleteWarningPrefix")} <strong style={{ color: color.textPrimary }}>{householdName}</strong>. {t(lang, "settings.confirmDeleteWarningSuffix")}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={back} style={{
+            <button onClick={chiudiElimina} style={{
               flex: 1, padding: "12px", border: `1px solid ${color.border}`, borderRadius: 12,
               background: "transparent", color: color.textMuted, fontFamily: displayFont,
               fontSize: 14, fontWeight: 600, cursor: "pointer",
@@ -822,7 +831,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
         </div>
       )}
 
-      {(fase === "pin" || fase === "deleting") && (
+      {(passo === "pin" || passo === "deleting") && (
         <div>
           <div style={{ fontSize: 13, color: color.textSecondary, marginBottom: 10, textAlign: "center" }}>
             {t(lang, "settings.enterPinToConfirmDelete")}
@@ -842,7 +851,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
           />
           {errore && <div style={{ color: color.negative, fontSize: 12, textAlign: "center", marginBottom: 10 }}>{errore}</div>}
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => { setFase("idle"); setPin(""); setErrore(""); back(); }} style={{
+            <button onClick={chiudiElimina} disabled={passo === "deleting"} style={{
               flex: 1, padding: "12px", border: `1px solid ${color.border}`, borderRadius: 12,
               background: "transparent", color: color.textMuted, fontFamily: displayFont,
               fontSize: 14, fontWeight: 600, cursor: "pointer",
@@ -861,7 +870,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
         </div>
       )}
 
-      {fase === "done" && (
+      {passo === "done" && (
         <div style={{ textAlign: "center", padding: "10px 0" }}>
           <div style={{ display: "flex", justifyContent: "center", color: color.positive, marginBottom: 8 }}><IconTrash size={32} /></div>
           <div style={{ color: color.positive, fontWeight: 700 }}>Account eliminato</div>
