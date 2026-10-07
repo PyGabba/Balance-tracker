@@ -19,7 +19,7 @@ node server/migrate.js up [--dry-run]  # run pending migrations
 
 Server tests (`server/*.test.js`) spin up a real single-node MongoDB replica set via `mongodb-memory-server` (see `server/testUtils.js`) — first run downloads a `mongod` binary. `vitest.config.js` sets generous `hookTimeout`/`testTimeout` (60s/30s) specifically for this; don't lower them for server suites.
 
-No lint script is configured.
+`npm run lint` runs ESLint (flat config in `eslint.config.js`); CI runs it, tests, and the build on every PR (`.github/workflows/ci.yml`).
 
 ## Architecture
 

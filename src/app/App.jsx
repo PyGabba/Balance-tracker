@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { IconEye, IconEyeOff, IconSettings } from "@tabler/icons-react";
 import { App as CapApp } from "@capacitor/app";
 import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId, runDueRecurringNow } from "../api.js";
@@ -12,18 +12,20 @@ import { calcolaDebitiMatrix } from "../lib/finance.js";
 import { AggiungiView } from "../features/transactions/AggiungiView.jsx";
 import { computeAutoContributions } from "../services/goalsService.js";
 import { LoginScreen } from "../features/auth/LoginScreen.jsx";
-import { ViaggiView } from "../features/trips/ViaggiView.jsx";
 import { TripGuestView } from "../features/trips/TripGuestView.jsx";
-import { PortfolioView } from "../features/portfolio/PortfolioView.jsx";
 import { MonthBar } from "../components/ui/MonthBar.jsx";
 import { PullToRefresh } from "../components/PullToRefresh.jsx";
-import { StatsView } from "../features/statistics/StatsView.jsx";
-import { ExportView } from "../features/settings/ExportView.jsx";
-import { ImpostazioniView } from "../features/settings/ImpostazioniView.jsx";
 import { TabBar } from "./TabBar.jsx";
 import { HomeView } from "./HomeView.jsx";
 import { DebitiView } from "../features/debts/DebitiView.jsx";
 import { color, accentGradient, displayFont } from "../components/ui/styles.js";
+
+// Heavy tabs are split out of the main bundle and fetched on first visit.
+const ViaggiView = lazy(() => import("../features/trips/ViaggiView.jsx").then((m) => ({ default: m.ViaggiView })));
+const PortfolioView = lazy(() => import("../features/portfolio/PortfolioView.jsx").then((m) => ({ default: m.PortfolioView })));
+const StatsView = lazy(() => import("../features/statistics/StatsView.jsx").then((m) => ({ default: m.StatsView })));
+const ExportView = lazy(() => import("../features/settings/ExportView.jsx").then((m) => ({ default: m.ExportView })));
+const ImpostazioniView = lazy(() => import("../features/settings/ImpostazioniView.jsx").then((m) => ({ default: m.ImpostazioniView })));
 
 // PERSONE is now dynamic — loaded from session after login
 // Fallback for offline/localStorage mode. Deliberately plain hex (not the
@@ -392,6 +394,7 @@ export default function FinanzaApp() {
       <PullToRefresh onRefresh={() => window.location.reload()} style={{ flex: 1, paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
         {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} debitiGlobale={debitiGlobale} allPeople={allPeopleDebt} onOpenDebt={() => setDebtOpen(true)} lang={lang} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
+        <Suspense fallback={null}>
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} valutaBase={valutaBase} activePersonaId={activePersonaId} lang={lang} />}
         {tab === "export" && <ExportView transazioni={transazioni} persone={persone} positions={positions} conti={conti} onImport={aggiungiTransazioneSilente} onImportComplete={loadAll} onImportPosition={aggiungiPositioneSilente} onImportPositionComplete={loadPositions} lang={lang} />}
         {tab === "portfolio" && <PortfolioView lang={lang} conti={conti} />}
@@ -420,6 +423,7 @@ export default function FinanzaApp() {
             onDeleteConto={handleDeleteConto}
           />
         )}
+        </Suspense>
       </PullToRefresh>
       <TabBar tab={tab} setTab={setTab} householdId={getSession()?.householdId} lang={lang} />
       {debtOpen && (

@@ -3,6 +3,7 @@
 // Nessuna dipendenza da React o dallo stato dell'app: solo input → output.
 
 import { fromMinorUnits, minorUnitsOf } from "./money.js";
+import { calcolaProssimaData } from "../features/transactions/helpers.js";
 
 // ─── Quota personale ("le tue statistiche") ───
 // Quanto di una transazione appartiene a una specifica persona, per le
@@ -258,47 +259,151 @@ export function calcolaSettleViaggio(trip, valutaBase = "EUR") {
   return settlements;
 }
 
-// Previsione spesa del mese prossimo: media mobile semplice sugli ultimi N
-// mesi COMPLETI (il mese in corso è escluso perché parziale — includerlo
-// abbasserebbe artificialmente la media). Include anche una ripartizione per
-// categoria, calcolata con la stessa media sulle stesse categorie.
-export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Date(), months = 3, valutaBase = "EUR") {
-  const monthKeys = [];
-  for (let i = 1; i <= months; i++) {
-    const d = new Date(oggi.getFullYear(), oggi.getMonth() - i, 1);
-    monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
+// ─── Previsione spesa del mese prossimo ───
+// Due componenti, sommate:
+//  1. FISSA — le occorrenze che i template ricorrenti (affitto, abbonamenti,
+//     voci settimanali...) genereranno davvero nel mese prossimo, calcolate
+//     dalla loro prossimaData/frequenza. Sono note in anticipo, quindi non
+//     vanno stimate dalla media storica (che sbaglierebbe per voci nuove,
+//     cancellate o settimanali con 4 vs 5 occorrenze).
+//  2. VARIABILE — le spese NON ricorrenti degli ultimi N mesi COMPLETI (il
+//     mese in corso è escluso perché parziale), stimate con uno stimatore
+//     robusto agli eccessi (vedi robustMonthlyEstimate): una vacanza o un
+//     acquisto una tantum non deve gonfiare la previsione.
+// Le spese ricorrenti passate vengono escluse dalla parte variabile, altrimenti
+// verrebbero contate due volte.
 
-  const totalsByMonthMinor = {};
-  const categoryTotalsByMonthMinor = {};
-  for (const key of monthKeys) { totalsByMonthMinor[key] = 0; categoryTotalsByMonthMinor[key] = {}; }
+const monthKeyOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+const normText = v => (v || "").toString().trim().toLowerCase();
 
+// Un'uscita è "ricorrente" se è un template, se è stata generata dal job
+// server (recurrenceOccurrenceKey), o — per le occorrenze generate in passato
+// lato client, senza chiave — se corrisponde per descrizione + categoria a un
+// template esistente.
+function buildRecurringMatcher(transazioni) {
+  const templateSigs = new Set();
   for (const t of transazioni) {
-    if (t.tipo !== "uscita" || !t.data) continue;
-    const key = t.data.slice(0, 7);
-    if (!(key in totalsByMonthMinor)) continue;
-    const importoMinor = minorUnitsOf(t, "importo", valutaBase);
-    totalsByMonthMinor[key] += importoMinor;
+    if (t.ricorrenza?.frequenza && t.descrizione) {
+      templateSigs.add(`${normText(t.descrizione)}|${normText(t.categoria)}`);
+    }
+  }
+  return t =>
+    !!t.ricorrenza?.frequenza ||
+    !!t.recurrenceOccurrenceKey ||
+    (!!t.descrizione && templateSigs.has(`${normText(t.descrizione)}|${normText(t.categoria)}`));
+}
+
+function median(sorted) {
+  const n = sorted.length;
+  const mid = Math.floor(n / 2);
+  return n % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Stima del "mese tipico" da una serie mensile (minor units). Con pochi mesi
+// la media è l'unica cosa onesta; con 3-4 la mediana ignora un mese anomalo;
+// da 5 in su la media troncata (scarta il mese più alto e più basso) usa più
+// dati della mediana restando robusta agli eccessi.
+function robustMonthlyEstimate(values) {
+  const n = values.length;
+  if (n === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  if (n <= 2) return Math.round(sorted.reduce((s, v) => s + v, 0) / n);
+  if (n <= 4) return Math.round(median(sorted));
+  const trimmed = sorted.slice(1, -1);
+  return Math.round(trimmed.reduce((s, v) => s + v, 0) / trimmed.length);
+}
+
+// Occorrenze di un template che cadono nel mese [start, end] (stringhe
+// YYYY-MM-DD). Avanza dalla prossimaData con la stessa regola del job server.
+function countOccurrencesInMonth(ricorrenza, start, end) {
+  let count = 0;
+  let d = ricorrenza.prossimaData;
+  for (let guard = 0; d <= end && guard < 400; guard++) {
+    if (d >= start) count++;
+    const next = calcolaProssimaData(d, ricorrenza.frequenza);
+    if (next <= d) break; // frequenza sconosciuta: evita loop infinito
+    d = next;
+  }
+  return count;
+}
+
+export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Date(), months = 6, valutaBase = "EUR") {
+  const isRecurring = buildRecurringMatcher(transazioni);
+  const nextStart = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 1);
+  const nextEnd = new Date(oggi.getFullYear(), oggi.getMonth() + 2, 0);
+  const isoDay = d => `${monthKeyOf(d)}-${String(d.getDate()).padStart(2, "0")}`;
+  const startStr = isoDay(nextStart);
+  const endStr = isoDay(nextEnd);
+
+  // ── Parte fissa: template ricorrenti attivi ──
+  const fixedByCat = {};
+  let fixedMinor = 0;
+  let recurringCount = 0;
+  for (const t of transazioni) {
+    if (t.tipo !== "uscita" || t.deletedAt || !t.ricorrenza?.frequenza || !t.ricorrenza?.prossimaData) continue;
+    const occ = countOccurrencesInMonth(t.ricorrenza, startStr, endStr);
+    if (occ === 0) continue;
+    const amountMinor = minorUnitsOf(t, "importo", valutaBase) * occ;
     const cat = t.categoria || "altro";
-    categoryTotalsByMonthMinor[key][cat] = (categoryTotalsByMonthMinor[key][cat] || 0) + importoMinor;
+    fixedByCat[cat] = (fixedByCat[cat] || 0) + amountMinor;
+    fixedMinor += amountMinor;
+    recurringCount++;
   }
 
-  const monthsWithData = monthKeys.filter(k => totalsByMonthMinor[k] > 0);
-  const monthsUsed = monthsWithData.length;
-  if (monthsUsed === 0) return { forecast: 0, monthsUsed: 0, perCategory: [] };
+  // ── Parte variabile: spese non ricorrenti degli ultimi N mesi completi ──
+  const monthKeys = [];
+  for (let i = months; i >= 1; i--) monthKeys.push(monthKeyOf(new Date(oggi.getFullYear(), oggi.getMonth() - i, 1)));
+  const totals = {};
+  const catTotals = {};
+  for (const k of monthKeys) { totals[k] = 0; catTotals[k] = {}; }
+  let earliest = null;
+  for (const t of transazioni) {
+    if (t.tipo !== "uscita" || !t.data || t.deletedAt) continue;
+    const key = t.data.slice(0, 7);
+    if (!(key in totals)) continue;
+    if (earliest === null || key < earliest) earliest = key; // anche le ricorrenti segnano l'inizio dello storico
+    if (isRecurring(t)) continue;
+    const m = minorUnitsOf(t, "importo", valutaBase);
+    totals[key] += m;
+    const cat = t.categoria || "altro";
+    catTotals[key][cat] = (catTotals[key][cat] || 0) + m;
+  }
 
-  const sumTotalMinor = monthsWithData.reduce((s, k) => s + totalsByMonthMinor[k], 0);
-  const forecast = fromMinorUnits(Math.round(sumTotalMinor / monthsUsed), valutaBase);
+  // Finestra tracciata: dal primo mese con dati in poi. Un mese vuoto dentro
+  // la finestra conta come 0 (un mese senza spese variabili è informazione);
+  // i mesi prima dell'inizio dello storico non contano.
+  const tracked = earliest === null ? [] : monthKeys.filter(k => k >= earliest);
+  const monthsUsed = tracked.length;
 
-  const catIds = new Set();
-  for (const k of monthsWithData) for (const cid of Object.keys(categoryTotalsByMonthMinor[k])) catIds.add(cid);
+  const variableMinor = robustMonthlyEstimate(tracked.map(k => totals[k]));
+
+  // Ripartizione per categoria della parte variabile: stessa stima per
+  // categoria, poi riscalata perché la somma coincida con il totale variabile.
+  const catIds = new Set(Object.keys(fixedByCat));
+  for (const k of tracked) for (const cid of Object.keys(catTotals[k])) catIds.add(cid);
+  const rawVar = {};
+  for (const id of catIds) rawVar[id] = robustMonthlyEstimate(tracked.map(k => catTotals[k][id] || 0));
+  const rawVarSum = Object.values(rawVar).reduce((s, v) => s + v, 0);
+  const varByCat = {};
+  for (const id of catIds) varByCat[id] = rawVarSum > 0 ? Math.round(variableMinor * rawVar[id] / rawVarSum) : 0;
+  if (rawVarSum > 0) { // il rounding per categoria può lasciare qualche centesimo: assegnalo alla categoria maggiore
+    const diff = variableMinor - Object.values(varByCat).reduce((s, v) => s + v, 0);
+    const biggest = Object.keys(varByCat).reduce((a, b) => (varByCat[b] > varByCat[a] ? b : a));
+    varByCat[biggest] += diff;
+  }
 
   const perCategory = [...catIds].map(id => {
-    const sumMinor = monthsWithData.reduce((s, k) => s + (categoryTotalsByMonthMinor[k][id] || 0), 0);
-    const valore = fromMinorUnits(Math.round(sumMinor / monthsUsed), valutaBase);
     const cat = categorie.find(c => c.id === id);
-    return { id, nome: cat?.nome || id, emoji: cat?.emoji || "📦", colore: cat?.colore || "#888", valore };
+    const valoreMinor = (fixedByCat[id] || 0) + varByCat[id];
+    return { id, nome: cat?.nome || id, emoji: cat?.emoji || "📦", colore: cat?.colore || "#888", valore: fromMinorUnits(valoreMinor, valutaBase) };
   }).filter(c => c.valore > 0).sort((a, b) => b.valore - a.valore);
 
-  return { forecast, monthsUsed, perCategory };
+  return {
+    forecast: fromMinorUnits(fixedMinor + variableMinor, valutaBase),
+    fixed: fromMinorUnits(fixedMinor, valutaBase),
+    variable: fromMinorUnits(variableMinor, valutaBase),
+    monthsUsed,
+    recurringCount,
+    perCategory,
+  };
 }
