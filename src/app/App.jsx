@@ -335,9 +335,11 @@ export default function FinanzaApp() {
     try {
       await deleteTransaction(id);
       setTransazioni(prev => prev.filter(t => t.id !== id));
+      return true;
     } catch (err) {
       console.error("Delete error:", err);
       toast(`${t(lang, "toast.errorDeletePrefix")} ${err.message}`, "error");
+      return false; // callers that confirm success to the user (restoring a settlement) need to know
     }
   }
 

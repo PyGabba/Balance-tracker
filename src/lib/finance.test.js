@@ -22,6 +22,14 @@ describe("calcolaDebitiMatrix", () => {
     expect(debiti).toEqual([]);
   });
 
+  it("togliendo il saldo (ripristino) il debito riappare, anche per un saldo parziale", () => {
+    const spesa = { tipo: "uscita", importo: 100, pagatoDa: "g", splits: [{ personaId: "g", quota: 50 }, { personaId: "l", quota: 50 }] };
+    const saldoParziale = { id: "s1", tipo: "saldo", importo: 20, pagatoDa: "l", ricevutoDa: "g" };
+    expect(calcolaDebitiMatrix([spesa, saldoParziale], persone)).toEqual([{ da: "l", a: "g", importo: 30 }]);
+    const senzaSaldo = [spesa, saldoParziale].filter(t => t.id !== "s1");
+    expect(calcolaDebitiMatrix(senzaSaldo, persone)).toEqual([{ da: "l", a: "g", importo: 50 }]);
+  });
+
   it("usa importoMinorUnits come fonte autorevole quando presente (MOD-016 contract phase)", () => {
     // importo e importoMinorUnits deliberatamente incoerenti: il campo
     // minor-units vince, non viene mediato né incrociato col decimale.

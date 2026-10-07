@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { IconChevronLeft, IconChevronDown, IconCheck, IconX } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronDown, IconCheck, IconArrowBackUp } from "@tabler/icons-react";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { generaId } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
 import { buildSettlementTransaction } from "../../services/debtService.js";
 import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
 
@@ -47,6 +48,20 @@ export function DebitiView({ meseVis, debitiMese, debitiGlobale, allPeople, tran
       </div>
     );
   };
+
+  // Take a settlement back: deleting the "saldo" transaction is what makes
+  // the debt reappear (the matrix is recomputed from the transactions). The
+  // row goes to the trash, so it can also be brought back from Settings.
+  // Trip settlements ("saldo_viaggio") are record-only and never affected the
+  // debts, so for those this is a plain delete of the record.
+  async function restoreSettlement(s, pDa, pA) {
+    const isTripRecord = s.categoria === "saldo_viaggio";
+    const message = t(lang, isTripRecord ? "home.deleteSettleConfirm" : "home.restoreDebtConfirm")
+      .replace("{da}", pDa.nome).replace("{a}", pA.nome).replace("{importo}", formattaValuta(s.importo));
+    const ok = await confirmDialog({ message, confirmLabel: t(lang, isTripRecord ? "common.delete" : "home.restoreDebt"), danger: isTripRecord, lang });
+    if (!ok) return;
+    if (await onDelete(s.id)) toast(t(lang, isTripRecord ? "home.settleDeleted" : "home.debtRestored"), "success");
+  }
 
   const saldati = transazioni
     .filter(t => t.tipo === "saldo")
@@ -142,7 +157,10 @@ export function DebitiView({ meseVis, debitiMese, debitiGlobale, allPeople, tran
                       <span style={{ fontSize: 12, color: color.textMuted, flex: 1 }}>{pDa.nome} → {pA.nome}</span>
                       <span style={{ fontSize: 12, color: color.positive, fontFamily: moneyFont, fontWeight: 600 }}>{formattaValuta(s.importo)}</span>
                       <span style={{ fontSize: 11, color: color.textMuted, marginLeft: 4 }}>{formattaData(s.data)}</span>
-                      <button onClick={() => onDelete(s.id)} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.53)}`, cursor: "pointer", display: "flex", padding: "0 2px" }} title={t(lang, "home.deleteSettle")}><IconX size={12} /></button>
+                      <button onClick={() => restoreSettlement(s, pDa, pA)} title={t(lang, s.categoria === "saldo_viaggio" ? "home.deleteSettle" : "home.restoreDebtHint")} style={{
+                        background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 3, padding: "4px 0 4px 6px",
+                        color: s.categoria === "saldo_viaggio" ? alpha(color.negative, 0.7) : color.accent, fontSize: 11, fontWeight: 700, fontFamily: displayFont,
+                      }}><IconArrowBackUp size={13} />{t(lang, s.categoria === "saldo_viaggio" ? "common.delete" : "home.restoreDebt")}</button>
                     </div>
                   );
                 })}
