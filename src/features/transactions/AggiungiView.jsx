@@ -86,6 +86,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
       const match = categorie.find(c => c.id === parsed.categoria);
       if (match) setCategoria(match.id);
     }
+    if (parsed.data) setData(parsed.data);
   }
 
   function handleSubmit() {
@@ -135,7 +136,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
   return (
     <div style={{ padding: "20px 16px" }}>
       <div style={{ fontSize: 22, fontWeight: 800, color: color.textPrimary, marginBottom: 20 }}>{t(lang, "aggiungi.title")}</div>
-      <div style={{ marginBottom: 16 }}><ReceiptScanner onScanComplete={handleReceiptScan} /></div>
+      <div style={{ marginBottom: 16 }}><ReceiptScanner onScanComplete={handleReceiptScan} lang={lang} /></div>
       <div style={{ display: "flex", background: color.surface, borderRadius: 14, padding: 4, marginBottom: 20, border: `1px solid ${color.border}` }}>
         {["uscita", "entrata", ...(conti.length >= 2 ? ["trasferimento"] : [])].map(tp => (
           <button key={tp} onClick={() => setTipo(tp)} style={{

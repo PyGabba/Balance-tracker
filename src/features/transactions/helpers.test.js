@@ -99,6 +99,119 @@ describe("parseReceiptText — description and category", () => {
   });
 });
 
+describe("parseReceiptText — real-world receipt structure", () => {
+  const oggi = new Date(2026, 9, 7); // 7 ottobre 2026
+
+  it("picks TOTALE COMPLESSIVO over VAT, cash tendered and change on an Italian documento commerciale", () => {
+    const text = [
+      "DOCUMENTO COMMERCIALE",
+      "di vendita o prestazione",
+      "ESSELUNGA S.P.A.",
+      "VIA FANTOLI 18 MILANO",
+      "P.IVA 01255720169",
+      "DESCRIZIONE      IVA    PREZZO(€)",
+      "LATTE INTERO     4%     1,29",
+      "BANANE           4%     2,15",
+      "DETERSIVO        22%    4,99",
+      "TOTALE COMPLESSIVO      8,43",
+      "DI CUI IVA              1,08",
+      "CONTANTE               20,00",
+      "RESTO                  11,57",
+      "12-03-2026 18:42",
+      "DOC.N. 0123-0456",
+    ].join("\n");
+    const r = parseReceiptText(text, { oggi });
+    expect(r.importo).toBe(8.43);
+    expect(r.descrizione).toBe("ESSELUNGA S.P.A.");
+    expect(r.categoria).toBe("cibo");
+    expect(r.data).toBe("2026-03-12");
+  });
+
+  it("never returns the change (RESTO EUR …) as the total", () => {
+    const text = ["BAR SPORT", "CAFFE 1,20", "CORNETTO 1,30", "TOTALE 2,50", "CONTANTI EUR 10,00", "RESTO EUR 7,50"].join("\n");
+    expect(parseReceiptText(text, { oggi }).importo).toBe(2.5);
+  });
+
+  it("reads an OCR-smudged keyword (T0TALE) and ignores the VAT line below it", () => {
+    const text = ["NEGOZIO", "T0TALE 23,40", "IVA 22% 4,22"].join("\n");
+    expect(parseReceiptText(text, { oggi }).importo).toBe(23.4);
+  });
+
+  it("fixes O/0 lookalikes inside the amount", () => {
+    expect(parseReceiptText("TOTALE 1O,5O", { oggi }).importo).toBe(10.5);
+  });
+
+  it("uses the electronic payment line when there's no total line", () => {
+    const text = ["PIZZERIA DA GINO", "MARGHERITA 7,00", "BIRRA 4,50", "PAGAMENTO ELETTRONICO 11,50", "IVA 10% 1,05"].join("\n");
+    const r = parseReceiptText(text, { oggi });
+    expect(r.importo).toBe(11.5);
+    expect(r.categoria).toBe("cibo");
+  });
+
+  it("prefers a strong total phrase over an earlier plain TOTALE", () => {
+    const text = ["TOTALE 20,00", "SCONTO 5,00", "TOTALE COMPLESSIVO 15,00"].join("\n");
+    expect(parseReceiptText(text, { oggi }).importo).toBe(15);
+  });
+
+  it("finds a total whose amount OCR put on the next line", () => {
+    expect(parseReceiptText(["SHOP", "TOTALE EURO", "23,40"].join("\n"), { oggi }).importo).toBe(23.4);
+  });
+
+  it("does not mistake dates or times for amounts, and accepts a whole-number total", () => {
+    const r = parseReceiptText(["NEGOZIO", "12.05.26 10:30", "TOTALE 5"].join("\n"), { oggi });
+    expect(r.importo).toBe(5);
+    expect(r.data).toBe("2026-05-12");
+  });
+
+  it("reports how the total was found, so the OCR pipeline knows when to retry", () => {
+    expect(parseReceiptText("SHOP\nTOTALE 5,00", { oggi }).totalSource).toBe("total");
+    expect(parseReceiptText("SHOP\nPAGAMENTO CARTA 5,00", { oggi }).totalSource).toBe("payment");
+    expect(parseReceiptText("SHOP\nSUBTOTAL 5.00", { oggi }).totalSource).toBe("subtotal");
+    expect(parseReceiptText("SHOP\nARTICOLO 5,00", { oggi }).totalSource).toBe("fallback");
+    expect(parseReceiptText("SHOP", { oggi }).totalSource).toBeNull();
+  });
+
+  it("fallback never takes an excluded line's amount", () => {
+    expect(parseReceiptText(["NEGOZIO X", "SCONTO 50,00", "ARTICOLO 30,00"].join("\n"), { oggi }).importo).toBe(30);
+  });
+});
+
+describe("parseReceiptText — merchant, category and date", () => {
+  const oggi = new Date(2026, 9, 7);
+
+  it("skips OCR junk and header boilerplate to find the merchant", () => {
+    const text = ["~~~~", "*** 12 ***", "Trattoria Da Luigi", "Via Roma 1", "TOTALE 30,00"].join("\n");
+    const r = parseReceiptText(text, { oggi });
+    expect(r.descrizione).toBe("Trattoria Da Luigi");
+    expect(r.categoria).toBe("cibo");
+  });
+
+  it("never uses an item line with a price as the merchant", () => {
+    const text = ["S217 TRADER JOE'S #552", "£5 4.49", "COFFEE BEANS 8.99", "TOTAL 15.71"].join("\n");
+    expect(parseReceiptText(text, { oggi }).descrizione).toBe("S217 TRADER JOE'S #552");
+  });
+
+  it("matches category keywords as whole words (TIMBRO is not TIM, PAGAMENTO is not a bill)", () => {
+    const text = ["CARTOLERIA ROSSI", "TIMBRO 12,00", "TOTALE 12,00", "PAGAMENTO CARTA 12,00"].join("\n");
+    expect(parseReceiptText(text, { oggi }).categoria).toBe("");
+  });
+
+  it("weights the merchant line over incidental item keywords", () => {
+    const text = ["FARMACIA SAN MARCO", "CARAMELLE BAR 2,00", "TOTALE 2,00"].join("\n");
+    expect(parseReceiptText(text, { oggi }).categoria).toBe("salute");
+  });
+
+  it("reads a month-first date only when day-first is impossible", () => {
+    expect(parseReceiptText("STORE\n03/15/2026\nTOTAL 9.99", { oggi }).data).toBe("2026-03-15");
+    expect(parseReceiptText("NEGOZIO\n03/04/2026\nTOTALE 9,99", { oggi }).data).toBe("2026-04-03");
+  });
+
+  it("ignores dates in the future or more than a year old", () => {
+    expect(parseReceiptText("NEGOZIO\n15/12/2026\nTOTALE 1,00", { oggi }).data).toBeNull();
+    expect(parseReceiptText("NEGOZIO\n01/01/2024\nTOTALE 1,00", { oggi }).data).toBeNull();
+  });
+});
+
 // Sanity check that the extraction moved here without behavior change on
 // the other two pure helpers already living in this file.
 describe("existing helpers still work after the parseReceiptText move", () => {

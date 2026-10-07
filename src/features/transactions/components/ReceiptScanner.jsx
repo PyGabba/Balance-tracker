@@ -1,11 +1,14 @@
 import { useState, useRef } from "react";
 import { IconCamera, IconScan } from "@tabler/icons-react";
-import { Camera } from "@capacitor/camera";
-import { parseReceiptText } from "../helpers.js";
+import { Camera, CameraResultType } from "@capacitor/camera";
+import { toast } from "../../../components/Toast.jsx";
+import { t } from "../../../lib/i18n.js";
 import { color, alpha, accentGradient, displayFont } from "../../../components/ui/styles.js";
 
 // ─── Receipt Scanner ───
-export function ReceiptScanner({ onScanComplete }) {
+// The OCR pipeline (preprocessing, Tesseract, text parsing) lives in
+// ../receiptOcr.js; this component only handles capture, progress and errors.
+export function ReceiptScanner({ onScanComplete, lang = "it" }) {
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -14,70 +17,56 @@ export function ReceiptScanner({ onScanComplete }) {
   async function processImage(imageData) {
     setPreviewUrl(imageData);
     setScanning(true);
-    setProgress(10);
-
-    const { default: Tesseract } = await import("tesseract.js");
-    const result = await Tesseract.recognize(imageData, "eng+ita", {
-      logger: (m) => {
-        if (m.status === "recognizing text") {
-          setProgress(Math.round(m.progress * 80) + 10);
-        }
-      },
-    });
-
-    setProgress(90);
-    const text = result.data.text;
-    const parsed = parseReceiptText(text);
-
-    setProgress(100);
-    setTimeout(() => {
+    setProgress(0);
+    try {
+      // Loaded on first scan: keeps the OCR pipeline out of the main bundle.
+      const { scanReceipt } = await import("../receiptOcr.js");
+      const parsed = await scanReceipt(imageData, { onProgress: p => setProgress(Math.round(p * 100)) });
+      onScanComplete(parsed);
+      toast(t(lang, parsed.importo == null ? "receipt.noTotal" : "receipt.done"), parsed.importo == null ? "info" : "success");
+    } catch (e) {
+      console.error("Scan error:", e);
+      toast(t(lang, "receipt.error"), "error");
+    } finally {
       setScanning(false);
       setPreviewUrl(null);
-      onScanComplete(parsed);
-    }, 500);
+    }
   }
 
   async function captureAndScan() {
+    let imageData;
     try {
-      let imageData;
-
-      try {
-        const permission = await Camera.requestPermissions();
-        if (permission.camera) {
-          const photo = await Camera.getPhoto({
-            quality: 80,
-            allowEditing: false,
-            resultType: "base64",
-          });
-          if (photo.base64String) {
-            imageData = `data:image/jpeg;base64,${photo.base64String}`;
-          }
-        }
-      } catch (e) {
-        // Camera not available, fall through to file input
+      const permission = await Camera.requestPermissions();
+      if (permission.camera) {
+        const photo = await Camera.getPhoto({
+          // Receipt print is small: keep detail (OCR preprocessing downsizes
+          // to a 2400px long edge anyway) and let the camera fix rotation.
+          quality: 92,
+          width: 2400,
+          correctOrientation: true,
+          allowEditing: false,
+          resultType: CameraResultType.Base64,
+        });
+        if (photo.base64String) imageData = `data:image/${photo.format || "jpeg"};base64,${photo.base64String}`;
       }
-
-      if (!imageData) {
-        fileInputRef.current?.click();
-        return;
-      }
-
-      await processImage(imageData);
-    } catch (e) {
-      console.error("Scan error:", e);
+    } catch {
+      // Camera not available (web) or cancelled: fall through to file input
     }
+    if (!imageData) {
+      fileInputRef.current?.click();
+      return;
+    }
+    await processImage(imageData);
   }
 
   function handleFileSelect(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      await processImage(ev.target.result);
-    };
-    reader.readAsDataURL(file);
     e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => processImage(ev.target.result);
+    reader.onerror = () => toast(t(lang, "receipt.error"), "error");
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -89,7 +78,7 @@ export function ReceiptScanner({ onScanComplete }) {
         onChange={handleFileSelect}
         style={{ display: "none" }}
       />
-      {!scanning && !previewUrl && (
+      {!scanning && (
         <button onClick={captureAndScan} style={{
           width: "100%", padding: "14px", border: `2px dashed ${alpha(color.accent, 0.33)}`,
           borderRadius: 14, cursor: "pointer", background: color.surface,
@@ -97,22 +86,20 @@ export function ReceiptScanner({ onScanComplete }) {
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>
           <IconCamera size={18} />
-          Scansiona scontrino
+          {t(lang, "receipt.scan")}
         </button>
       )}
       {scanning && (
         <div style={{ padding: 20, background: color.surface, borderRadius: 14, textAlign: "center" }}>
+          {previewUrl && (
+            <img src={previewUrl} alt="" style={{ maxHeight: 120, maxWidth: "100%", borderRadius: 8, opacity: 0.6, marginBottom: 10 }} />
+          )}
           <div style={{ display: "flex", justifyContent: "center", color: color.accent, marginBottom: 10 }}><IconScan size={24} /></div>
-          <div style={{ fontSize: 14, color: color.accent, marginBottom: 8, fontFamily: displayFont }}>Analisi scontrino...</div>
+          <div style={{ fontSize: 14, color: color.accent, marginBottom: 8, fontFamily: displayFont }}>{t(lang, "receipt.analyzing")}</div>
           <div style={{ height: 4, background: color.border, borderRadius: 2, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${progress}%`, background: accentGradient, borderRadius: 2, transition: "width 0.3s" }} />
           </div>
           <div style={{ fontSize: 11, color: color.textMuted, marginTop: 6, fontFamily: displayFont }}>{progress}%</div>
-        </div>
-      )}
-      {previewUrl && !scanning && (
-        <div style={{ marginBottom: 16 }}>
-          <img src={previewUrl} alt="Receipt" style={{ width: "100%", borderRadius: 12, opacity: 0.7 }} />
         </div>
       )}
     </div>

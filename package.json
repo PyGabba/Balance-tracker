@@ -22,6 +22,8 @@
     "@capacitor/core": "^8.3.1",
     "@capacitor/ios": "^8.3.1",
     "@tabler/icons-react": "^3.48.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/ita": "^1.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tesseract.js": "^7.0.0",
