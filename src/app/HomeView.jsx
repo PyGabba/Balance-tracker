@@ -99,14 +99,17 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
             {spesa.samePeriod && <span style={{ color: color.textMuted, fontWeight: 500 }}> · {t(lang, "home.samePeriod")}</span>}
           </div>
         )}
-        <div style={{ display: "flex", gap: 24, marginTop: 18 }}>
+        {/* Fixed line heights: the "▲" in the income label comes from a fallback
+            font with a taller line box, which pushed that column's value lower
+            than the balance's. */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 24, marginTop: 18 }}>
           <div>
-            <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 0.8, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.income")}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: color.positive, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{formattaValuta(entrate)}</div>
+            <div style={{ fontSize: 10, lineHeight: "14px", height: 14, whiteSpace: "nowrap", color: color.textMuted, letterSpacing: 0.8, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.income")}</div>
+            <div style={{ fontSize: 16, lineHeight: "22px", fontWeight: 600, color: color.positive, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{formattaValuta(entrate)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 0.8, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.balanceOf")} {mese(meseVis.getMonth(), lang)}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: saldo >= 0 ? color.positive : color.negative, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{saldo >= 0 ? "+" : ""}{formattaValuta(saldo)}</div>
+            <div style={{ fontSize: 10, lineHeight: "14px", height: 14, whiteSpace: "nowrap", color: color.textMuted, letterSpacing: 0.8, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "home.balanceOf")} {mese(meseVis.getMonth(), lang)}</div>
+            <div style={{ fontSize: 16, lineHeight: "22px", fontWeight: 600, color: saldo >= 0 ? color.positive : color.negative, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{saldo >= 0 ? "+" : ""}{formattaValuta(saldo)}</div>
           </div>
         </div>
       </div>
