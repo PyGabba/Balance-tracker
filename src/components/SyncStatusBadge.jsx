@@ -1,14 +1,18 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { IconAlertTriangle, IconRefresh, IconClock, IconX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconRefresh, IconClock, IconX, IconCheck, IconCloudOff } from "@tabler/icons-react";
 import { fetchSyncStatus, onSyncStatusChange, fetchFailedSyncOperations, discardSyncOperation, retrySyncOperation } from "../api.js";
 import { t } from "../lib/i18n.js";
+import { deriveSyncState } from "../lib/syncState.js";
 import { color, alpha, displayFont } from "./ui/styles.js";
 
 // ─── Offline sync status indicator (MOD-003) ───
-// A small header pill that appears only when there's something to say:
-// syncing, N changes waiting for connectivity, or N that need attention
-// (validation/auth rejections the background loop stopped auto-retrying).
-// Tapping it opens a compact panel to retry or dismiss anything stuck.
+// An always-visible pill so nobody has to wonder whether an expense
+// disappeared: ✓ synced / N waiting to sync / syncing / offline (changes
+// saved locally) / N need attention (validation/auth rejections the
+// background loop stopped auto-retrying). Tapping it opens a compact panel
+// that explains the state and lets you retry or dismiss anything stuck.
+// The state itself comes from lib/syncState.js; OfflineBanner (below) is the
+// louder companion for the offline case.
 
 const ENTITY_LABELS = {
   transactions: { it: "transazione", en: "transaction" },
@@ -18,7 +22,46 @@ const ENTITY_LABELS = {
   positions: { it: "posizione", en: "position" },
 };
 
+// navigator.onLine, kept live. It only says "no network at all" (it can read
+// true behind a captive portal), which is the case worth announcing.
+export function useOnline() {
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+  useEffect(() => {
+    const up = () => setOnline(true), down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
+  }, []);
+  return online;
+}
+
+const STATE_VIEW = {
+  synced:  { tone: color.positive, Icon: IconCheck },
+  pending: { tone: color.warn, Icon: IconClock },
+  syncing: { tone: color.accent, Icon: IconRefresh },
+  offline: { tone: color.negative, Icon: IconCloudOff },
+  failed:  { tone: color.negative, Icon: IconAlertTriangle },
+};
+
+// Slim strip under the header while offline — says it in full, where the pill
+// only has room for one word.
+export function OfflineBanner({ lang = "it" }) {
+  const online = useOnline();
+  if (online) return null;
+  return (
+    <div role="status" style={{
+      display: "flex", alignItems: "center", gap: 6, padding: "6px 16px",
+      background: alpha(color.negative, 0.09), borderBottom: `1px solid ${alpha(color.negative, 0.25)}`,
+      color: color.negative, fontSize: 12, fontWeight: 600, fontFamily: displayFont,
+    }}>
+      <IconCloudOff size={14} />
+      {t(lang, "sync.offlineBanner")}
+    </div>
+  );
+}
+
 export function SyncStatusBadge({ lang = "it" }) {
+  const online = useOnline();
   const [status, setStatus] = useState({ pending: 0, failed: 0, syncing: false });
   const [open, setOpen] = useState(false);
   const [failedOps, setFailedOps] = useState([]);
@@ -57,16 +100,24 @@ export function SyncStatusBadge({ lang = "it" }) {
     return () => { cancelled = true; };
   }, [open, status.failed]);
 
-  if (status.pending === 0 && status.failed === 0 && !status.syncing) return null;
-
-  const tone = status.failed > 0 ? color.negative : status.syncing ? color.accent : color.warn;
-  const StatusIcon = status.failed > 0 ? IconAlertTriangle : status.syncing ? IconRefresh : IconClock;
-  const count = status.failed > 0 ? status.failed : status.pending;
-  const label = status.failed > 0
-    ? t(lang, "sync.needsAttention")
-    : status.syncing
-      ? t(lang, "sync.syncing")
-      : t(lang, "sync.pending");
+  const { state, count } = deriveSyncState({ online, ...status });
+  const { tone, Icon: StatusIcon } = STATE_VIEW[state];
+  // `label` (title/panel heading): the full sentence. `short`: what fits in the pill.
+  const nWord = (n) => t(lang, n === 1 ? "sync.changeOne" : "sync.changeMany").replace("{n}", String(n));
+  const label = {
+    synced: t(lang, "sync.synced"),
+    pending: t(lang, "sync.waiting").replace("{changes}", nWord(count)),
+    syncing: t(lang, "sync.syncing"),
+    offline: t(lang, "sync.offlineBanner"),
+    failed: t(lang, "sync.needsAttention"),
+  }[state];
+  const short = {
+    synced: t(lang, "sync.synced"),
+    pending: nWord(count),
+    syncing: t(lang, "sync.syncingShort"),
+    offline: t(lang, "sync.offlineShort"),
+    failed: `${count} ${t(lang, "sync.toCheck")}`,
+  }[state];
 
   async function handleRetry(operationId) {
     setBusyOpId(operationId);
@@ -80,13 +131,13 @@ export function SyncStatusBadge({ lang = "it" }) {
   return (
     <div style={{ position: "relative" }}>
       <button ref={buttonRef} onClick={toggleOpen} title={label} style={{
-        display: "flex", alignItems: "center", gap: 4, padding: "4px 8px",
-        background: alpha(tone, 0.09), border: `1px solid ${alpha(tone, 0.33)}`, borderRadius: 8,
-        color: tone, fontSize: 11, fontWeight: 700, cursor: "pointer",
-        fontFamily: displayFont,
+        display: "flex", alignItems: "center", gap: 4, padding: "2px 8px 2px 6px",
+        background: alpha(tone, 0.09), border: `1px solid ${alpha(tone, 0.33)}`, borderRadius: 999,
+        color: tone, fontSize: 10, fontWeight: 700, cursor: "pointer",
+        fontFamily: displayFont, whiteSpace: "nowrap",
       }}>
-        <span style={{ display: "flex" }}><StatusIcon size={12} /></span>
-        <span>{count}</span>
+        <span style={{ display: "flex" }}><StatusIcon size={11} /></span>
+        <span>{short}</span>
       </button>
 
       {open && (
@@ -101,11 +152,14 @@ export function SyncStatusBadge({ lang = "it" }) {
             <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: color.textSecondary, display: "flex", cursor: "pointer" }}><IconX size={14} /></button>
           </div>
 
-          {status.pending > 0 && (
-            <div style={{ fontSize: 11, color: color.textSecondary, marginBottom: 8, lineHeight: 1.5 }}>
-              {t(lang, "sync.pendingExplain").replace("{n}", String(status.pending))}
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: color.textSecondary, marginBottom: failedOps.length > 0 ? 8 : 0, lineHeight: 1.5 }}>
+            {state === "synced" && t(lang, "sync.syncedExplain")}
+            {state === "offline" && (count > 0
+              ? t(lang, "sync.offlineExplainPending").replace("{n}", String(count))
+              : t(lang, "sync.offlineExplain"))}
+            {(state === "pending" || state === "syncing") && t(lang, "sync.pendingExplain").replace("{n}", String(count))}
+            {state === "failed" && t(lang, "sync.failedExplain")}
+          </div>
 
           {failedOps.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>

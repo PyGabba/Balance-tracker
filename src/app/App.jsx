@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { IconEye, IconEyeOff, IconSettings } from "@tabler/icons-react";
 import { App as CapApp } from "@capacitor/app";
-import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, isAPIConnected, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId, runDueRecurringNow } from "../api.js";
+import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction, logout, isLoggedIn, getSession, getPersone, getHouseholdName, fetchPositions, addPosition, fetchManualPrices, wakeupServer, getCategorieUscita, fetchCategorie, saveCategorie, setAuthErrorHandler, fetchGoals, addGoal, updateGoal, deleteGoal, fetchAccounts, addAccount, updateAccount, deleteAccount, fetchHousehold, getActivePersonaId, runDueRecurringNow } from "../api.js";
 import { PersonaSwitcher } from "../features/auth/PersonaSwitcher.jsx";
 import { getLang, setLang, t, detectGuestLang } from "../lib/i18n.js";
 import { toast, ToastHost } from "../components/Toast.jsx";
-import { SyncStatusBadge } from "../components/SyncStatusBadge.jsx";
+import { SyncStatusBadge, OfflineBanner } from "../components/SyncStatusBadge.jsx";
 import { setImportiNascosti as setImportiNascostiFormat } from "../lib/format.js";
 import { defaultCategorie, getAllPersone } from "../lib/appHelpers.js";
 import { calcolaDebitiMatrix } from "../lib/finance.js";
@@ -363,10 +363,10 @@ export default function FinanzaApp() {
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : `1px solid ${color.border}`, background: color.bg, flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}><span style={{ background: accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Finanza</span></div>
-          <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 1 }}>{householdName || t(lang, "header.tracker")}</div>
+          <div style={{ fontSize: 10, color: color.textMuted, letterSpacing: 1, marginBottom: 4 }}>{householdName || t(lang, "header.tracker")}</div>
+          <SyncStatusBadge lang={lang} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <SyncStatusBadge lang={lang} />
           <PersonaSwitcher persone={persone} activePersonaId={activePersonaId} onSwitched={setActivePersonaId} lang={lang} />
           <button onClick={toggleNascondiImporti} title={nascondiImporti ? t(lang, "header.showAmounts") : t(lang, "header.hideAmounts")} style={{
             background: nascondiImporti ? color.accentSoft : "none", border: nascondiImporti ? `1px solid ${color.accent}` : `1px solid ${color.border}`,
@@ -382,9 +382,9 @@ export default function FinanzaApp() {
             color: color.textSecondary, fontSize: 12, padding: "4px 8px", display: "flex", alignItems: "center",
             fontFamily: displayFont,
           }}>{t(lang, "header.logout")}</button>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: isAPIConnected() ? color.positive : color.warn }} title={isAPIConnected() ? "MongoDB" : "offline"} />
         </div>
       </div>
+      <OfflineBanner lang={lang} />
       {/* Fixed month selector bar — only for Home and Stats */}
       {showMonthBar && (
         <MonthBar meseOffset={meseOffset} setMeseOffset={setMeseOffset} />
