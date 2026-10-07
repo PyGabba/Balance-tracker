@@ -3,10 +3,16 @@ import { t } from "../../../lib/i18n.js";
 import { formattaValuta } from "../../../lib/format.js";
 import { labelStyle, inputStyle, color, moneyFont } from "../../../components/ui/styles.js";
 import { COLORI_EXTRA, equalQuotas } from "../../../lib/appHelpers.js";
+import { describeSplit } from "../expensePrefs.js";
+import { IconChevronDown } from "@tabler/icons-react";
 
 // ─── Multi-person split selector ───
 
 export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, persone, importo, extraPersone, setExtraPersone, lang = "it" }) {
+  // Collapsed by default: the payer is one tap away, and the split shows as a
+  // one-line summary ("Split equally between everyone") that opens the full
+  // editor — most expenses need nothing more.
+  const [expanded, setExpanded] = useState(false);
   const [showAddExtra, setShowAddExtra] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -85,6 +91,20 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
         ))}
       </div>
 
+      {!expanded && (
+        <button onClick={() => setExpanded(true)} style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer",
+          background: color.surface, border: `1px solid ${color.border}`, borderRadius: 12, font: "inherit", textAlign: "left",
+        }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: color.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {describeSplit(splits, allPersone, pagatoDa, lang) || t(lang, "form.whoParticipates")}
+          </span>
+          <span style={{ fontSize: 12, color: color.accent, fontWeight: 700, flexShrink: 0 }}>{t(lang, "common.edit")}</span>
+          <span style={{ color: color.accent, display: "flex" }}><IconChevronDown size={14} /></span>
+        </button>
+      )}
+
+      {expanded && <>
       {/* Participants */}
       <label style={labelStyle}>{t(lang, "form.whoParticipates")}</label>
       <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
@@ -160,6 +180,7 @@ export function SplitSelector({ pagatoDa, setPagatoDa, splits, setSplits, person
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }

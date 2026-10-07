@@ -1,18 +1,24 @@
 import { useState, useEffect, useRef } from "react";
-import { IconArrowsLeftRight } from "@tabler/icons-react";
-import { fetchExchangeRates } from "../../api.js";
+import { IconArrowsLeftRight, IconCalculator, IconChevronDown } from "@tabler/icons-react";
+import { fetchExchangeRates, getSession } from "../../api.js";
 import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
 import { t } from "../../lib/i18n.js";
-import { formattaValuta } from "../../lib/format.js";
+import { formattaValuta, formattaData } from "../../lib/format.js";
 import { evalImporto, splitsTotalOk, generaId, equalQuotas } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { Button } from "../../components/ui/Button.jsx";
 import { SplitSelector } from "./components/SplitSelector.jsx";
 import { ReceiptScanner } from "./components/ReceiptScanner.jsx";
 import { calcolaProssimaData, VALUTE_FALLBACK, RICORRENZA_IDS } from "./helpers.js";
+import { loadExpensePrefs, saveExpensePrefs } from "./expensePrefs.js";
 
 // ─── Add ───
 export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "", valutaBase = "EUR", lang = "it" }) {
+  const householdId = getSession()?.householdId;
+  // Payer and split of the last expense: the form opens ready for the next
+  // typical one (see expensePrefs.js). A shortcut's explicit payer wins.
+  const [prefs] = useState(() => loadExpensePrefs(householdId, persone));
   const [tipo, setTipo] = useState(initialTipo);
   const [importoRaw, setImportoRaw] = useState(initialImporto);
   const importoInputRef = useRef(null);
@@ -35,9 +41,10 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
       const match = persone.find(p => p.id === initialPagatoDa || p.nome.toLowerCase() === initialPagatoDa.toLowerCase());
       if (match) return match.id;
     }
-    return persone[0]?.id || "";
+    return prefs.pagatoDa || persone[0]?.id || "";
   });
   const [splits, setSplits] = useState(() => {
+    if (prefs.splits) return prefs.splits;
     const quotas = equalQuotas(persone.length);
     return persone.map((p, i) => ({ personaId: p.id, quota: quotas[i] }));
   });
@@ -50,6 +57,11 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
   const [contoA, setContoA] = useState("");
   const [valuta, setValuta] = useState(valutaBase);
   const [valuteDisponibili, setValuteDisponibili] = useState(VALUTE_FALLBACK);
+  const [showCalc, setShowCalc] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false); // date / account / repeat — rarely changed
+
+  // The amount is the first thing anyone types.
+  useEffect(() => { importoInputRef.current?.focus(); }, []);
 
   useEffect(() => { setValuta(valutaBase); }, [valutaBase]);
   useEffect(() => {
@@ -127,6 +139,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
       ricorrenza: ricorrenzaData,
       valuta: valuta !== valutaBase ? valuta : null,
     });
+    if (tipo === "uscita") saveExpensePrefs(householdId, { pagatoDa, splits, extraPersone }, persone);
     setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setImportoVariabile(false); setValuta(valutaBase); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
@@ -150,6 +163,13 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
       <div style={{ marginBottom: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <label style={{ ...labelStyle, marginBottom: 0 }}>{t(lang, "home.filterAmount")}</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button type="button" onClick={() => setShowCalc(v => !v)} title={t(lang, "aggiungi.calculator")} aria-pressed={showCalc} style={{
+            display: "flex", padding: 8, borderRadius: 10, cursor: "pointer",
+            background: showCalc ? alpha(color.accent, 0.13) : color.surface,
+            border: `1px solid ${showCalc ? alpha(color.accent, 0.4) : color.border}`,
+            color: showCalc ? color.accent : color.textSecondary,
+          }}><IconCalculator size={16} /></button>
           {tipo !== "trasferimento" && (
             <select value={valuta} onChange={e => setValuta(e.target.value)} style={{
               background: valuta !== valutaBase ? `${alpha(color.accent, 0.13)}` : color.surface,
@@ -163,6 +183,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
               {valuteDisponibili.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           )}
+          </div>
         </div>
         <input type="text" ref={importoInputRef} inputMode="decimal" value={importoRaw} onChange={e => { setImportoRaw(e.target.value); setImporto(evalImporto(e.target.value)); }} placeholder="0€"
           style={{ ...inputStyle, fontSize: 28, fontWeight: 800, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", textAlign: "center", color: tipo==="uscita"?color.negative:tipo==="trasferimento"?color.accent:color.positive }} />
@@ -176,8 +197,8 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
             = {formattaValuta(computedImporto)}
           </div>
         )}
-        {/* Calculator keypad */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+        {/* Calculator keypad — behind the calculator toggle */}
+        {showCalc && <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
             {["+", "-", "*", "/"].map(op => (
               <button key={op} onClick={(e) => { e.preventDefault(); const newVal = importoRaw + op; setImportoRaw(newVal); setImporto(evalImporto(newVal)); importoInputRef.current?.focus(); }}
@@ -190,7 +211,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
             style={{ padding: "10px", background: color.accent, border: "none", borderRadius: 10, color: "#fff", fontSize: 18, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", cursor: "pointer" }}>
             = {formattaValuta(computedImporto)}
           </button>
-        </div>
+        </div>}
       </div>
       {tipo === "uscita" && (
         <>
@@ -276,10 +297,30 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           ) : null;
         })()}
       </div>
+      {tipo !== "trasferimento" && (() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const parts = [
+          data === today ? t(lang, "aggiungi.today") : formattaData(data),
+          ...(conti.length > 0 ? [conti.find(c => c.id === contoId)?.nome || t(lang, "aggiungi.noAccount")] : []),
+          ricorrenza === "no" ? t(lang, "aggiungi.oneOff") : t(lang, `recur.${ricorrenza}`),
+        ];
+        return (
+          <button onClick={() => setMoreOpen(v => !v)} aria-expanded={moreOpen} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", marginBottom: 18, cursor: "pointer",
+            background: color.surface, border: `1px solid ${color.border}`, borderRadius: 14, font: "inherit", textAlign: "left", fontFamily: displayFont,
+          }}>
+            <span style={{ fontSize: 11, color: color.textMuted, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 600 }}>{t(lang, "aggiungi.moreOptions")}</span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: color.textSecondary, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{parts.join(" · ")}</span>
+            <span style={{ color: color.accent, display: "flex", transform: moreOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}><IconChevronDown size={14} /></span>
+          </button>
+        );
+      })()}
+      {(tipo === "trasferimento" || moreOpen) && (
       <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>{t(lang, "form.date")}</label>
         <input type="date" value={data} onChange={e => setData(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
       </div>
+      )}
       {tipo === "trasferimento" && (
         <div style={{ marginBottom: 24 }}>
           <label style={labelStyle}>{t(lang, "aggiungi.fromAccount")}</label>
@@ -314,7 +355,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           )}
         </div>
       )}
-      {conti.length > 0 && tipo !== "trasferimento" && (
+      {conti.length > 0 && tipo !== "trasferimento" && moreOpen && (
         <div style={{ marginBottom: 24 }}>
           <label style={labelStyle}>{t(lang, "home.filterAccount")}</label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -336,7 +377,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           </div>
         </div>
       )}
-      {tipo !== "trasferimento" && <div style={{ marginBottom: 24 }}>
+      {tipo !== "trasferimento" && moreOpen && <div style={{ marginBottom: 24 }}>
         <label style={labelStyle}>{t(lang, "aggiungi.repeat")}</label>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {RICORRENZA_IDS.map(id => (
@@ -362,12 +403,14 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
           </>
         )}
       </div>}
-      <button onClick={handleSubmit} style={{
-        width: "100%", padding: "15px", border: "none", borderRadius: 14, cursor: "pointer",
-        fontSize: 15, fontWeight: 700, fontFamily: displayFont,
-        background: tipo==="uscita"?color.negative:tipo==="trasferimento"?accentGradient:color.positive,
-        color: "#fff", boxShadow: tipo==="uscita"?`0 4px 20px ${alpha(color.negative, 0.27)}`:tipo==="trasferimento"?`0 4px 20px ${alpha(color.accent, 0.27)}`:`0 4px 20px ${alpha(color.positive, 0.27)}`,
-      }}>{salvato ? t(lang, "form.saved") : tipo === "trasferimento" ? t(lang, "aggiungi.transferSubmit") : t(lang, "aggiungi.saveTransaction")}</button>
+      {/* Sticky: Save stays reachable however long the form gets */}
+      <div style={{ position: "sticky", bottom: 0, margin: "0 -16px -20px", padding: "14px 16px 20px", background: `linear-gradient(to top, ${color.bg} 65%, transparent)` }}>
+        <Button variant="primary" fullWidth onClick={handleSubmit} style={{
+          padding: 15, fontSize: 15,
+          background: tipo === "uscita" ? color.negative : tipo === "trasferimento" ? accentGradient : color.positive,
+          color: "#fff", boxShadow: `0 4px 20px ${alpha(tipo === "uscita" ? color.negative : tipo === "trasferimento" ? color.accent : color.positive, 0.27)}`,
+        }}>{salvato ? t(lang, "form.saved") : tipo === "trasferimento" ? t(lang, "aggiungi.transferSubmit") : t(lang, "aggiungi.saveTransaction")}</Button>
+      </div>
     </div>
   );
 }

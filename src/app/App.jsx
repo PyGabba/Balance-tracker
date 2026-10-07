@@ -282,15 +282,15 @@ export default function FinanzaApp() {
     setTab("home");
   }
 
-  async function aggiungiTransazione(t) {
+  async function aggiungiTransazione(tx) {
     try {
-      const saved = await addTransaction(t);
+      const saved = await addTransaction(tx);
       setTransazioni(prev => [...prev, saved]);
       
       // Auto-apply goal contributions on entrata — which goals qualify and by
       // how much is decided by services/goalsService.js (pure, tested in
       // isolation); this block only persists and merges into UI state.
-      for (const { goalId, newAmount } of computeAutoContributions(goals, t)) {
+      for (const { goalId, newAmount } of computeAutoContributions(goals, tx)) {
         await updateGoal(goalId, { currentAmount: newAmount });
         setGoals(prev => prev.map(goal => goal.id === goalId ? { ...goal, currentAmount: newAmount } : goal));
       }
