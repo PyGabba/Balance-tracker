@@ -37,6 +37,12 @@ const SCRIPT_NAME = "Finanza"; // deve combaciare col nome dato allo script al p
 // caso usa il widget Grande, o togli la riga Investimenti / la scadenza.
 const FONT_SCALE = 1;
 
+// Ingrandimento in più, SOLO per le cifre (patrimonio, uscite/entrate/saldo,
+// saldi dei conti, importo della scadenza), sopra FONT_SCALE: così i numeri si
+// leggono meglio senza gonfiare anche etichette e nomi. 1 = nessuna differenza
+// dalle etichette; 1.2 = cifre il 20% più grandi (consigliato); 1.4 = molto grandi.
+const AMOUNT_SCALE = 1.2;
+
 const APP_URL = WIDGET_URL.includes("INCOLLA_QUI") ? null : (WIDGET_URL.match(/^https?:\/\/[^\/]+/) || [null])[0];
 const TRANSACTION_URL = WIDGET_URL.includes("INCOLLA_QUI") ? null : WIDGET_URL.replace("/api/widget", "/api/widget/transaction");
 const RUN_URL = (params) => `scriptable:///run/${encodeURIComponent(SCRIPT_NAME)}?${params}`;
@@ -126,15 +132,17 @@ function addAmount(container, n, { color = TEXT, size = 11, bold = false, gap = 
 
   const amtText = stack.addText(hidden ? "••••" : formatAmount(n));
   amtText.textColor = color;
-  amtText.font = amountFont(size, bold);
+  amtText.font = amountFont(size * AMOUNT_SCALE, bold);
   amtText.lineLimit = 1;
-  amtText.minimumScaleFactor = 0.6;
+  // Se la cifra non entra, iOS la rimpicciolisce fino a questo fattore invece
+  // di troncarla: tienilo alto, altrimenti annulla l'ingrandimento.
+  amtText.minimumScaleFactor = 0.8;
 
   stack.addSpacer(gap);
 
   const euroText = stack.addText("€");
   euroText.textColor = new Color(color.hex, euroOpacity);
-  euroText.font = F.medium(euroSize || Math.max(9, Math.round(size * 0.75)));
+  euroText.font = F.medium((euroSize || Math.max(9, Math.round(size * 0.75))) * AMOUNT_SCALE);
   euroText.lineLimit = 1;
 
   return stack;
@@ -565,11 +573,11 @@ async function buildWidget(dataOverride) {
   const stats = monthCard.addStack();
   addStat(stats, "USCITE", data.speseMese, RED);
   for (const [label, n, tone] of [["ENTRATE", data.entrateMese, GREEN], ["SALDO", saldoMese, saldoMese < 0 ? RED : GREEN]]) {
-    stats.addSpacer(10);
+    stats.addSpacer(6);
     const divider = stats.addStack(); // filetto verticale tra le colonne
-    divider.size = new Size(1, 28);
+    divider.size = new Size(1, px(30 * AMOUNT_SCALE));
     divider.backgroundColor = new Color("#ffffff", 0.08);
-    stats.addSpacer(10);
+    stats.addSpacer(6);
     addStat(stats, label, n, tone);
   }
 

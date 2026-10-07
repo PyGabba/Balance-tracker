@@ -103,7 +103,10 @@ ok("widget: new layout — order, three month columns, folded accounts, SF Symbo
 // 1-bis) FONT_SCALE scales every font in the widget together
 const fontSizeOf = (text) => widgetTextObjs.find(t => t.text === text).font.s;
 const baseSizes = Object.fromEntries(["110.694,31", "PATRIMONIO", "USCITE", "886,05", "BBVA", "FINANZA", "Uscita"].map(t => [t, fontSizeOf(t)]));
-assert.equal(baseSizes["110.694,31"], 28);
+assert.equal(baseSizes["110.694,31"], 33.6, "28pt x AMOUNT_SCALE 1.2");
+assert.equal(baseSizes["886,05"], 18, "15pt x 1.2");
+assert.equal(baseSizes["USCITE"], 9, "labels are not touched by AMOUNT_SCALE");
+assert.equal(baseSizes["PATRIMONIO"], 11);
 const scaledSrc = SRC.replace("const FONT_SCALE = 1;", "const FONT_SCALE = 1.25;");
 assert.notEqual(scaledSrc, SRC, "FONT_SCALE constant present");
 fs.writeFileSync(`${OUT}/script_under_test.mjs`, scaledSrc);
@@ -111,6 +114,26 @@ await run({ mode: "widget" });
 for (const [text, base] of Object.entries(baseSizes)) assert.equal(fontSizeOf(text), Math.round(base * 1.25 * 10) / 10, `${text} scales`);
 fs.writeFileSync(`${OUT}/script_under_test.mjs`, SRC);
 ok("FONT_SCALE 1.25 scales every text size by 25%");
+
+// AMOUNT_SCALE only touches the figures: 1 → same size as before, 1.5 → +50% on figures only
+for (const [amountScale, wantHero, wantStat, wantLabel] of [[1, 28, 15, 9], [1.5, 42, 22.5, 9]]) {
+  fs.writeFileSync(`${OUT}/script_under_test.mjs`, SRC.replace("const AMOUNT_SCALE = 1.2;", `const AMOUNT_SCALE = ${amountScale};`));
+  await run({ mode: "widget" });
+  assert.equal(fontSizeOf("110.694,31"), wantHero);
+  assert.equal(fontSizeOf("886,05"), wantStat);
+  assert.equal(fontSizeOf("USCITE"), wantLabel);
+}
+fs.writeFileSync(`${OUT}/script_under_test.mjs`, SRC);
+ok("AMOUNT_SCALE scales the figures only");
+
+// Width budget (Menlo advance = 0.6 em; a Medium/Large widget leaves 310pt inside a card): at the defaults
+// the widest month figure must fit its column without iOS shrinking it back. 3 columns + two 6pt spacers + 1pt dividers.
+await run({ mode: "widget" });
+const stat = widgetTextObjs.find(t => t.text === "−733,55");
+const need = 0.6 * stat.font.s * stat.text.length + 3 + 0.55 * 10 * 1.2;
+const column = (310 - 2 * 13) / 3;
+assert.ok(need <= column, `month figure needs ${need.toFixed(1)}pt but the column is ${column.toFixed(1)}pt`);
+ok("default sizes: the widest month figure fits its column (no auto-shrink)");
 
 // 1a) up to 3 accounts: all shown, no 'Altri' row
 await run({ mode: "widget", h: () => ({ ...data, conti: data.conti.slice(0, 3) }) });
