@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseReceiptText, initialSplits, calcolaProssimaData } from "./helpers.js";
+import { parseReceiptText, mergeReceiptPasses, initialSplits, calcolaProssimaData } from "./helpers.js";
 
 describe("parseReceiptText — Italian receipts", () => {
   it("extracts the total from a supermarket receipt with an Italian decimal comma", () => {
@@ -209,6 +209,98 @@ describe("parseReceiptText — merchant, category and date", () => {
   it("ignores dates in the future or more than a year old", () => {
     expect(parseReceiptText("NEGOZIO\n15/12/2026\nTOTALE 1,00", { oggi }).data).toBeNull();
     expect(parseReceiptText("NEGOZIO\n01/01/2024\nTOTALE 1,00", { oggi }).data).toBeNull();
+  });
+});
+
+describe("parseReceiptText — OCR text from real receipt photos", () => {
+  const oggi = new Date(2026, 9, 7);
+
+  it("reads a large-print total whose decimal comma OCR turned into a space (Brico Center)", () => {
+    const text = [
+      "= BRICO",
+      "Via Santa Anna, 2",
+      "21057 OLGIATE OLONA (VA)",
+      "Tel. +39 0331 1736651",
+      "Whatsapp al 339 995 8596 =",
+      "DOCUMENTO COMMERCIALE |",
+      "== 2249211600007          €41,90 $",
+      "MATASSA CAVO",
+      "Totale  Complessivo        £141 94",
+      "Di Cui IVA                 .     €25 60",
+      "MasterCard                        €141,94",
+      "Resto        Ss      !           €0,00",
+    ].join("\n");
+    const r = parseReceiptText(text, { oggi });
+    expect(r.importo).toBe(141.94);
+    expect(r.descrizione).toBe("BRICO");
+    expect(r.categoria).toBe("casa");
+  });
+
+  it("reads the Pasticceria Chiara receipt", () => {
+    const text = [
+      "PASTICCERIA CHIARA",
+      "DI LONGHIN FABIO",
+      "=           Ix 1,8             N        >",
+      "—— BRIOCHE ALBICOCCA      10,00%       5,40",
+      "=== TOTALE COMPLESSIVO             66,60",
+      "— di cui N            |           6,05",
+      "== 4 Pagamento elettronico        |     66,60 p=\"",
+      "===\" Importo pagato         66,60  == as",
+      "=            23-09-2026 08:07 Pre",
+      "\"= Bancomat                           66,60 =",
+    ].join("\n");
+    const r = parseReceiptText(text, { oggi });
+    expect(r.importo).toBe(66.6);
+    expect(r.descrizione).toBe("PASTICCERIA CHIARA");
+    expect(r.categoria).toBe("cibo");
+    expect(r.data).toBe("2026-09-23");
+  });
+});
+
+describe("mergeReceiptPasses", () => {
+  const oggi = new Date(2026, 9, 7);
+  // Condensed from two real Tesseract passes over the same Poke Garden photo.
+  const binaryPass = {
+    text: ["|      PONE CDE", "YE XIAOXIAO", "Poke Small 10,00% 7,90", "© TOE COPLESIO   ug", "Pagamento elettronico 52,60",
+      "Importo pagata | 52,60", "10-03-2026 11:22", "Carta di Credito + 52,60"].join("\n"),
+    lines: [{ text: "|      PONE CDE", confidence: 59 }, { text: "10-03-2026 11:22", confidence: 88 }],
+  };
+  const grayPass = {
+    text: ["POKE GARDEN", "YE XIAOXIAO", "Poke Small 10,00% 7,90", "TOTALE COPLESSIVO 5A", "Pagamento elettronico 52,60",
+      "Importo pagato 52,60", "10-09-2026 11:22", "Carta di Credito \"+ 92,60"].join("\n"),
+    lines: [{ text: "POKE GARDEN", confidence: 92 }, { text: "10-09-2026 11:22", confidence: 81 }],
+  };
+
+  it("outvotes a single misread payment line and keeps the agreed total", () => {
+    expect(mergeReceiptPasses([binaryPass, grayPass], { oggi }).importo).toBe(52.6);
+  });
+
+  it("takes the merchant from the pass Tesseract was most confident about", () => {
+    expect(mergeReceiptPasses([binaryPass, grayPass], { oggi }).descrizione).toBe("POKE GARDEN");
+    expect(mergeReceiptPasses([binaryPass, grayPass], { oggi }).categoria).toBe("cibo");
+  });
+
+  it("drops the date when passes disagree, even if the wrong one has higher confidence", () => {
+    expect(mergeReceiptPasses([binaryPass, grayPass], { oggi }).data).toBeNull();
+  });
+
+  it("keeps the date when the passes agree (or only one found it)", () => {
+    const fixed = { ...binaryPass, text: binaryPass.text.replace("10-03-2026", "10-09-2026") };
+    expect(mergeReceiptPasses([fixed, grayPass], { oggi }).data).toBe("2026-09-10");
+    const noDate = { ...binaryPass, text: binaryPass.text.replace("10-03-2026 11:22", "") };
+    expect(mergeReceiptPasses([noDate, grayPass], { oggi }).data).toBe("2026-09-10");
+  });
+
+  it("a misread TOTALE line in one pass is outvoted by payment lines in both", () => {
+    const a = { text: "SHOP\nTOTALE COMPLESSIVO 66,60\nPagamento elettronico 66,60\nBancomat 66,60" };
+    const b = { text: "SHOP\nTOTALE COMPLESSIVO 60,0\nPagamento elettronico 66,60\nImporto pagato 66,60" };
+    expect(mergeReceiptPasses([a, b], { oggi }).importo).toBe(66.6);
+  });
+
+  it("falls back to the best single-pass guess when no line has a role", () => {
+    const r = mergeReceiptPasses([{ text: "SHOP\nARTICOLO 5,00" }, { text: "SHOP" }], { oggi });
+    expect(r.importo).toBe(5);
+    expect(r.totalSource).toBe("fallback");
   });
 });
 
