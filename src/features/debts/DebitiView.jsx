@@ -3,6 +3,7 @@ import { IconChevronLeft, IconChevronDown, IconCheck, IconX } from "@tabler/icon
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { generaId } from "../../lib/appHelpers.js";
+import { toast } from "../../components/Toast.jsx";
 import { buildSettlementTransaction } from "../../services/debtService.js";
 import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
 
@@ -100,7 +101,8 @@ export function DebitiView({ meseVis, debitiMese, debitiGlobale, allPeople, tran
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => { setSettlingKey(null); setSettleAmount(""); }} style={{ flex: 1, padding: "9px", border: `1px solid ${color.border}`, borderRadius: 10, background: "transparent", color: color.textMuted, fontSize: 12, cursor: "pointer", fontFamily: displayFont }}>{t(lang, "home.cancel")}</button>
                       <button onClick={() => {
-                        onSettle(buildSettlementTransaction(d, settleAmount, { generaId, recipientName: pA.nome }));
+                        const tx = buildSettlementTransaction(d, settleAmount, { generaId, recipientName: pA.nome });
+                        onSettle(tx).then(() => toast(`✓ ${t(lang, "home.settled")} · ${pDa.nome} → ${pA.nome} ${formattaValuta(tx.importo)}`, "success")).catch(() => {});
                         setSettlingKey(null); setSettleAmount("");
                       }} style={{ flex: 2, padding: "9px", border: "none", borderRadius: 10, background: color.positive, color: color.bg, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: displayFont }}>
                         {t(lang, "home.confirmSettle")}

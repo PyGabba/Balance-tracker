@@ -14,7 +14,7 @@ import { GoalsForm } from "../features/goals/GoalsForm.jsx";
 import { ContiCard } from "../features/accounts/ContiCard.jsx";
 import { DebtSummary } from "../features/debts/DebtSummary.jsx";
 
-export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {}, valutaBase = "EUR", debitiGlobale = [], allPeople = [], onOpenDebt, lang = "it" }) {
+export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {}, valutaBase = "EUR", debitiGlobale = [], allPeople = [], onOpenDebt, onSettle, onUndoSettle, lang = "it" }) {
   const oggi = new Date();
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
@@ -156,8 +156,8 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
 
       <ContiCard conti={conti} transazioni={transazioni} goals={goals} onAdd={onAddConto} onUpdate={onUpdateConto} onDelete={onDeleteConto} valutaBase={valutaBase} lang={lang} />
 
-      {/* Debt card — compact, opens the full-screen Debiti sub-page */}
-      <DebtSummary debitiGlobale={debitiGlobale} allPeople={allPeople} onOpen={onOpenDebt} lang={lang} />
+      {/* Debt card — settle in one tap; header opens the full-screen Debiti sub-page */}
+      <DebtSummary debitiGlobale={debitiGlobale} allPeople={allPeople} onOpen={onOpenDebt} onSettle={onSettle} onUndoSettle={onUndoSettle} lang={lang} />
 
       {/* Savings Goals card */}
       <div style={{ background: color.surface, borderRadius: 16, padding: 16, marginBottom: 20, border: `1px solid ${color.border}` }}>

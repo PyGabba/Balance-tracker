@@ -313,13 +313,14 @@ export default function FinanzaApp() {
     return saved;
   }
 
-  async function aggiungiSaldo(t) {
+  async function aggiungiSaldo(saldo) {
     try {
-      const saved = await addTransaction(t);
+      const saved = await addTransaction(saldo);
       setTransazioni(prev => [...prev, saved]);
     } catch (err) {
       console.error("Saldo error:", err);
       toast(`${t(lang, "toast.errorSavePrefix")} ${err.message}`, "error");
+      throw err; // the home debt card must not show "Settled" for a write that failed
     }
   }
 
@@ -392,7 +393,7 @@ export default function FinanzaApp() {
       {/* Scrollable content — pulling down past the top reloads, replacing
           the old explicit reload button (MOD: pull-to-refresh) */}
       <PullToRefresh onRefresh={() => window.location.reload()} style={{ flex: 1, paddingBottom: "calc(48px + env(safe-area-inset-bottom, 0px))" }}>
-        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} debitiGlobale={debitiGlobale} allPeople={allPeopleDebt} onOpenDebt={() => setDebtOpen(true)} lang={lang} />}
+        {tab === "home" && <HomeView transazioni={transazioni} onDelete={eliminaTransazione} onEdit={modificaTransazione} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} onAddGoal={handleAddGoal} onUpdateGoal={handleUpdateGoal} onDeleteGoal={handleDeleteGoal} conti={conti} onAddConto={handleAddConto} onUpdateConto={handleUpdateConto} onDeleteConto={handleDeleteConto} positions={positions} manualPrices={rootManualPrices} valutaBase={valutaBase} debitiGlobale={debitiGlobale} allPeople={allPeopleDebt} onOpenDebt={() => setDebtOpen(true)} onSettle={aggiungiSaldo} onUndoSettle={eliminaTransazione} lang={lang} />}
         {tab === "aggiungi" && <AggiungiView key={shortcutKey} onAggiungi={aggiungiTransazione} persone={persone} transazioni={transazioni} categorie={categorieUscita} initialTipo={initialTipo} initialImporto={initialImporto} initialDescrizione={initialDescrizione} initialCategoria={initialCategoria} initialPagatoDa={initialPagatoDa} conti={conti} valutaBase={valutaBase} lang={lang} />}
         <Suspense fallback={null}>
         {tab === "stats" && <StatsView transazioni={transazioni} persone={persone} meseOffset={meseOffset} categorie={categorieUscita} goals={goals} valutaBase={valutaBase} activePersonaId={activePersonaId} lang={lang} />}
