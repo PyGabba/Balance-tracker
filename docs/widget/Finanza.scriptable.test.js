@@ -19,14 +19,16 @@ fs.writeFileSync(`${OUT}/script_under_test.mjs`, SRC);
 
 // ── Scriptable runtime mock ──
 const files = new Map();
-let responses = [], shown = [], requests = [], handler, widgetTexts = [], completed = false;
+let responses = [], shown = [], requests = [], handler, widgetTexts = [], widgetSymbols = [], completed = false;
 class Color { constructor(hex, a) { this.hex = hex; this.alpha = a; } }
 class LinearGradient {}
 class Font { constructor(n, s) { this.n = n; this.s = s; } static boldSystemFont(s) { return new Font("bold", s); } static semiboldSystemFont(s) { return new Font("semibold", s); } static mediumSystemFont(s) { return new Font("medium", s); } static systemFont(s) { return new Font("sys", s); } static italicSystemFont(s) { return new Font("it", s); } }
 class Node_ {
-  addText(t) { const x = { text: t }; widgetTexts.push(t); return x; }
-  addStack() { return new Node_(); }
-  addSpacer() {}
+  constructor() { this.children = []; }
+  addText(t) { const x = { text: t }; widgetTexts.push(t); this.children.push(x); return x; }
+  addStack() { const n = new Node_(); this.children.push(n); return n; }
+  addImage(img) { const x = { symbol: img.symbol }; widgetSymbols.push(img.symbol); this.children.push(x); return x; }
+  addSpacer() { this.children.push({ spacer: true }); }
   layoutVertically() {} centerAlignContent() {} setPadding() {}
 }
 class ListWidget extends Node_ { async presentMedium() {} }
@@ -47,10 +49,16 @@ globalThis.FileManager = { local: () => ({ documentsDirectory: () => "/docs", jo
 let uuid = 0; globalThis.UUID = { string: () => `uuid-${++uuid}` };
 globalThis.Script = { setWidget() {}, complete() { completed = true; } };
 globalThis.Safari = { open() {} };
+globalThis.Size = class Size { constructor(w, h) { this.width = w; this.height = h; } };
+let missingSymbols = new Set();
+globalThis.SFSymbol = { named: (name) => (missingSymbols.has(name) ? null : { image: { symbol: name }, applyFont() {} }) };
 
 const data = {
-  aggiornato: new Date().toISOString(), patrimonio: 5000, investimenti: 0,
-  conti: [{ nome: "Banca", icona: "🏦", saldo: 3200 }],
+  aggiornato: new Date().toISOString(), patrimonio: 110694.31, investimenti: 80979.23,
+  conti: [
+    { nome: "UniCredit", icona: "bank", saldo: 271.26 }, { nome: "BBVA", icona: "bank", saldo: 28980.17 },
+    { nome: "Trade Republic", icona: "card", saldo: 59.58 }, { nome: "Revolut", icona: "📱", saldo: 404.07 },
+  ],
   contiCompleti: [{ id: "c1", nome: "Banca", icona: "🏦" }, { id: "c2", nome: "Contanti", icona: "💶" }],
   persone: [{ id: "g", nome: "Gabriele", emoji: "🧔" }, { id: "l", nome: "Laura", emoji: "👩" }],
   categorie: [{ id: "cibo", nome: "Cibo", emoji: "🍕" }, { id: "casa", nome: "Casa", emoji: "🏠" }],
@@ -59,7 +67,7 @@ const data = {
 };
 let n = 0;
 async function run({ mode, query = {}, resp = [], h }) {
-  responses = [...resp]; shown = []; requests = []; widgetTexts = []; completed = false;
+  responses = [...resp]; shown = []; requests = []; widgetTexts = []; widgetSymbols = []; completed = false;
   handler = h || ((r) => (r.method === "POST" ? { ok: true } : data));
   globalThis.config = { runsInWidget: mode === "widget", runsInApp: mode !== "widget" };
   globalThis.args = { queryParameters: query };
@@ -70,13 +78,51 @@ async function run({ mode, query = {}, resp = [], h }) {
 const ok = () => {};
 
 it("quick-add widget script: every flow", async () => {
-// 1) widget render shows the new month-card data
+// 1) widget render: the new layout
 await run({ mode: "widget" });
-assert.ok(widgetTexts.includes("↑ 217% vs mese scorso"), "delta line");
-assert.ok(widgetTexts.some(t => t.startsWith("🏠 Affitto · domani")), "coming-up line");
-assert.ok(widgetTexts.includes("+2"), "'+2 more' marker (3 due, 1 shown)");
-assert.ok(widgetTexts.includes("886,05"), "spent");
-ok("widget: delta vs last month, next bill 'domani', +2 more");
+const at = (t) => { const i = widgetTexts.indexOf(t); assert.ok(i >= 0, `missing text: ${t}`); return i; };
+// order: header → patrimonio → month card → accounts card
+assert.ok(at("FINANZA") < at("PATRIMONIO") && at("PATRIMONIO") < at("110.694,31") && at("110.694,31") < at("QUESTO MESE") && at("QUESTO MESE") < at("CONTI"));
+// month card: delta pill, then three columns Uscite / Entrate / Saldo (saldo = entrate − uscite)
+assert.ok(at("QUESTO MESE") < at("↑ 217% vs mese scorso") && at("↑ 217% vs mese scorso") < at("USCITE"));
+assert.ok(at("USCITE") < at("886,05") && at("886,05") < at("ENTRATE") && at("ENTRATE") < at("152,50") && at("152,50") < at("SALDO") && at("SALDO") < at("−733,55"));
+assert.ok(!widgetTexts.includes("▼") && !widgetTexts.includes("▲"), "old chips are gone");
+// next bill sits under the stats, inside the month card, before the accounts card
+assert.ok(at("−733,55") < at("Affitto") && at("Affitto") < at("· domani") && at("· domani") < at("+2 altre") && at("+2 altre") < at("CONTI"));
+// accounts: total in the header, biggest first, the rest in one row, investments last
+// sorted by balance: BBVA 28.980,17 and Revolut 404,07 are the top two; UniCredit 271,26 + Trade Republic 59,58 fold into one row
+assert.ok(at("CONTI") < at("29.715,08") && at("29.715,08") < at("BBVA") && at("BBVA") < at("Revolut") && at("Revolut") < at("Altri 2 conti") && at("Altri 2 conti") < at("330,84") && at("330,84") < at("Investimenti") && at("Investimenti") < at("80.979,23"));
+assert.ok(!widgetTexts.includes("Trade Republic") && !widgetTexts.includes("UniCredit"), "the smaller accounts are folded into 'Altri 2 conti'");
+// the totals tie out: patrimonio = conti + investimenti
+assert.equal(Math.round((29715.08 + 80979.23) * 100), Math.round(110694.31 * 100));
+// SF Symbols instead of emoji
+for (const sym of ["eurosign.circle", "eye", "arrow.up.right", "calendar", "building.columns", "square.stack.3d.up", "chart.line.uptrend.xyaxis", "minus", "plus"]) assert.ok(widgetSymbols.includes(sym), `symbol ${sym}`);
+assert.ok(!widgetTexts.some(t => /[\u{1F300}-\u{1FAFF}]/u.test(t)), "no emoji in the rendered text");
+ok("widget: new layout — order, three month columns, folded accounts, SF Symbols");
+
+// 1a) up to 3 accounts: all shown, no 'Altri' row
+await run({ mode: "widget", h: () => ({ ...data, conti: data.conti.slice(0, 3) }) });
+assert.ok(widgetTexts.includes("Trade Republic") && !widgetTexts.some(t => t.startsWith("Altri")));
+// legacy emoji and unknown icons map to symbols; a symbol missing on this iOS just drops the icon
+await run({ mode: "widget", h: () => ({ ...data, conti: [{ nome: "X", icona: "📱", saldo: 1 }, { nome: "Y", icona: "???", saldo: 2 }] }) });
+assert.ok(widgetSymbols.includes("iphone") && widgetSymbols.includes("building.columns"));
+missingSymbols = new Set(["banknote", "calendar"]);
+await run({ mode: "widget" });
+assert.ok(widgetTexts.includes("Affitto"), "still renders with unavailable symbols");
+missingSymbols = new Set();
+ok("widget: ≤3 accounts shown in full; legacy emoji/unknown icons map; missing symbols degrade");
+
+// 1d) no investments → no divider row; no accounts and no investments → no accounts card
+await run({ mode: "widget", h: () => ({ ...data, investimenti: 0 }) });
+assert.ok(!widgetTexts.includes("Investimenti"));
+await run({ mode: "widget", h: () => ({ ...data, investimenti: 0, conti: [] }) });
+assert.ok(!widgetTexts.includes("CONTI"));
+ok("widget: investments row and accounts card only when there's something to show");
+
+// 1e) negative saldo vs positive
+await run({ mode: "widget", h: () => ({ ...data, speseMese: 100, entrateMese: 300 }) });
+assert.ok(widgetTexts.includes("200,00"));
+ok("widget: positive month saldo");
 
 // 1b) older server (no new fields) still renders, without the new lines
 const old = { ...data }; delete old.deltaPct; delete old.inArrivo; delete old.inArrivoTotale; delete old.speseMesePrec;
@@ -195,6 +241,12 @@ const st = JSON.parse(files.get("/docs/finanza-widget-state.json"));
 assert.equal(st.hidden, true); assert.equal(st.last.uscita.pagatoDa, "g");
 assert.ok(widgetTexts.includes("••••"));
 ok("hide toggle persists and keeps 'last' choices; amounts masked");
+// hidden mode: every amount (incl. the accounts total in the card title and the saldo) is masked,
+// names, the percentage and the due date stay readable
+for (const amount of ["110.694,31", "886,05", "152,50", "−733,55", "29.715,08", "330,84", "80.979,23", "800,00"]) assert.ok(!widgetTexts.includes(amount), `amount still visible when hidden: ${amount}`);
+for (const kept of ["BBVA", "Revolut", "Altri 2 conti", "Investimenti", "↑ 217% vs mese scorso", "Affitto", "· domani", "USCITE", "ENTRATE", "SALDO"]) assert.ok(widgetTexts.includes(kept), `missing when hidden: ${kept}`);
+assert.ok(widgetSymbols.includes("eye.slash"), "eye.slash while hidden");
+ok("hidden mode: all amounts masked, labels/percent/due date stay");
 
 // 9) unconfigured placeholder
 fs.writeFileSync(`${OUT}/script_under_test.mjs`, fs.readFileSync(SCRIPT_PATH, "utf8"));

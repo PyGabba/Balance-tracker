@@ -23,8 +23,9 @@
 //   ➕ Entrata     → modulo rapido: importo, a chi è intestata, conto
 //   ↗ (in alto)   → apre l'app completa
 //
-// Novità: nella card "Questo mese" ora c'è il confronto con il mese scorso
-// (stesso periodo) e la prossima scadenza ricorrente, come nella Home dell'app.
+// Layout (come la Home dell'app): Patrimonio → "Questo mese" (Uscite, Entrate,
+// Saldo, confronto col mese scorso, prossima scadenza) → "Conti" (in ordine
+// di saldo, totale nel titolo, investimenti in fondo) → Uscita / Entrata.
 
 const WIDGET_URL = "https://INCOLLA_QUI/api/widget?key=INCOLLA_LA_TUA_CHIAVE";
 const SCRIPT_NAME = "Finanza"; // deve combaciare col nome dato allo script al passo 2
@@ -66,6 +67,8 @@ const TEXT = new Color("#eeeeee");
 // Grigio con una punta di lavanda, per "rimare" col gradiente viola/blu
 // invece di un grigio neutro che stona leggermente sullo sfondo.
 const MUTED = new Color("#9a9ab5");
+// Testo secondario più chiaro del MUTED, per i nomi dei conti.
+const TEXT_SOFT = new Color("#d4d4e4");
 const GREEN = new Color("#4ECDC4");
 const RED = new Color("#FF6B6B");
 const AMBER = new Color("#F0A500");
@@ -74,7 +77,7 @@ const PURPLE = new Color("#a78bfa");
 // ─── Formattazione importi ───
 function formatAmount(n) {
   const s = Math.abs(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return (n < 0 ? "-" : "") + s;
+  return (n < 0 ? "−" : "") + s;
 }
 
 // Data di oggi nel fuso del telefono (YYYY-MM-DD). Va mandata al server:
@@ -356,10 +359,110 @@ async function promptAndSubmit(tipo, meta) {
 }
 
 // ─── Layout ───
-// Struttura visiva: barra in alto (identità + azioni) → cifra grande del
-// patrimonio → card "Conti" → card "Mese" → riga di pulsanti azione, a
-// larghezza uguale. Ogni sezione è raggruppata in un contenitore proprio
-// invece di righe sciolte, per leggerla a colpo d'occhio sul widget piccolo.
+// Stessa struttura della Home dell'app, in blocchi che si ripetono uguali:
+//   barra in alto → PATRIMONIO (cifra grande) → card "Questo mese" →
+//   card "Conti" → pulsanti. Ogni card ha un titolo a sinistra, un dato a
+//   destra, e al massimo tre righe/colonne allineate; le sezioni dentro una
+//   card sono separate da un filetto. Scale dei testi: 28 (patrimonio),
+//   15 (cifre del mese), 13 (righe conti), 9-12 (etichette e note).
+
+// Icone SF Symbols (incluse in iOS) al posto delle emoji: stessa famiglia,
+// colorabili. Se un simbolo non esiste su quella versione di iOS, l'icona
+// semplicemente non appare (il testo resta).
+function addIcon(container, symbolName, color, size = 13) {
+  const sym = SFSymbol.named(symbolName);
+  if (!sym) return null;
+  sym.applyFont(Font.systemFont(size));
+  const img = container.addImage(sym.image);
+  img.tintColor = color;
+  img.imageSize = new Size(size, size);
+  return img;
+}
+
+// L'app salva l'icona del conto come chiave ("bank", "cash"...) oppure,
+// per i conti più vecchi, come emoji: si accettano entrambe.
+const ACCOUNT_SYMBOLS = {
+  bank: "building.columns", "🏦": "building.columns",
+  card: "creditcard", "💳": "creditcard",
+  cash: "banknote", "💵": "banknote", "💶": "banknote", "💰": "banknote",
+  piggy: "dollarsign.circle", "🐷": "dollarsign.circle",
+  mobile: "iphone", "📱": "iphone",
+  wallet: "wallet.pass", "👛": "wallet.pass",
+};
+const accountSymbol = (icona) => ACCOUNT_SYMBOLS[icona] || "building.columns";
+
+// Filetto orizzontale tra due sezioni di una card. Lo spacer lo rende
+// "avido" in larghezza (stesso meccanismo dei pulsanti più sotto).
+function addHairline(container) {
+  const line = container.addStack();
+  line.size = new Size(0, 1);
+  line.backgroundColor = new Color("#ffffff", 0.08);
+  line.addSpacer();
+}
+
+function addCard(parent) {
+  const card = parent.addStack();
+  card.layoutVertically();
+  card.backgroundColor = new Color("#ffffff", 0.06);
+  card.borderColor = new Color("#ffffff", 0.08);
+  card.borderWidth = 1;
+  card.cornerRadius = 12;
+  card.setPadding(8, 10, 8, 10);
+  return card;
+}
+
+// Intestazione di card: titolo a sinistra, un dato a destra (aggiunto dal
+// chiamante nello stack restituito, dopo lo spacer).
+function addCardHeader(card, title) {
+  const row = card.addStack();
+  row.centerAlignContent();
+  const t = row.addText(title);
+  t.textColor = MUTED; t.font = Font.boldSystemFont(10);
+  row.addSpacer();
+  return row;
+}
+
+// Una colonna dei tre dati del mese: etichetta piccola sopra, cifra sotto.
+function addStat(parent, label, n, color) {
+  const col = parent.addStack();
+  col.layoutVertically();
+  const labelRow = col.addStack();
+  const l = labelRow.addText(label);
+  l.textColor = MUTED; l.font = Font.semiboldSystemFont(9);
+  labelRow.addSpacer(); // rende la colonna "avida": le tre colonne si dividono lo spazio in parti uguali
+  col.addSpacer(2);
+  addAmount(col, n, { color, size: 15, bold: true, gap: 3, euroSize: 10, euroOpacity: 0.55 });
+  return col;
+}
+
+// Riga di un conto: icona, nome, saldo allineato a destra.
+function addAccountRow(card, { symbol, nome, saldo, nomeColor = TEXT_SOFT, amountColor }) {
+  const row = card.addStack();
+  row.centerAlignContent();
+  addIcon(row, symbol, MUTED, 13);
+  row.addSpacer(7);
+  const t = row.addText(nome);
+  t.textColor = nomeColor; t.font = Font.systemFont(12); t.lineLimit = 1;
+  row.addSpacer();
+  addAmount(row, saldo, { color: amountColor, size: 13, gap: 3, euroSize: 10 });
+  return row;
+}
+
+// Conti in ordine di saldo; con più di 3 si mostrano i primi 2 e il resto in
+// una riga sola "Altri N conti" col totale, così nessun conto sparisce in
+// silenzio e la card non cresce.
+function summarizeAccounts(conti) {
+  const sorted = [...conti].sort((a, b) => b.saldo - a.saldo);
+  const total = Math.round(sorted.reduce((s, c) => s + c.saldo, 0) * 100) / 100;
+  if (sorted.length <= 3) return { rows: sorted, rest: null, total };
+  const rest = sorted.slice(2);
+  return {
+    rows: sorted.slice(0, 2),
+    rest: { count: rest.length, saldo: Math.round(rest.reduce((s, c) => s + c.saldo, 0) * 100) / 100 },
+    total,
+  };
+}
+
 async function buildWidget(dataOverride) {
   const w = new ListWidget();
   w.backgroundGradient = bgGradient();
@@ -386,10 +489,12 @@ async function buildWidget(dataOverride) {
     }
   }
 
-  // ── Barra in alto: identità a sinistra, azioni a destra ──
+  // ── Barra in alto: identità a sinistra, ora + azioni a destra ──
   const topBar = w.addStack();
   topBar.centerAlignContent();
-  const brand = topBar.addText("💰 FINANZA");
+  addIcon(topBar, "eurosign.circle", MUTED, 14);
+  topBar.addSpacer(8);
+  const brand = topBar.addText("FINANZA");
   brand.textColor = MUTED; brand.font = Font.boldSystemFont(12);
   topBar.addSpacer(); // spinge il resto a destra
 
@@ -399,196 +504,145 @@ async function buildWidget(dataOverride) {
   topBar.addSpacer(10);
   const eyeStack = topBar.addStack();
   eyeStack.url = RUN_URL("toggle=1");
-  const eye = eyeStack.addText(hidden ? "🙈" : "👁");
-  eye.font = Font.systemFont(13);
+  addIcon(eyeStack, hidden ? "eye.slash" : "eye", MUTED, 15);
 
   if (APP_URL) {
     topBar.addSpacer(8);
     const openStack = topBar.addStack();
     openStack.url = APP_URL;
-    const open = openStack.addText("↗");
-    open.font = Font.boldSystemFont(13);
-    open.textColor = PURPLE;
+    addIcon(openStack, "arrow.up.right", PURPLE, 15);
   }
 
-  w.addSpacer(10);
+  w.addSpacer(7);
 
   // ── Cifra principale ──
   const patLabel = w.addText("PATRIMONIO");
-  patLabel.textColor = MUTED; patLabel.font = Font.mediumSystemFont(12);
-  w.addSpacer(3);
-  // Cifra grande + simbolo € più piccolo e attenuato accanto (non più
-  // un'unica stringa monospace: risolve il vuoto visibile tra i pallini
-  // e l'€ quando gli importi sono nascosti, e dà più gerarchia sempre).
-  addAmount(w, data.patrimonio, { color: TEXT, size: 26, bold: true, gap: 6, euroSize: 16, euroOpacity: 0.45 });
+  patLabel.textColor = MUTED; patLabel.font = Font.semiboldSystemFont(11);
+  w.addSpacer(2);
+  addAmount(w, data.patrimonio, { color: TEXT, size: 28, bold: true, gap: 6, euroSize: 16, euroOpacity: 0.45 });
 
-  w.addSpacer(10);
+  w.addSpacer(7);
 
-  // ── Card "Conti" (conti bancari + investimenti raggruppati) ──
-  const conti = data.conti || [];
-  if (conti.length > 0 || data.investimenti > 0) {
-    const card = w.addStack();
-    card.layoutVertically();
-    card.backgroundColor = new Color("#ffffff", 0.06);
-    card.borderColor = new Color("#ffffff", 0.08);
-    card.borderWidth = 1;
-    card.cornerRadius = 12;
-    card.setPadding(9, 10, 9, 10);
+  // ── Card "Questo mese": Uscite / Entrate / Saldo + prossima scadenza ──
+  const monthCard = addCard(w);
 
-    const cardLabel = card.addText("CONTI");
-    cardLabel.textColor = MUTED; cardLabel.font = Font.boldSystemFont(10);
-    card.addSpacer(6);
-
-    for (const c of conti.slice(0, 3)) {
-      const row = card.addStack();
-      row.centerAlignContent();
-      const nome = row.addText(`${c.icona} ${c.nome}`);
-      nome.textColor = MUTED; nome.font = Font.systemFont(12); nome.lineLimit = 1;
-      row.addSpacer();
-      addAmount(row, c.saldo, { color: c.saldo >= 0 ? GREEN : RED, size: 15 });
-      card.addSpacer(6);
-    }
-
-    // Se ci sono più di 3 conti, non spariscono in silenzio: un accenno
-    // in piccolo segnala quanti restano fuori dallo spazio del widget.
-    if (conti.length > 3) {
-      const more = card.addText(`+ ${conti.length - 3} altri conti`);
-      more.textColor = MUTED; more.font = Font.italicSystemFont(9);
-      card.addSpacer(4);
-    }
-
-    if (data.investimenti > 0) {
-      const row = card.addStack();
-      row.centerAlignContent();
-      const nome = row.addText("📈 Investimenti");
-      nome.textColor = MUTED; nome.font = Font.systemFont(12);
-      row.addSpacer();
-      addAmount(row, data.investimenti, { color: PURPLE, size: 15 });
-    }
-
-    w.addSpacer(8);
-  }
-
-  // ── Card "Mese corrente" ──
-  const monthCard = w.addStack();
-  monthCard.layoutVertically();
-  monthCard.backgroundColor = new Color("#ffffff", 0.06);
-  monthCard.borderColor = new Color("#ffffff", 0.08);
-  monthCard.borderWidth = 1;
-  monthCard.cornerRadius = 12;
-  monthCard.setPadding(9, 10, 9, 10);
-
-  // Intestazione: titolo a sinistra, confronto col mese scorso a destra
-  // (stesso periodo, come nella Home dell'app). deltaPct è null senza storico
-  // e assente con un server più vecchio: in entrambi i casi non si mostra.
-  const monthHeader = monthCard.addStack();
-  monthHeader.centerAlignContent();
-  const monthLabel = monthHeader.addText("QUESTO MESE");
-  monthLabel.textColor = MUTED; monthLabel.font = Font.boldSystemFont(10);
+  // Titolo a sinistra; a destra il confronto col mese scorso (stesso periodo,
+  // come nella Home). deltaPct è null senza storico e assente con un server
+  // più vecchio: in entrambi i casi la pillola non c'è.
+  const monthHeader = addCardHeader(monthCard, "QUESTO MESE");
   if (typeof data.deltaPct === "number") {
-    monthHeader.addSpacer();
+    const tone = data.deltaPct > 0 ? AMBER : data.deltaPct < 0 ? GREEN : MUTED; // più spesa = attenzione
+    const pill = monthHeader.addStack();
+    pill.backgroundColor = new Color(tone.hex, 0.14);
+    pill.cornerRadius = 10;
+    pill.setPadding(2, 7, 2, 7);
     const arrow = data.deltaPct > 0 ? "↑" : data.deltaPct < 0 ? "↓" : "=";
-    const delta = monthHeader.addText(`${arrow} ${Math.abs(data.deltaPct)}% vs mese scorso`);
-    // Più spesa = ambra (attenzione), meno = verde
-    delta.textColor = data.deltaPct > 0 ? AMBER : data.deltaPct < 0 ? GREEN : MUTED;
-    delta.font = Font.semiboldSystemFont(9);
-    delta.lineLimit = 1;
-    delta.minimumScaleFactor = 0.7;
+    const delta = pill.addText(`${arrow} ${Math.abs(data.deltaPct)}% vs mese scorso`);
+    delta.textColor = tone; delta.font = Font.semiboldSystemFont(9);
+    delta.lineLimit = 1; delta.minimumScaleFactor = 0.7;
   }
   monthCard.addSpacer(6);
 
-  const monthRow = monthCard.addStack();
-  monthRow.centerAlignContent();
+  const saldoMese = Math.round((data.entrateMese - data.speseMese) * 100) / 100;
+  const stats = monthCard.addStack();
+  addStat(stats, "USCITE", data.speseMese, RED);
+  for (const [label, n, tone] of [["ENTRATE", data.entrateMese, GREEN], ["SALDO", saldoMese, saldoMese < 0 ? RED : GREEN]]) {
+    stats.addSpacer(10);
+    const divider = stats.addStack(); // filetto verticale tra le colonne
+    divider.size = new Size(1, 28);
+    divider.backgroundColor = new Color("#ffffff", 0.08);
+    stats.addSpacer(10);
+    addStat(stats, label, n, tone);
+  }
 
-  // Uscite del mese, in un chip colorato coerente con il pulsante "Uscita"
-  const speseChip = monthRow.addStack();
-  speseChip.centerAlignContent();
-  speseChip.backgroundColor = new Color("#FF6B6B", 0.12);
-  speseChip.borderColor = new Color("#FF6B6B", 0.2);
-  speseChip.borderWidth = 1;
-  speseChip.cornerRadius = 8;
-  speseChip.setPadding(5, 8, 5, 8);
-  const speseIcon = speseChip.addText("▼");
-  speseIcon.textColor = RED; speseIcon.font = Font.systemFont(10);
-  speseChip.addSpacer(4);
-  addAmount(speseChip, data.speseMese, { color: RED, size: 11 });
-
-  monthRow.addSpacer();
-
-  // Entrate del mese, chip coerente col pulsante "Entrata"
-  const entrataChip = monthRow.addStack();
-  entrataChip.centerAlignContent();
-  entrataChip.backgroundColor = new Color("#4ECDC4", 0.12);
-  entrataChip.borderColor = new Color("#4ECDC4", 0.2);
-  entrataChip.borderWidth = 1;
-  entrataChip.cornerRadius = 8;
-  entrataChip.setPadding(5, 8, 5, 8);
-  const entrataIcon = entrataChip.addText("▲");
-  entrataIcon.textColor = GREEN; entrataIcon.font = Font.systemFont(10);
-  entrataChip.addSpacer(4);
-  addAmount(entrataChip, data.entrateMese, { color: GREEN, size: 11 });
-
-  // Prossima scadenza ricorrente (affitto, abbonamenti…), una riga sola:
-  // il widget Medio non ha spazio per l'elenco completo dell'app.
+  // Prossima scadenza ricorrente, sotto un filetto: una riga sola, il widget
+  // non ha spazio per l'elenco completo dell'app.
   const prossime = data.inArrivo || [];
   if (prossime.length > 0) {
     const b = prossime[0];
     monthCard.addSpacer(7);
+    addHairline(monthCard);
+    monthCard.addSpacer(7);
     const dueRow = monthCard.addStack();
     dueRow.centerAlignContent();
-    const dueName = dueRow.addText(`${b.emoji || "📅"} ${b.descrizione || "Scadenza"} · ${whenLabel(b.days)}`);
-    dueName.textColor = b.days <= 1 ? AMBER : MUTED;
-    dueName.font = Font.systemFont(10);
-    dueName.lineLimit = 1;
+    addIcon(dueRow, "calendar", b.days <= 1 ? AMBER : MUTED, 12);
+    dueRow.addSpacer(6);
+    const dueName = dueRow.addText(b.descrizione || "Scadenza");
+    dueName.textColor = TEXT; dueName.font = Font.systemFont(11); dueName.lineLimit = 1;
+    dueRow.addSpacer(4);
+    const dueWhen = dueRow.addText(`· ${whenLabel(b.days)}`);
+    dueWhen.textColor = b.days <= 1 ? AMBER : MUTED; dueWhen.font = Font.systemFont(10);
     dueRow.addSpacer();
-    addAmount(dueRow, b.importo, { color: TEXT, size: 11 });
+    addAmount(dueRow, b.importo, { color: TEXT, size: 12, euroSize: 9 });
     const altre = (data.inArrivoTotale || prossime.length) - 1;
     if (altre > 0) {
       dueRow.addSpacer(4);
-      const more = dueRow.addText(`+${altre}`);
+      const more = dueRow.addText(`+${altre} altre`);
       more.textColor = MUTED; more.font = Font.systemFont(9);
     }
   }
 
-  w.addSpacer(10);
+  w.addSpacer(7);
+
+  // ── Card "Conti": totale nel titolo (Patrimonio = Conti + Investimenti) ──
+  const conti = data.conti || [];
+  if (conti.length > 0 || data.investimenti > 0) {
+    const card = addCard(w);
+    const summary = summarizeAccounts(conti);
+
+    const header = addCardHeader(card, "CONTI");
+    if (conti.length > 0) addAmount(header, summary.total, { color: MUTED, size: 10.5, gap: 2, euroSize: 9, euroOpacity: 0.7 });
+    card.addSpacer(6);
+
+    summary.rows.forEach((c, i) => {
+      if (i > 0) card.addSpacer(4);
+      addAccountRow(card, { symbol: accountSymbol(c.icona), nome: c.nome, saldo: c.saldo, amountColor: c.saldo >= 0 ? GREEN : RED });
+    });
+    if (summary.rest) {
+      card.addSpacer(4);
+      addAccountRow(card, {
+        symbol: "square.stack.3d.up", nome: `Altri ${summary.rest.count} conti`, saldo: summary.rest.saldo,
+        nomeColor: MUTED, amountColor: summary.rest.saldo >= 0 ? new Color(GREEN.hex, 0.8) : RED,
+      });
+    }
+
+    if (data.investimenti > 0) {
+      card.addSpacer(6);
+      addHairline(card);
+      card.addSpacer(6);
+      addAccountRow(card, { symbol: "chart.line.uptrend.xyaxis", nome: "Investimenti", saldo: data.investimenti, amountColor: PURPLE });
+    }
+  }
+
+  w.addSpacer(); // lo spazio che avanza va qui: i pulsanti restano sempre in fondo
 
   // ── Pulsanti di aggiunta rapida, larghezza uguale ──
   const actions = w.addStack();
   actions.spacing = 8;
 
   // Ogni pulsante contiene uno spacer flessibile (addSpacer senza argomenti):
-  // è lo stesso meccanismo che rende piene le card "Conti"/"Mese" sopra (le
-  // loro righe interne usano lo stesso trucco per spingere il valore a
-  // destra). Uno spacer flessibile rende il contenitore "avido" di spazio;
-  // due pulsanti ugualmente avidi, fratelli nella stessa riga, si dividono
-  // lo spazio rimanente in parti uguali — a differenza di size=(0,altezza),
-  // che invece si limita ad adattarsi al contenuto (da qui i pulsanti
-  // striminziti nello screenshot).
-  const uscitaStack = actions.addStack();
-  uscitaStack.url = RUN_URL("add=uscita");
-  uscitaStack.backgroundColor = new Color("#FF6B6B", 0.12);
-  uscitaStack.borderColor = new Color("#FF6B6B", 0.25);
-  uscitaStack.borderWidth = 1;
-  uscitaStack.cornerRadius = 10;
-  uscitaStack.setPadding(8, 10, 8, 10);
-  uscitaStack.centerAlignContent();
-  uscitaStack.addSpacer();
-  const uscitaTxt = uscitaStack.addText("➖ Uscita");
-  uscitaTxt.textColor = RED; uscitaTxt.font = Font.boldSystemFont(12);
-  uscitaStack.addSpacer();
-
-  const entrataStack = actions.addStack();
-  entrataStack.url = RUN_URL("add=entrata");
-  entrataStack.backgroundColor = new Color("#4ECDC4", 0.12);
-  entrataStack.borderColor = new Color("#4ECDC4", 0.25);
-  entrataStack.borderWidth = 1;
-  entrataStack.cornerRadius = 10;
-  entrataStack.setPadding(8, 10, 8, 10);
-  entrataStack.centerAlignContent();
-  entrataStack.addSpacer();
-  const entrataTxt = entrataStack.addText("➕ Entrata");
-  entrataTxt.textColor = GREEN; entrataTxt.font = Font.boldSystemFont(12);
-  entrataStack.addSpacer();
+  // rende il contenitore "avido" di spazio, e due pulsanti ugualmente avidi,
+  // fratelli nella stessa riga, si dividono lo spazio rimanente in parti
+  // uguali — a differenza di size=(0,altezza), che si limita ad adattarsi al
+  // contenuto (da cui i pulsanti striminziti di una versione precedente).
+  function addActionButton(label, symbol, tone, runParams) {
+    const s = actions.addStack();
+    s.url = RUN_URL(runParams);
+    s.backgroundColor = new Color(tone.hex, 0.12);
+    s.borderColor = new Color(tone.hex, 0.25);
+    s.borderWidth = 1;
+    s.cornerRadius = 10;
+    s.setPadding(8, 10, 8, 10);
+    s.centerAlignContent();
+    s.addSpacer();
+    addIcon(s, symbol, tone, 12);
+    s.addSpacer(6);
+    const txt = s.addText(label);
+    txt.textColor = tone; txt.font = Font.boldSystemFont(12);
+    s.addSpacer();
+  }
+  addActionButton("Uscita", "minus", RED, "add=uscita");
+  addActionButton("Entrata", "plus", GREEN, "add=entrata");
 
   return { widget: w, data };
 }
