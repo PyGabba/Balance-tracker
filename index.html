@@ -19,6 +19,8 @@
       body { background: oklch(15% 0.02 258); font-family: 'Inter', sans-serif; overflow: hidden; }
       #root { overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .tabbar-wrapper { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+      @keyframes finanza-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; } }
     </style>
   </head>
   <body>

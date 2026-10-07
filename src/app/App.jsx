@@ -5,6 +5,7 @@ import { fetchTransactions, addTransaction, deleteTransaction, updateTransaction
 import { PersonaSwitcher } from "../features/auth/PersonaSwitcher.jsx";
 import { getLang, setLang, t, detectGuestLang } from "../lib/i18n.js";
 import { toast, ToastHost } from "../components/Toast.jsx";
+import { DialogHost } from "../components/ui/Dialog.jsx";
 import { SyncStatusBadge, OfflineBanner } from "../components/SyncStatusBadge.jsx";
 import { setImportiNascosti as setImportiNascostiFormat } from "../lib/format.js";
 import { defaultCategorie, getAllPersone } from "../lib/appHelpers.js";
@@ -360,6 +361,7 @@ export default function FinanzaApp() {
   return (
     <div style={{ maxWidth: 430, margin: "0 auto", height: "100dvh", background: color.bg, color: color.textPrimary, fontFamily: displayFont, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
       <ToastHost />
+      <DialogHost />
       {/* Fixed header */}
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: showMonthBar ? "none" : `1px solid ${color.border}`, background: color.bg, flexShrink: 0 }}>
         <div>

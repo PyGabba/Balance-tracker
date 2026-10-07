@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { IconSettings, IconX, IconPlus, IconPencil, IconLink, IconChevronDown } from "@tabler/icons-react";
+import { IconSettings, IconX, IconPlus, IconPencil, IconLink, IconChevronDown, IconPlane } from "@tabler/icons-react";
 import { fetchTripCategories, saveTripCategories, fetchTrips, addTrip, deleteTrip, addTripExpense, deleteTripExpense, settleTrip, createTripShareLink, revokeTripShareLink } from "../../api.js";
 import { calcolaSettleViaggio } from "../../lib/finance.js";
 import { t } from "../../lib/i18n.js";
@@ -7,6 +7,8 @@ import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
 import { inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { TripExpenseForm } from "./TripExpenseForm.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
+import { EmptyState, LoadingState } from "../../components/ui/EmptyState.jsx";
 
 export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   const [trips, setTrips] = useState([]);
@@ -77,7 +79,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   }
 
   async function handleRevokeShare(tripId) {
-    if (!confirm(t(lang, "viaggi.confirmRevoke"))) return;
+    if (!(await confirmDialog({ message: t(lang, "viaggi.confirmRevoke"), danger: true, lang }))) return;
     setShareBusyId(tripId);
     try {
       await revokeTripShareLink(tripId);
@@ -122,7 +124,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   }
 
   async function handleDeleteTrip(id) {
-    if (!confirm(t(lang, "viaggi.confirmDeleteTrip"))) return;
+    if (!(await confirmDialog({ message: t(lang, "viaggi.confirmDeleteTrip"), danger: true, lang }))) return;
     try {
       await deleteTrip(id);
       setTrips(trips.filter(t => t.id !== id));
@@ -154,7 +156,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   async function handleMarkSettled(trip, settlements) {
     const nameOf = (id) => (trip.partecipanti || []).find(p => p.id === id)?.nome || id;
     const riepilogo = settlements.map(s => `${nameOf(s.da)} → ${nameOf(s.a)}: ${formattaValuta(s.importo)}`).join("\n");
-    if (!confirm(`${t(lang, "viaggi.confirmSettlePrefix")} "${trip.nome}" ${t(lang, "viaggi.confirmSettleSuffix")}\n${riepilogo}`)) return;
+    if (!(await confirmDialog({ message: `${t(lang, "viaggi.confirmSettlePrefix")} "${trip.nome}" ${t(lang, "viaggi.confirmSettleSuffix")}\n${riepilogo}`, lang }))) return;
     setSettlingId(trip.id);
     try {
       // Server computes and inserts the settlement transactions itself
@@ -201,7 +203,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
   const allColors = ["#E17055", "#74B9FF", "#55EFC4", "#FDCB6E", "#A29BFE", "#FF7675", "#00CEC9", "#FAB1A0"];
   const tripColors = {};
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: color.textMuted }}>{t(lang, "viaggi.loading")}</div>;
+  if (loading) return <LoadingState label={t(lang, "viaggi.loading")} />;
 
   return (
     <div style={{ padding: "20px 16px" }}>
@@ -293,7 +295,7 @@ export function ViaggiView({ persone, valutaBase = "EUR", lang = "it" }) {
       )}
 
       {trips.length === 0 ? (
-        <div style={{ color: color.textMuted, textAlign: "center", padding: 40 }}>{t(lang, "viaggi.noTrips")}<br/>{t(lang, "viaggi.tapToCreate")}</div>
+        <EmptyState icon={IconPlane} title={t(lang, "viaggi.noTrips")} hint={t(lang, "viaggi.tapToCreate")} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {trips.map(trip => {

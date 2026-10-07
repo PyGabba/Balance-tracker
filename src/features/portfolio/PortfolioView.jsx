@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { IconRefresh, IconX, IconPlus, IconCheck, IconPencil, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
+import { IconRefresh, IconX, IconPlus, IconCheck, IconPencil, IconChevronUp, IconChevronDown, IconChartLine } from "@tabler/icons-react";
 import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, saveManualPricesRemote, deleteManualPriceRemote, fetchQuotes, getSession } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
@@ -9,6 +9,8 @@ import { DonutChart, LineChart } from "../../components/ui/Charts.jsx";
 import { computeHoldingsBreakdown, computeValueHistory } from "../../services/portfolioService.js";
 import { readAutoPrices, writeAutoPrices } from "../../lib/autoPriceCache.js";
 import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
+import { EmptyState, LoadingState } from "../../components/ui/EmptyState.jsx";
 
 export function PortfolioView({ lang = "it", conti = [] }) {
   const [positions, setPositions] = useState([]);
@@ -62,7 +64,7 @@ export function PortfolioView({ lang = "it", conti = [] }) {
 
   async function handleDeleteHolding(trades) {
     const opWord = trades.length > 1 ? `${trades.length} ${t(lang, "portfolio.confirmDeleteHoldingAll")}` : t(lang, "portfolio.confirmDeleteHoldingOne");
-    if (!confirm(`${t(lang, "portfolio.confirmDeleteHoldingPrefix")} ${opWord} ${t(lang, "portfolio.confirmDeleteHoldingSuffix")}`)) return;
+    if (!(await confirmDialog({ message: `${t(lang, "portfolio.confirmDeleteHoldingPrefix")} ${opWord} ${t(lang, "portfolio.confirmDeleteHoldingSuffix")}`, danger: true, lang }))) return;
     await Promise.all(trades.map(tr => deletePosition(tr.id)));
     const ids = new Set(trades.map(tr => tr.id));
     setPositions(prev => prev.filter(p => !ids.has(p.id)));
@@ -70,7 +72,7 @@ export function PortfolioView({ lang = "it", conti = [] }) {
 
   async function handleDeleteTrade(trade) {
     const what = trade.tipo === "sell" ? t(lang, "portfolio.confirmDeleteTradeSell") : t(lang, "portfolio.confirmDeleteTradeBuy");
-    if (!confirm(`${t(lang, "portfolio.confirmDeleteTradePrefix")} ${what} ${t(lang, "portfolio.confirmDeleteTradeConnector")} ${trade.dataAcquisto} (${trade.quantita} ${t(lang, "portfolio.units")})?`)) return;
+    if (!(await confirmDialog({ message: `${t(lang, "portfolio.confirmDeleteTradePrefix")} ${what} ${t(lang, "portfolio.confirmDeleteTradeConnector")} ${trade.dataAcquisto} (${trade.quantita} ${t(lang, "portfolio.units")})?`, danger: true, lang }))) return;
     try {
       await deletePosition(trade.id);
       setPositions(prev => prev.filter(p => p.id !== trade.id));
@@ -257,7 +259,7 @@ export function PortfolioView({ lang = "it", conti = [] }) {
   const currentPriceByTicker = Object.fromEntries(holdings.map(h => [h.ticker, prezzoDi(h.ticker)]));
   const { history: valueHistory, prediction: valuePrediction } = computeValueHistory(positions, currentPriceByTicker, { range: chartRange });
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: color.textMuted }}>{t(lang, "portfolio.loading")}</div>;
+  if (loading) return <LoadingState label={t(lang, "portfolio.loading")} />;
 
   return (
     <div style={{ padding: "20px 16px" }}>
@@ -404,9 +406,7 @@ export function PortfolioView({ lang = "it", conti = [] }) {
 
       {/* Holdings list */}
       {holdings.length === 0 ? (
-        <div style={{ color: color.textMuted, textAlign: "center", padding: 40, fontSize: 14 }}>
-          {t(lang, "portfolio.noPositions")}<br/>{t(lang, "portfolio.tapToAddTicker")}
-        </div>
+        <EmptyState icon={IconChartLine} title={t(lang, "portfolio.noPositions")} hint={t(lang, "portfolio.tapToAddTicker")} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {/* Sort selector */}

@@ -8,6 +8,7 @@ import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displa
 import { SplitSelector } from "./components/SplitSelector.jsx";
 import { initialSplits } from "./helpers.js";
 import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
 
 // ─── Transaction Row with inline edit ───
 export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditing, onTap, onDelete, onSave, onCancel, lang = "it" }) {
@@ -77,7 +78,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
           </div>
         </div>
         <div style={{ fontSize: 15, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent, flexShrink: 0 }}>{formattaValuta(tx.importo)}</div>
-        <button onClick={() => { if (confirm(t(lang, "form.deleteTransferConfirm"))) onDelete(); }} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.33)}`, cursor: "pointer", display: "flex", padding: "0 2px", flexShrink: 0 }}><IconX size={14} /></button>
+        <button onClick={async () => { if (await confirmDialog({ message: t(lang, "form.deleteTransferConfirm"), danger: true, lang })) onDelete(); }} style={{ background: "none", border: "none", color: `${alpha(color.negative, 0.33)}`, cursor: "pointer", display: "flex", padding: "0 2px", flexShrink: 0 }}><IconX size={14} /></button>
       </div>
     );
   }
@@ -272,7 +273,7 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => { if (confirm(t(lang, "form.deleteTransactionConfirm"))) onDelete(); }} style={{
+        <button onClick={async () => { if (await confirmDialog({ message: t(lang, "form.deleteTransactionConfirm"), danger: true, lang })) onDelete(); }} style={{
           padding: "12px", border: `1px solid ${alpha(color.negative, 0.27)}`, borderRadius: 12, cursor: "pointer",
           background: `${alpha(color.negative, 0.07)}`, color: color.negative, fontSize: 13, fontWeight: 600, flexShrink: 0,
         }}>{t(lang, "common.delete")}</button>

@@ -9,6 +9,7 @@ import { VALUTE_FALLBACK } from "../transactions/helpers.js";
 import { RecurringManagerSection } from "./RecurringManagerSection.jsx";
 import { BackupSection } from "./BackupSection.jsx";
 import { ContiCard } from "../accounts/ContiCard.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
 
 const HOUSEHOLD_ROLES = ["owner", "admin", "member", "guest"];
 
@@ -49,7 +50,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
   const isOwnerSession = !activePersonaId || personeLocal.find(p => p.id === activePersonaId)?.ruolo === "owner";
 
   async function handleRemovePersona(persona) {
-    if (!confirm(`${t(lang, "confirm.removePersonaPrefix")} ${persona.nome} ${t(lang, "confirm.removePersonaSuffix")}`)) return;
+    if (!(await confirmDialog({ message: `${t(lang, "confirm.removePersonaPrefix")} ${persona.nome} ${t(lang, "confirm.removePersonaSuffix")}`, danger: true, confirmLabel: t(lang, "common.remove"), lang }))) return;
     setRemoveBusyId(persona.id);
     try {
       const updated = await removePersona(persona.id);
@@ -226,7 +227,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
   }
 
   async function handleRevokeWidgetKey() {
-    if (!confirm(t(lang, "confirm.revokeWidgetKey"))) return;
+    if (!(await confirmDialog({ message: t(lang, "confirm.revokeWidgetKey"), danger: true, confirmLabel: t(lang, "common.revoke"), lang }))) return;
     setWidgetBusy(true);
     try {
       await revokeWidgetKey();
@@ -251,7 +252,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
   }
 
   async function handleRevokeCalendarKey() {
-    if (!confirm(t(lang, "confirm.revokeCalendarKey"))) return;
+    if (!(await confirmDialog({ message: t(lang, "confirm.revokeCalendarKey"), danger: true, confirmLabel: t(lang, "common.revoke"), lang }))) return;
     setCalendarBusy(true);
     try {
       await revokeCalendarKey();
@@ -286,7 +287,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
   }
 
   async function handlePermanentDelete(id) {
-    if (!confirm(t(lang, "confirm.permanentDeleteTx"))) return;
+    if (!(await confirmDialog({ message: t(lang, "confirm.permanentDeleteTx"), danger: true, lang }))) return;
     setCestinoBusyId(id);
     try {
       await permanentDeleteTransaction(id);
@@ -298,7 +299,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
 
   async function handleEmptyCestino() {
     if (cestino.length === 0) return;
-    if (!confirm(`${t(lang, "confirm.emptyTrashPrefix")} ${cestino.length} ${t(lang, "confirm.emptyTrashSuffix")}`)) return;
+    if (!(await confirmDialog({ message: `${t(lang, "confirm.emptyTrashPrefix")} ${cestino.length} ${t(lang, "confirm.emptyTrashSuffix")}`, danger: true, confirmLabel: t(lang, "settings.emptyTrash"), lang }))) return;
     try {
       await emptyTrash();
       setCestino([]);

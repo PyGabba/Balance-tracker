@@ -6,6 +6,7 @@ import { getAllPersone } from "../../lib/appHelpers.js";
 import { MiniChart } from "../../components/ui/Charts.jsx";
 import { GoalGauge } from "../goals/GoalGauge.jsx";
 import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
+import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
 export function StatsView({ transazioni, persone, meseOffset, categorie, goals, valutaBase = "EUR", activePersonaId = null, lang = "it" }) {
   const oggi = new Date();
@@ -429,7 +430,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
         </>
       )}
 
-      {perCategoria.length === 0 && <div style={{ color: color.textMuted, textAlign: "center", padding: 40, fontSize: 14 }}>{t(lang, "stats.noDataThisMonth")}</div>}
+      {perCategoria.length === 0 && <EmptyState icon={IconChartBar} title={t(lang, "stats.noDataThisMonth")} />}
 
       {/* ─── Previsione prossimo mese ─── */}
       <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${color.border}` }}>

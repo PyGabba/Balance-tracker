@@ -5,6 +5,7 @@ import { formattaValuta } from "../../lib/format.js";
 import { GoalGauge } from "./GoalGauge.jsx";
 import { color, alpha, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
 
 // Goal row component
 export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
@@ -94,7 +95,7 @@ export function GoalRow({ goal, onUpdate, onDelete, conti = [], lang = "it" }) {
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
           {!done && <button onClick={() => { setAmount(""); setMode(mode === "versa" ? null : "versa"); }} title={t(lang, "goals.deposit")} style={{ background: mode === "versa" ? `${alpha(color.positive, 0.13)}` : "none", border: mode === "versa" ? `1px solid ${color.positive}` : `1px solid ${color.border}`, borderRadius: 7, color: color.positive, cursor: "pointer", display: "flex", padding: "4px 7px" }}><IconPlus size={13} /></button>}
           <button onClick={openEdit} style={{ background: "none", border: "none", color: color.accent, cursor: "pointer", display: "flex", padding: "4px" }}><IconPencil size={14} /></button>
-          <button onClick={() => { if (confirm(t(lang, "confirm.deleteGoal"))) onDelete(goal.id); }} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex", padding: "4px" }}><IconX size={14} /></button>
+          <button onClick={async () => { if (await confirmDialog({ message: t(lang, "confirm.deleteGoal"), danger: true, lang })) onDelete(goal.id); }} style={{ background: "none", border: "none", color: color.negative, cursor: "pointer", display: "flex", padding: "4px" }}><IconX size={14} /></button>
         </div>
       </div>
 

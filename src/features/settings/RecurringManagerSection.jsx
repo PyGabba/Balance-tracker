@@ -6,6 +6,7 @@ import { toast } from "../../components/Toast.jsx";
 import { color, alpha, displayFont } from "../../components/ui/styles.js";
 import { RICORRENZA_IDS } from "../transactions/helpers.js";
 import { listRecurringTemplates, skipNextOccurrence } from "../../services/recurringService.js";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
 
 const FREQUENZE = RICORRENZA_IDS.filter(id => id !== "no");
 
@@ -44,13 +45,13 @@ export function RecurringManagerSection({ transazioni, categorie, onEdit, onDele
     withBusy(tx.id, () => onEdit(tx.id, { ricorrenza: skipNextOccurrence(tx) }));
   }
 
-  function handlePause(tx) {
-    if (!confirm(t(lang, "recurManager.confirmPause"))) return;
+  async function handlePause(tx) {
+    if (!(await confirmDialog({ message: t(lang, "recurManager.confirmPause"), lang }))) return;
     withBusy(tx.id, () => onEdit(tx.id, { ricorrenza: null }));
   }
 
-  function handleDelete(tx) {
-    if (!confirm(t(lang, "recurManager.confirmDelete"))) return;
+  async function handleDelete(tx) {
+    if (!(await confirmDialog({ message: t(lang, "recurManager.confirmDelete"), danger: true, lang }))) return;
     withBusy(tx.id, () => onDelete(tx.id));
   }
 

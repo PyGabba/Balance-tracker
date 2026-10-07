@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { IconRepeat, IconAlertTriangle, IconX, IconPlus, IconSearch, IconFilter } from "@tabler/icons-react";
+import { IconRepeat, IconAlertTriangle, IconX, IconPlus, IconSearch, IconFilter, IconTarget } from "@tabler/icons-react";
 import { calcolaSaldiConti, calcolaValorePortfolio, filtraTransazioni, contaFiltriAttivi } from "../lib/finance.js";
 import { AccountIcon } from "../components/ui/AccountIcon.jsx";
 import { readAutoPrices } from "../lib/autoPriceCache.js";
@@ -13,6 +13,7 @@ import { GoalRow } from "../features/goals/GoalRow.jsx";
 import { GoalsForm } from "../features/goals/GoalsForm.jsx";
 import { ContiCard } from "../features/accounts/ContiCard.jsx";
 import { DebtSummary } from "../features/debts/DebtSummary.jsx";
+import { EmptyState } from "../components/ui/EmptyState.jsx";
 
 export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, categorie, goals, onAddGoal, onUpdateGoal, onDeleteGoal, conti = [], onAddConto, onUpdateConto, onDeleteConto, positions = [], manualPrices = {}, valutaBase = "EUR", debitiGlobale = [], allPeople = [], onOpenDebt, onSettle, onUndoSettle, lang = "it" }) {
   const oggi = new Date();
@@ -183,9 +184,7 @@ export function HomeView({ transazioni, onDelete, onEdit, persone, meseOffset, c
 
         {/* Goals list */}
         {(!goals || goals.length === 0) && !showAddGoal ? (
-          <div style={{ fontSize: 12, color: color.textMuted, textAlign: "center", padding: 8 }}>
-            {t(lang, "home.noGoals")}
-          </div>
+          <EmptyState compact icon={IconTarget} title={t(lang, "home.noGoals")} />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {goals?.map(g => (

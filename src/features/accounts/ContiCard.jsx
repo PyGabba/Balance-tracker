@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { IconX, IconPlus, IconTarget } from "@tabler/icons-react";
+import { IconX, IconPlus, IconTarget, IconWallet } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { calcolaSaldiConti } from "../../lib/finance.js";
 import { toast } from "../../components/Toast.jsx";
 import { color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { AccountIcon, ACCOUNT_ICON_KEYS } from "../../components/ui/AccountIcon.jsx";
+import { confirmDialog } from "../../components/ui/Dialog.jsx";
+import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
 export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onDelete, valutaBase = "EUR", lang = "it" }) {
   const [showAdd, setShowAdd] = useState(false);
@@ -42,7 +44,7 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
 
   async function handleDelete(c) {
     const nTx = transazioni.filter(t => t.contoId === c.id).length;
-    if (!confirm(`${t(lang, "confirm.deleteAccountPrefix")} "${c.nome}"?${nTx > 0 ? `\n${nTx} ${t(lang, "confirm.deleteAccountTxWarning")}` : ""}`)) return;
+    if (!(await confirmDialog({ message: `${t(lang, "confirm.deleteAccountPrefix")} "${c.nome}"?${nTx > 0 ? `\n${nTx} ${t(lang, "confirm.deleteAccountTxWarning")}` : ""}`, danger: true, lang }))) return;
     await onDelete(c.id);
     closeForm();
   }
@@ -65,7 +67,7 @@ export function ContiCard({ conti, transazioni, goals = [], onAdd, onUpdate, onD
       </div>
 
       {conti.length === 0 && !formOpen && (
-        <div style={{ fontSize: 12, color: color.textMuted, marginTop: 8 }}>{t(lang, "conti.empty")}</div>
+        <EmptyState compact icon={IconWallet} title={t(lang, "conti.empty")} />
       )}
 
       {conti.map(c => (
