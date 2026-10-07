@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import { randomBytes } from "crypto";
 import { ObjectId } from "mongodb";
 import { roundAmount, sumAmounts, toMinorUnits } from "../../src/lib/money.js";
+import { upcomingBills } from "../../src/services/dashboardService.js";
 import { validateAmount, validateDateStr, computeValidSplits } from "../validation.js";
 import {
   sendError, requireHousehold, requireRole, writeLimiter, db, transactionsCol,
@@ -71,7 +72,22 @@ router.get("/api/widget", widgetLimiter, async (req, res) => {
     const monthStart = `${meseKey}-01`;
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
 
-    const [accounts, positions, priceDocs, [agg]] = await Promise.all([
+    // Same like-for-like comparison as the app's dashboard: last month's
+    // spending only up to the same day-of-month as today (an unfinished month
+    // compared with a full one would always look like a saving). The upper
+    // bound is an exclusive date STRING — "YYYY-MM-DD" compares correctly
+    // as text, so day 29-32 overshooting a short month is harmless.
+    const pad = (n) => String(n).padStart(2, "0");
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevPrefix = `${prevDate.getFullYear()}-${pad(prevDate.getMonth() + 1)}`;
+    const daysInPrev = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const prevStart = `${prevPrefix}-01`;
+    const prevEnd = `${prevPrefix}-${pad(Math.min(now.getDate(), daysInPrev) + 1)}`;
+    const todayIso = `${meseKey}-${pad(now.getDate())}`;
+    const horizon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 30);
+    const horizonIso = `${horizon.getFullYear()}-${pad(horizon.getMonth() + 1)}-${pad(horizon.getDate())}`;
+
+    const [accounts, positions, priceDocs, [agg], templates] = await Promise.all([
       db.collection("accounts").find({ householdId: hid }).toArray(),
       db.collection("positions").find({ householdId: hid }).toArray(),
       quotesCol.find({ householdId: hid, manualPrice: { $exists: true } }).toArray(),
@@ -104,9 +120,19 @@ router.get("/api/widget", widgetLimiter, async (req, res) => {
               { $match: { data: { $gte: monthStart, $lt: monthEnd }, tipo: { $in: ["uscita", "entrata"] } } },
               { $group: { _id: "$tipo", tot: { $sum: "$importo" } } },
             ],
+            prevSpend: [
+              { $match: { data: { $gte: prevStart, $lt: prevEnd }, tipo: "uscita" } },
+              { $group: { _id: null, tot: { $sum: "$importo" } } },
+            ],
           },
         },
       ]).toArray(),
+      // Recurring templates due within 30 days (uses the sparse index on
+      // ricorrenza.prossimaData) — the widget's "coming up" line.
+      transactionsCol.find(
+        { householdId: hid, deletedAt: null, tipo: "uscita", "ricorrenza.prossimaData": { $lte: horizonIso } },
+        { projection: { tipo: 1, descrizione: 1, categoria: 1, importo: 1, importoMinorUnits: 1, ricorrenza: 1 } }
+      ).toArray(),
     ]);
 
     const deltaByAccount = {};
@@ -115,6 +141,15 @@ router.get("/api/widget", widgetLimiter, async (req, res) => {
     for (const m of agg.monthTotals) monthByTipo[m._id] = m.tot;
     const speseMese = roundAmount(monthByTipo.uscita || 0);
     const entrateMese = roundAmount(monthByTipo.entrata || 0);
+    const speseMesePrec = roundAmount(agg.prevSpend[0]?.tot || 0);
+    // null when last month (same period) had no spending: nothing to compare.
+    const deltaPct = speseMesePrec > 0 ? Math.round(((speseMese - speseMesePrec) / speseMesePrec) * 100) : null;
+
+    const categorieList = household.categorieUscita || WIDGET_DEFAULT_CATEGORIE;
+    const upcoming = upcomingBills(
+      templates.map(t => ({ ...t, id: String(t._id) })), todayIso,
+      { horizonDays: 30, limit: 3, valutaBase: household.valutaBase || "EUR" }
+    );
 
     const conti = accounts.map(c => {
       const id = c._id.toString();
@@ -162,10 +197,23 @@ router.get("/api/widget", widgetLimiter, async (req, res) => {
       conti,
       contiCompleti: accounts.map(c => ({ id: c._id.toString(), nome: c.nome, icona: c.icona || "🏦" })),
       persone: sanitizePersone(household.persone),
-      categorie: household.categorieUscita || WIDGET_DEFAULT_CATEGORIE,
+      categorie: categorieList,
       investimenti: roundAmount(totInvestimenti),
       speseMese,
       entrateMese,
+      // Added alongside the dashboard redesign; older widget scripts simply
+      // ignore these fields.
+      speseMesePrec,
+      deltaPct,
+      inArrivo: upcoming.bills.map(b => ({
+        descrizione: sanitizeText(b.descrizione || "", 60),
+        categoria: b.categoria,
+        emoji: categorieList.find(c => c.id === b.categoria)?.emoji || "📦",
+        days: b.days,
+        importo: b.importo,
+        variabile: b.variabile,
+      })),
+      inArrivoTotale: upcoming.total,
     });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });

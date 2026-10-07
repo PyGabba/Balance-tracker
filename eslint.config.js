@@ -4,7 +4,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 
 export default [
-  { ignores: ["lib/**", "dist/**", "node_modules/**", "server/node_modules/**", "ios/**", "android/**"] },
+  { ignores: ["lib/**", "docs/widget/Finanza.scriptable.js",  "dist/**", "node_modules/**", "server/node_modules/**", "ios/**", "android/**"] },
   js.configs.recommended,
   {
     linterOptions: { reportUnusedDisableDirectives: "off" },

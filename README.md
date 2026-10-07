@@ -109,7 +109,7 @@ Add stock or crypto positions by ticker; quotes refresh from a live source and c
 - **Categorie** — add, rename, recolor, or remove expense categories.
 - **Conti** — manage bank accounts/wallets used for transfers and balances.
 - **Cestino** — restore or permanently delete trashed transactions.
-- **Widget** — generate an API key for a home-screen widget (via the Scriptable app) that shows balances and can quick-add transactions. Treat the key like a password.
+- **Widget** — generate an API key for a home-screen widget (via the Scriptable app) that shows balances, this month's spending vs last month, the next recurring bill, and can quick-add transactions (one tap once you've added one before). The script lives in [`docs/widget/Finanza.scriptable.js`](docs/widget/Finanza.scriptable.js); paste it into Scriptable and set your own `WIDGET_URL`. Treat the key like a password — never commit or share a script that has it filled in.
 - **Backup** — download the full household dataset as JSON, or restore from a previous backup.
 - **Email di recupero** — set a recovery email so a forgotten PIN can be reset.
 - **Zona pericolosa** — permanently delete the household and all its data (PIN-confirmed, irreversible).

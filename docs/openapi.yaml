@@ -1296,9 +1296,13 @@ paths:
         "200":
           description: >
             Aggregate numbers only — account balances, this-month income/
-            expense totals, portfolio value. Never the raw transaction
-            list. Computed server-side via a MongoDB aggregation, not by
-            loading the household's full transaction history (MOD-020).
+            expense totals, portfolio value, last month's spending up to the
+            same day (`speseMesePrec`, `deltaPct` — null when there is
+            nothing to compare) and the next recurring expenses due within
+            30 days (`inArrivo`, at most 3, `inArrivoTotale` = how many are
+            due). Never the raw transaction list. Computed server-side via a
+            MongoDB aggregation, not by loading the household's full
+            transaction history (MOD-020).
         "401": { description: Missing or invalid capability token. }
 
   /widget/transaction:
