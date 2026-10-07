@@ -106,9 +106,10 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catDown.curr)})` });
   if (mediaGiornaliera > 0) insights.push({ icon: IconChartBar, color: color.accent, text: `${t(lang, "stats.dailyAverage")}: ${formattaValuta(mediaGiornaliera)}/${t(lang, "stats.perDay")}` });
 
-  // Previsione prossimo mese — media mobile sugli ultimi 3 mesi completi,
-  // sempre relativa a "oggi" (non al mese che l'utente sta visualizzando).
-  const forecast = forecastNextMonthExpenses(transazioni, categorie, oggi, 3, valutaBase);
+  // Previsione prossimo mese — ricorrenze note + stima robusta del variabile
+  // sugli ultimi 6 mesi completi, sempre relativa a "oggi" (non al mese che
+  // l'utente sta visualizzando).
+  const forecast = forecastNextMonthExpenses(transazioni, categorie, oggi, 6, valutaBase);
   const nextMonthDate = new Date(oggi.getFullYear(), oggi.getMonth() + 1, 1);
 
   return (
@@ -435,7 +436,7 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
         <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 14 }}>
           {t(lang, "stats.forecastTitle")} — {mese(nextMonthDate.getMonth(), lang)}
         </div>
-        {forecast.monthsUsed === 0 ? (
+        {forecast.monthsUsed === 0 && forecast.fixed === 0 ? (
           <div style={{ fontSize: 13, color: color.textMuted }}>{t(lang, "stats.forecastNotEnoughData")}</div>
         ) : (
           <>
@@ -443,7 +444,8 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
               {formattaValuta(forecast.forecast)}
             </div>
             <div style={{ fontSize: 11, color: color.textMuted, marginTop: 4 }}>
-              {t(lang, "stats.forecastBasedOnPrefix")} {forecast.monthsUsed} {t(lang, "stats.forecastBasedOnSuffix")}
+              {t(lang, "stats.forecastRecurring")} {formattaValuta(forecast.fixed)} + {t(lang, "stats.forecastVariable")} {formattaValuta(forecast.variable)}
+              {forecast.monthsUsed > 0 && <> · {t(lang, "stats.forecastBasedOnPrefix")} {forecast.monthsUsed} {t(lang, "stats.forecastBasedOnSuffix")}</>}
             </div>
             {forecast.perCategory.length > 0 && (
               <div style={{ marginTop: 16 }}>

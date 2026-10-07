@@ -283,53 +283,101 @@ describe("contaFiltriAttivi", () => {
 
 describe("forecastNextMonthExpenses", () => {
   const cats = [{ id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#FF6B6B" }, { id: "casa", nome: "Casa", emoji: "🏠", colore: "#45B7D1" }];
-  const oggi = new Date(2026, 7, 20); // 20 agosto 2026 — mese in corso escluso
+  const oggi = new Date(2026, 7, 20); // 20 agosto 2026 → mese prossimo = settembre; mese in corso escluso
+  const u = (importo, data, extra = {}) => ({ tipo: "uscita", importo, categoria: "cibo", data, ...extra });
 
-  it("media semplice sugli ultimi 3 mesi completi", () => {
-    const tx = [
-      { tipo: "uscita", importo: 100, categoria: "cibo", data: "2026-05-10" },
-      { tipo: "uscita", importo: 200, categoria: "cibo", data: "2026-06-10" },
-      { tipo: "uscita", importo: 300, categoria: "cibo", data: "2026-07-10" },
-      { tipo: "uscita", importo: 999, categoria: "cibo", data: "2026-08-05" }, // mese in corso, escluso
-    ];
-    const r = forecastNextMonthExpenses(tx, cats, oggi);
+  it("poche mesi: media; mese in corso escluso", () => {
+    const r = forecastNextMonthExpenses([u(100, "2026-06-10"), u(300, "2026-07-10"), u(999, "2026-08-05")], cats, oggi);
+    expect(r.variable).toBe(200);
     expect(r.forecast).toBe(200);
+    expect(r.monthsUsed).toBe(2); // da giugno (primo mese con dati) a luglio
+  });
+
+  it("3-4 mesi: la mediana ignora un mese anomalo (vacanza)", () => {
+    const r = forecastNextMonthExpenses([u(100, "2026-05-10"), u(110, "2026-06-10"), u(2000, "2026-07-10")], cats, oggi);
+    expect(r.variable).toBe(110);
+  });
+
+  it("5+ mesi: media troncata scarta il massimo e il minimo", () => {
+    const tx = [100, 100, 100, 100, 5000, 1].map((v, i) => u(v, `2026-0${i + 2}-10`));
+    // feb..lug: 100,100,100,100,5000,1 → scarta 1 e 5000 → media 100
+    expect(forecastNextMonthExpenses(tx, cats, oggi).variable).toBe(100);
+  });
+
+  it("un mese vuoto dentro la finestra conta come zero; i mesi prima dello storico no", () => {
+    const tx = [u(300, "2026-05-10"), u(300, "2026-07-10")]; // giugno vuoto
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
     expect(r.monthsUsed).toBe(3);
+    expect(r.variable).toBe(300); // mediana(300, 0, 300)
   });
 
   it("entrate e trasferimenti non contano", () => {
+    const tx = [u(100, "2026-07-10"), { tipo: "entrata", importo: 5000, categoria: "entrata", data: "2026-07-15" }, { tipo: "trasferimento", importo: 300, data: "2026-07-20" }];
+    expect(forecastNextMonthExpenses(tx, cats, oggi).forecast).toBe(100);
+  });
+
+  it("nessuno storico né ricorrenti → zero", () => {
+    expect(forecastNextMonthExpenses([], cats, oggi)).toEqual({ forecast: 0, fixed: 0, variable: 0, monthsUsed: 0, recurringCount: 0, perCategory: [] });
+  });
+
+  it("template mensile attivo: entra nella parte fissa, non nella media variabile", () => {
     const tx = [
-      { tipo: "uscita", importo: 100, categoria: "cibo", data: "2026-07-10" },
-      { tipo: "entrata", importo: 5000, categoria: "entrata", data: "2026-07-15" },
-      { tipo: "trasferimento", importo: 300, data: "2026-07-20" },
+      u(100, "2026-06-10"), u(100, "2026-07-10"),
+      { tipo: "uscita", importo: 800, categoria: "casa", descrizione: "Affitto", data: "2026-06-01", ricorrenza: { frequenza: "mensile", prossimaData: "2026-09-01" } },
+      { tipo: "uscita", importo: 800, categoria: "casa", descrizione: "Affitto", data: "2026-07-01", recurrenceOccurrenceKey: "t:2026-07-01" },
+      { tipo: "uscita", importo: 800, categoria: "casa", descrizione: "Affitto", data: "2026-08-01", recurrenceOccurrenceKey: "t:2026-08-01" },
     ];
     const r = forecastNextMonthExpenses(tx, cats, oggi);
-    expect(r.forecast).toBe(100);
+    expect(r.fixed).toBe(800);
+    expect(r.variable).toBe(100);
+    expect(r.forecast).toBe(900);
+    expect(r.recurringCount).toBe(1);
+    expect(r.perCategory.find(c => c.id === "casa").valore).toBe(800);
   });
 
-  it("nessuno storico → previsione zero", () => {
-    const r = forecastNextMonthExpenses([], cats, oggi);
-    expect(r).toEqual({ forecast: 0, monthsUsed: 0, perCategory: [] });
-  });
-
-  it("media solo sui mesi con dati, non sulla finestra intera", () => {
+  it("occorrenze legacy senza chiave ma stessa descrizione+categoria di un template sono escluse dalla parte variabile", () => {
     const tx = [
-      { tipo: "uscita", importo: 150, categoria: "cibo", data: "2026-07-10" },
+      u(50, "2026-07-10"),
+      { tipo: "uscita", importo: 800, categoria: "casa", descrizione: "Affitto", data: "2026-07-01" }, // legacy
+      { tipo: "uscita", importo: 800, categoria: "casa", descrizione: "affitto", data: "2026-08-01", ricorrenza: { frequenza: "mensile", prossimaData: "2026-09-01" } },
     ];
     const r = forecastNextMonthExpenses(tx, cats, oggi);
-    expect(r.forecast).toBe(150);
-    expect(r.monthsUsed).toBe(1);
+    expect(r.variable).toBe(50);
+    expect(r.fixed).toBe(800);
   });
 
-  it("ripartizione per categoria ordinata per valore decrescente", () => {
+  it("template settimanale: conta le occorrenze effettive nel mese (settembre 2026 ha 5 mercoledì)", () => {
+    const tx = [{ tipo: "uscita", importo: 10, categoria: "cibo", descrizione: "Pulizie", data: "2026-08-12", ricorrenza: { frequenza: "settimanale", prossimaData: "2026-08-26" } }];
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
+    expect(r.fixed).toBe(50); // 2, 9, 16, 23, 30 settembre
+  });
+
+  it("template annuale/trimestrale fuori dal mese prossimo non contano; in scadenza sì", () => {
     const tx = [
-      { tipo: "uscita", importo: 100, categoria: "cibo", data: "2026-07-01" },
-      { tipo: "uscita", importo: 400, categoria: "casa", data: "2026-07-02" },
+      { tipo: "uscita", importo: 400, categoria: "casa", descrizione: "Assicurazione", data: "2025-09-15", ricorrenza: { frequenza: "annuale", prossimaData: "2026-09-15" } },
+      { tipo: "uscita", importo: 90, categoria: "casa", descrizione: "Condominio", data: "2026-07-01", ricorrenza: { frequenza: "trimestrale", prossimaData: "2026-10-01" } },
     ];
+    expect(forecastNextMonthExpenses(tx, cats, oggi).fixed).toBe(400);
+  });
+
+  it("template cestinato o con ricorrenza mancante viene ignorato", () => {
+    const tx = [{ tipo: "uscita", importo: 800, categoria: "casa", data: "2026-07-01", deletedAt: "2026-07-02", ricorrenza: { frequenza: "mensile", prossimaData: "2026-09-01" } }];
+    expect(forecastNextMonthExpenses(tx, cats, oggi).fixed).toBe(0);
+  });
+
+  it("solo template e nessuno storico variabile: previsione = parte fissa", () => {
+    const tx = [{ tipo: "uscita", importo: 800, categoria: "casa", descrizione: "Affitto", data: "2026-08-01", ricorrenza: { frequenza: "mensile", prossimaData: "2026-09-01" } }];
+    const r = forecastNextMonthExpenses(tx, cats, oggi);
+    expect(r.forecast).toBe(800);
+    expect(r.variable).toBe(0);
+  });
+
+  it("ripartizione per categoria ordinata e coerente con il totale", () => {
+    const tx = [u(100, "2026-07-01"), u(400, "2026-07-02", { categoria: "casa" })];
     const r = forecastNextMonthExpenses(tx, cats, oggi);
     expect(r.perCategory.map(c => c.id)).toEqual(["casa", "cibo"]);
     expect(r.perCategory[0].valore).toBe(400);
-    expect(r.perCategory[0].nome).toBe("Casa");
+    expect(r.perCategory.reduce((s, c) => s + c.valore, 0)).toBeCloseTo(r.forecast, 2);
   });
 });
 
