@@ -30,6 +30,13 @@
 const WIDGET_URL = "https://INCOLLA_QUI/api/widget?key=INCOLLA_LA_TUA_CHIAVE";
 const SCRIPT_NAME = "Finanza"; // deve combaciare col nome dato allo script al passo 2
 
+// Dimensione dei caratteri (e delle icone) di tutto il widget. 1 = misura
+// standard; 1.15 = circa il 15% più grandi; 1.3 = molto grandi. Gli importi si
+// riducono da soli se non entrano (minimumScaleFactor), ma oltre ~1.3 nel
+// widget Medio i pulsanti in basso rischiano di venire tagliati: in quel
+// caso usa il widget Grande, o togli la riga Investimenti / la scadenza.
+const FONT_SCALE = 1;
+
 const APP_URL = WIDGET_URL.includes("INCOLLA_QUI") ? null : (WIDGET_URL.match(/^https?:\/\/[^\/]+/) || [null])[0];
 const TRANSACTION_URL = WIDGET_URL.includes("INCOLLA_QUI") ? null : WIDGET_URL.replace("/api/widget", "/api/widget/transaction");
 const RUN_URL = (params) => `scriptable:///run/${encodeURIComponent(SCRIPT_NAME)}?${params}`;
@@ -74,6 +81,17 @@ const RED = new Color("#FF6B6B");
 const AMBER = new Color("#F0A500");
 const PURPLE = new Color("#a78bfa");
 
+// ─── Font scalati con FONT_SCALE ───
+const px = (n) => Math.round(n * FONT_SCALE * 10) / 10;
+const F = {
+  regular: (s) => Font.systemFont(px(s)),
+  medium: (s) => Font.mediumSystemFont(px(s)),
+  semibold: (s) => Font.semiboldSystemFont(px(s)),
+  bold: (s) => Font.boldSystemFont(px(s)),
+  italic: (s) => Font.italicSystemFont(px(s)),
+  mono: (s, bold = false) => new Font(bold ? "Menlo-Bold" : "Menlo", px(s)),
+};
+
 // ─── Formattazione importi ───
 function formatAmount(n) {
   const s = Math.abs(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -94,8 +112,8 @@ function localDateStr(d = new Date()) {
 // loro — è quello che si vede nello screenshot. Il font di sistema li
 // raggruppa in modo compatto, come i puntini di un codice di sblocco.
 function amountFont(size, bold = false) {
-  if (hidden) return bold ? Font.boldSystemFont(size) : Font.semiboldSystemFont(size);
-  return new Font(bold ? "Menlo-Bold" : "Menlo", size);
+  if (hidden) return bold ? F.bold(size) : F.semibold(size);
+  return F.mono(size, bold);
 }
 
 // Costruisce un importo come mini-stack orizzontale: cifra (o maschera) +
@@ -116,7 +134,7 @@ function addAmount(container, n, { color = TEXT, size = 11, bold = false, gap = 
 
   const euroText = stack.addText("€");
   euroText.textColor = new Color(color.hex, euroOpacity);
-  euroText.font = Font.mediumSystemFont(euroSize || Math.max(9, Math.round(size * 0.75)));
+  euroText.font = F.medium(euroSize || Math.max(9, Math.round(size * 0.75)));
   euroText.lineLimit = 1;
 
   return stack;
@@ -372,10 +390,10 @@ async function promptAndSubmit(tipo, meta) {
 function addIcon(container, symbolName, color, size = 13) {
   const sym = SFSymbol.named(symbolName);
   if (!sym) return null;
-  sym.applyFont(Font.systemFont(size));
+  sym.applyFont(F.regular(size));
   const img = container.addImage(sym.image);
   img.tintColor = color;
-  img.imageSize = new Size(size, size);
+  img.imageSize = new Size(px(size), px(size));
   return img;
 }
 
@@ -417,7 +435,7 @@ function addCardHeader(card, title) {
   const row = card.addStack();
   row.centerAlignContent();
   const t = row.addText(title);
-  t.textColor = MUTED; t.font = Font.boldSystemFont(10);
+  t.textColor = MUTED; t.font = F.bold(10);
   row.addSpacer();
   return row;
 }
@@ -428,7 +446,7 @@ function addStat(parent, label, n, color) {
   col.layoutVertically();
   const labelRow = col.addStack();
   const l = labelRow.addText(label);
-  l.textColor = MUTED; l.font = Font.semiboldSystemFont(9);
+  l.textColor = MUTED; l.font = F.semibold(9);
   labelRow.addSpacer(); // rende la colonna "avida": le tre colonne si dividono lo spazio in parti uguali
   col.addSpacer(2);
   addAmount(col, n, { color, size: 15, bold: true, gap: 3, euroSize: 10, euroOpacity: 0.55 });
@@ -442,7 +460,7 @@ function addAccountRow(card, { symbol, nome, saldo, nomeColor = TEXT_SOFT, amoun
   addIcon(row, symbol, MUTED, 13);
   row.addSpacer(7);
   const t = row.addText(nome);
-  t.textColor = nomeColor; t.font = Font.systemFont(12); t.lineLimit = 1;
+  t.textColor = nomeColor; t.font = F.regular(12); t.lineLimit = 1;
   row.addSpacer();
   addAmount(row, saldo, { color: amountColor, size: 13, gap: 3, euroSize: 10 });
   return row;
@@ -470,7 +488,7 @@ async function buildWidget(dataOverride) {
 
   if (!WIDGET_URL || WIDGET_URL.includes("INCOLLA_QUI")) {
     const t = w.addText("Configura WIDGET_URL nello script");
-    t.textColor = RED; t.font = Font.mediumSystemFont(12);
+    t.textColor = RED; t.font = F.medium(12);
     return { widget: w, data: null };
   }
 
@@ -482,9 +500,9 @@ async function buildWidget(dataOverride) {
       if (msg) throw new Error(msg);
     } catch (e) {
       const t = w.addText("⚠️ " + (e.message || "Errore rete"));
-      t.textColor = RED; t.font = Font.mediumSystemFont(12);
+      t.textColor = RED; t.font = F.medium(12);
       const hint = w.addText("Verifica la chiave in Impostazioni → Widget");
-      hint.textColor = MUTED; hint.font = Font.systemFont(10);
+      hint.textColor = MUTED; hint.font = F.regular(10);
       return { widget: w, data: null };
     }
   }
@@ -495,11 +513,11 @@ async function buildWidget(dataOverride) {
   addIcon(topBar, "eurosign.circle", MUTED, 14);
   topBar.addSpacer(8);
   const brand = topBar.addText("FINANZA");
-  brand.textColor = MUTED; brand.font = Font.boldSystemFont(12);
+  brand.textColor = MUTED; brand.font = F.bold(12);
   topBar.addSpacer(); // spinge il resto a destra
 
   const ora = topBar.addText(new Date(data.aggiornato).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }));
-  ora.textColor = MUTED; ora.font = Font.systemFont(9);
+  ora.textColor = MUTED; ora.font = F.regular(9);
 
   topBar.addSpacer(10);
   const eyeStack = topBar.addStack();
@@ -517,7 +535,7 @@ async function buildWidget(dataOverride) {
 
   // ── Cifra principale ──
   const patLabel = w.addText("PATRIMONIO");
-  patLabel.textColor = MUTED; patLabel.font = Font.semiboldSystemFont(11);
+  patLabel.textColor = MUTED; patLabel.font = F.semibold(11);
   w.addSpacer(2);
   addAmount(w, data.patrimonio, { color: TEXT, size: 28, bold: true, gap: 6, euroSize: 16, euroOpacity: 0.45 });
 
@@ -538,7 +556,7 @@ async function buildWidget(dataOverride) {
     pill.setPadding(2, 7, 2, 7);
     const arrow = data.deltaPct > 0 ? "↑" : data.deltaPct < 0 ? "↓" : "=";
     const delta = pill.addText(`${arrow} ${Math.abs(data.deltaPct)}% vs mese scorso`);
-    delta.textColor = tone; delta.font = Font.semiboldSystemFont(9);
+    delta.textColor = tone; delta.font = F.semibold(9);
     delta.lineLimit = 1; delta.minimumScaleFactor = 0.7;
   }
   monthCard.addSpacer(6);
@@ -568,17 +586,17 @@ async function buildWidget(dataOverride) {
     addIcon(dueRow, "calendar", b.days <= 1 ? AMBER : MUTED, 12);
     dueRow.addSpacer(6);
     const dueName = dueRow.addText(b.descrizione || "Scadenza");
-    dueName.textColor = TEXT; dueName.font = Font.systemFont(11); dueName.lineLimit = 1;
+    dueName.textColor = TEXT; dueName.font = F.regular(11); dueName.lineLimit = 1;
     dueRow.addSpacer(4);
     const dueWhen = dueRow.addText(`· ${whenLabel(b.days)}`);
-    dueWhen.textColor = b.days <= 1 ? AMBER : MUTED; dueWhen.font = Font.systemFont(10);
+    dueWhen.textColor = b.days <= 1 ? AMBER : MUTED; dueWhen.font = F.regular(10);
     dueRow.addSpacer();
     addAmount(dueRow, b.importo, { color: TEXT, size: 12, euroSize: 9 });
     const altre = (data.inArrivoTotale || prossime.length) - 1;
     if (altre > 0) {
       dueRow.addSpacer(4);
       const more = dueRow.addText(`+${altre} altre`);
-      more.textColor = MUTED; more.font = Font.systemFont(9);
+      more.textColor = MUTED; more.font = F.regular(9);
     }
   }
 
@@ -638,7 +656,7 @@ async function buildWidget(dataOverride) {
     addIcon(s, symbol, tone, 12);
     s.addSpacer(6);
     const txt = s.addText(label);
-    txt.textColor = tone; txt.font = Font.boldSystemFont(12);
+    txt.textColor = tone; txt.font = F.bold(12);
     s.addSpacer();
   }
   addActionButton("Uscita", "minus", RED, "add=uscita");

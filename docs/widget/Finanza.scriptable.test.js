@@ -19,13 +19,13 @@ fs.writeFileSync(`${OUT}/script_under_test.mjs`, SRC);
 
 // ── Scriptable runtime mock ──
 const files = new Map();
-let responses = [], shown = [], requests = [], handler, widgetTexts = [], widgetSymbols = [], completed = false;
+let responses = [], shown = [], requests = [], handler, widgetTexts = [], widgetTextObjs = [], widgetSymbols = [], completed = false;
 class Color { constructor(hex, a) { this.hex = hex; this.alpha = a; } }
 class LinearGradient {}
 class Font { constructor(n, s) { this.n = n; this.s = s; } static boldSystemFont(s) { return new Font("bold", s); } static semiboldSystemFont(s) { return new Font("semibold", s); } static mediumSystemFont(s) { return new Font("medium", s); } static systemFont(s) { return new Font("sys", s); } static italicSystemFont(s) { return new Font("it", s); } }
 class Node_ {
   constructor() { this.children = []; }
-  addText(t) { const x = { text: t }; widgetTexts.push(t); this.children.push(x); return x; }
+  addText(t) { const x = { text: t }; widgetTexts.push(t); widgetTextObjs.push(x); this.children.push(x); return x; }
   addStack() { const n = new Node_(); this.children.push(n); return n; }
   addImage(img) { const x = { symbol: img.symbol }; widgetSymbols.push(img.symbol); this.children.push(x); return x; }
   addSpacer() { this.children.push({ spacer: true }); }
@@ -67,7 +67,7 @@ const data = {
 };
 let n = 0;
 async function run({ mode, query = {}, resp = [], h }) {
-  responses = [...resp]; shown = []; requests = []; widgetTexts = []; widgetSymbols = []; completed = false;
+  responses = [...resp]; shown = []; requests = []; widgetTexts = []; widgetTextObjs = []; widgetSymbols = []; completed = false;
   handler = h || ((r) => (r.method === "POST" ? { ok: true } : data));
   globalThis.config = { runsInWidget: mode === "widget", runsInApp: mode !== "widget" };
   globalThis.args = { queryParameters: query };
@@ -99,6 +99,18 @@ assert.equal(Math.round((29715.08 + 80979.23) * 100), Math.round(110694.31 * 100
 for (const sym of ["eurosign.circle", "eye", "arrow.up.right", "calendar", "building.columns", "square.stack.3d.up", "chart.line.uptrend.xyaxis", "minus", "plus"]) assert.ok(widgetSymbols.includes(sym), `symbol ${sym}`);
 assert.ok(!widgetTexts.some(t => /[\u{1F300}-\u{1FAFF}]/u.test(t)), "no emoji in the rendered text");
 ok("widget: new layout — order, three month columns, folded accounts, SF Symbols");
+
+// 1-bis) FONT_SCALE scales every font in the widget together
+const fontSizeOf = (text) => widgetTextObjs.find(t => t.text === text).font.s;
+const baseSizes = Object.fromEntries(["110.694,31", "PATRIMONIO", "USCITE", "886,05", "BBVA", "FINANZA", "Uscita"].map(t => [t, fontSizeOf(t)]));
+assert.equal(baseSizes["110.694,31"], 28);
+const scaledSrc = SRC.replace("const FONT_SCALE = 1;", "const FONT_SCALE = 1.25;");
+assert.notEqual(scaledSrc, SRC, "FONT_SCALE constant present");
+fs.writeFileSync(`${OUT}/script_under_test.mjs`, scaledSrc);
+await run({ mode: "widget" });
+for (const [text, base] of Object.entries(baseSizes)) assert.equal(fontSizeOf(text), Math.round(base * 1.25 * 10) / 10, `${text} scales`);
+fs.writeFileSync(`${OUT}/script_under_test.mjs`, SRC);
+ok("FONT_SCALE 1.25 scales every text size by 25%");
 
 // 1a) up to 3 accounts: all shown, no 'Altri' row
 await run({ mode: "widget", h: () => ({ ...data, conti: data.conti.slice(0, 3) }) });
