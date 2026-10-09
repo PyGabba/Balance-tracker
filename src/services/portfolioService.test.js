@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeHoldingsBreakdown, computeValueHistory } from "./portfolioService.js";
+import { computeHoldingsBreakdown, computeValueSeries } from "./portfolioService.js";
 
 describe("computeHoldingsBreakdown", () => {
   it("aggregates buys into a single open holding with average cost", () => {
@@ -93,73 +93,82 @@ describe("computeHoldingsBreakdown", () => {
   });
 });
 
-describe("computeValueHistory", () => {
-  const now = new Date("2026-03-01T00:00:00.000Z"); // 8 weeks after the trade below
+describe("computeValueSeries", () => {
+  const now = new Date(2026, 2, 1, 12); // 1 Mar 2026, local
+  const buy = (date, q = 10, price = 100, ticker = "AAPL") => ({ ticker, tipo: "buy", quantita: q, prezzoAcquisto: price, dataAcquisto: date });
+  const snap = (date, valore, investito) => ({ date, valore, investito });
 
-  it("returns empty series with no positions", () => {
-    expect(computeValueHistory([], {}, { now })).toEqual({ history: [], prediction: [] });
+  it("returns empty series with no positions, or a first trade in the future", () => {
+    expect(computeValueSeries([], [], {}, { now })).toEqual({ value: [], invested: [], prediction: [], domain: null });
+    expect(computeValueSeries([buy("2026-04-01")], [], {}, { now }).value).toEqual([]);
   });
 
-  it("ends the history exactly at today's mark-to-market value", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
-    ];
-    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now });
-    expect(history[history.length - 1].value).toBeCloseTo(1500);
-    expect(history[history.length - 1].date).toBe("2026-03-01");
+  it("value line = the real snapshots in the window + today's live value (nothing in between is invented)", () => {
+    const { value } = computeValueSeries([buy("2026-01-01")], [snap("2026-01-18", 1100, 1000), snap("2026-02-01", 1250, 1000), snap("2026-02-15", 1300, 1000)], { AAPL: 150 }, { now });
+    expect(value.map(p => [p.date, p.value])).toEqual([["2026-01-18", 1100], ["2026-02-01", 1250], ["2026-02-15", 1300], ["2026-03-01", 1500]]);
+    expect(value.at(-1)).toMatchObject({ live: true, invested: 1000 });
+    expect(value[0].invested).toBe(1000);
   });
 
-  it("starts the 'max' range history at the first trade date", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
-    ];
-    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "max" });
-    expect(history[0].date).toBe("2026-01-01");
-    expect(history[0].invested).toBeCloseTo(1000);
+  it("with no snapshots yet the value line is just today's point — no fabricated trajectory", () => {
+    const { value } = computeValueSeries([buy("2026-01-01")], [], { AAPL: 150 }, { now });
+    expect(value).toHaveLength(1);
+    expect(value[0]).toMatchObject({ date: "2026-03-01", value: 1500, live: true });
   });
 
-  it("clamps the 'week' range to the last 7 days with daily buckets", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
-    ];
-    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "week" });
-    expect(history[0].date).toBe("2026-02-22"); // now (03-01) minus 7 days
-    expect(history[history.length - 1].date).toBe("2026-03-01");
-    expect(history).toHaveLength(8); // 7 days + today
+  it("a snapshot taken today is replaced by the live value (the latest price wins)", () => {
+    const { value } = computeValueSeries([buy("2026-01-01")], [snap("2026-03-01", 1400, 1000)], { AAPL: 150 }, { now });
+    expect(value).toHaveLength(1);
+    expect(value[0].value).toBe(1500);
   });
 
-  it("clamps the 'week' range window to the first trade date when the position is newer than 7 days", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-02-28" },
-    ];
-    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "week" });
-    expect(history[0].date).toBe("2026-02-28");
+  it("invested is an exact step line: flat, then a vertical jump on the trade date", () => {
+    const positions = [buy("2026-01-01"), buy("2026-02-01", 5, 100)]; // 1000 then +500
+    const { invested } = computeValueSeries(positions, [], { AAPL: 150 }, { now });
+    expect(invested).toEqual([
+      { date: "2026-01-01", value: 1000 },
+      { date: "2026-02-01", value: 1000 }, { date: "2026-02-01", value: 1500 },
+      { date: "2026-03-01", value: 1500 },
+    ]);
   });
 
-  it("uses a 30-day window for the 'month' range", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
-    ];
-    const { history } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "month" });
-    expect(history[0].date).toBe("2026-01-30"); // now (03-01) minus 30 days
+  it("a sale steps the invested line down by the cost removed", () => {
+    const positions = [buy("2026-01-01"), { ticker: "AAPL", tipo: "sell", quantita: 4, prezzoAcquisto: 120, dataAcquisto: "2026-02-01" }];
+    const { invested } = computeValueSeries(positions, [], { AAPL: 150 }, { now });
+    expect(invested.at(-1).value).toBeCloseTo(600);
+    expect(invested.some(p => p.date === "2026-02-01" && p.value === 1000)).toBe(true);
   });
 
-  it("projects prediction points forward from the last history value using the observed gain rate", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
-    ];
-    const { history, prediction } = computeValueHistory(positions, { AAPL: 150 }, { now, range: "max" });
-    const last = history[history.length - 1].value;
-    // Portfolio gained value, so a growth-based projection keeps climbing.
-    expect(prediction[0].value).toBeGreaterThan(last);
-    expect(prediction[prediction.length - 1].value).toBeGreaterThan(prediction[0].value);
+  it("'max' starts at the first trade; 'week' and 'month' clamp to 7 / 30 days", () => {
+    const positions = [buy("2026-01-01")];
+    expect(computeValueSeries(positions, [], {}, { now, range: "max" }).domain).toEqual({ start: "2026-01-01", end: "2026-03-01" });
+    expect(computeValueSeries(positions, [], {}, { now, range: "week" }).domain.start).toBe("2026-02-22");
+    expect(computeValueSeries(positions, [], {}, { now, range: "month" }).domain.start).toBe("2026-01-30");
   });
 
-  it("does not project growth when there is no gain (flat price)", () => {
-    const positions = [
-      { ticker: "AAPL", tipo: "buy", quantita: 10, prezzoAcquisto: 100, dataAcquisto: "2026-01-01" },
-    ];
-    const { prediction } = computeValueHistory(positions, { AAPL: 100 }, { now, range: "max" });
-    prediction.forEach(p => expect(p.value).toBeCloseTo(1000));
+  it("a position newer than the window starts the window at its first trade", () => {
+    expect(computeValueSeries([buy("2026-02-28")], [], {}, { now, range: "week" }).domain.start).toBe("2026-02-28");
+  });
+
+  it("snapshots outside the window are left out of that range", () => {
+    const snaps = [snap("2026-01-18", 1100, 1000), snap("2026-02-25", 1450, 1000)];
+    const week = computeValueSeries([buy("2026-01-01")], snaps, { AAPL: 150 }, { now, range: "week" }).value;
+    expect(week.map(p => p.date)).toEqual(["2026-02-25", "2026-03-01"]);
+  });
+
+  it("prices missing for a holding fall back to cost (same rule as the totals)", () => {
+    expect(computeValueSeries([buy("2026-01-01")], [], {}, { now }).value[0].value).toBe(1000);
+  });
+
+  it("projects forward from today's live value using the overall gain rate", () => {
+    const { value, prediction } = computeValueSeries([buy("2026-01-01")], [], { AAPL: 150 }, { now, range: "max" });
+    expect(prediction[0].value).toBeGreaterThan(value.at(-1).value);
+    expect(prediction.at(-1).value).toBeGreaterThan(prediction[0].value);
+    expect(prediction[0].date > "2026-03-01").toBe(true);
+  });
+
+  it("a flat portfolio projects flat; one under water projects down", () => {
+    expect(computeValueSeries([buy("2026-01-01")], [], { AAPL: 100 }, { now }).prediction.at(-1).value).toBeCloseTo(1000);
+    expect(computeValueSeries([buy("2026-01-01")], [], { AAPL: 80 }, { now }).prediction.at(-1).value).toBeLessThan(800);
   });
 });

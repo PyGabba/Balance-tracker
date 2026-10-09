@@ -38,6 +38,23 @@ components:
       description: Must match the server's ADMIN_SECRET environment variable. Unrelated to household auth.
 
   schemas:
+    PortfolioSnapshot:
+      type: object
+      required: [weekKey, date, valore, investito, holdings]
+      properties:
+        weekKey: { type: string, format: date, description: The Sunday on or before the snapshot date (local calendar). }
+        date: { type: string, format: date }
+        valore: { type: number, description: Total market value (quantity × price) at the time. }
+        investito: { type: number, description: Cost basis of the open holdings. }
+        holdings:
+          type: array
+          items:
+            type: object
+            required: [ticker, quantita, prezzo]
+            properties:
+              ticker: { type: string }
+              quantita: { type: number }
+              prezzo: { type: number }
     Error:
       type: object
       properties:
@@ -1335,10 +1352,37 @@ paths:
         "201": { description: Created. }
         "400": { $ref: "#/components/responses/BadRequest" }
 
+  /portfolio/snapshots:
+    get:
+      summary: List the weekly portfolio value snapshots
+      description: Sorted by date ascending. Each snapshot is one real record of quantity × price per holding taken on the first price refresh of a Sunday-started week.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  snapshots:
+                    type: array
+                    items: { $ref: "#/components/schemas/PortfolioSnapshot" }
+    post:
+      summary: Record this week's portfolio snapshot
+      description: First write per (household, weekKey) wins — a later save for the same week is a no-op and returns 200 with created false. Requires at least the member role when a persona is logged in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PortfolioSnapshot" }
+      responses:
+        "201": { description: "Recorded. { created: true, weekKey }." }
+        "200": { description: "A snapshot for that week already existed. { created: false, weekKey }." }
+        "400": { description: Validation error (weekKey must be a Sunday, date inside that week, positive amounts, 1-200 holdings). }
   /backup:
     get:
       summary: Full JSON export of the household's data
-      description: "Transactions, accounts, goals, trips, positions, manual prices, plus household metadata. formato: \"balance-tracker-backup\", versione: 1."
+      description: "Transactions, accounts, goals, trips, positions, manual prices, portfolio snapshots, plus household metadata. formato: \"balance-tracker-backup\", versione: 1."
       responses:
         "200": { description: OK }
 

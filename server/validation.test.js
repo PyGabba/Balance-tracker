@@ -17,6 +17,7 @@ import {
   validateRuolo,
   HOUSEHOLD_ROLES,
   DEFAULT_HOUSEHOLD_ROLE,
+  validatePortfolioSnapshot,
 } from "./validation.js";
 
 const householdPersonIds = ["g", "l"];
@@ -465,5 +466,52 @@ describe("validateRuolo (MOD-025 foundation)", () => {
   it("rejects a role of the wrong type", () => {
     expect(() => validateRuolo(123)).toThrow(ValidationError);
     expect(() => validateRuolo({})).toThrow(ValidationError);
+  });
+});
+
+describe("validatePortfolioSnapshot", () => {
+  const now = new Date("2026-10-07T10:00:00Z"); // Wednesday; the week started on Sunday 2026-10-04
+  const base = { weekKey: "2026-10-04", date: "2026-10-07", valore: 2250.456, investito: 2000, holdings: [{ ticker: "vwce", quantita: 10, prezzo: 120 }] };
+
+  it("accepts a well-formed snapshot, normalizing amounts and tickers", () => {
+    expect(validatePortfolioSnapshot(base, { now })).toEqual({
+      weekKey: "2026-10-04", date: "2026-10-07", valore: 2250.46, investito: 2000,
+      holdings: [{ ticker: "VWCE", quantita: 10, prezzo: 120 }],
+    });
+  });
+  it("the week must start on a Sunday", () => {
+    expect(() => validatePortfolioSnapshot({ ...base, weekKey: "2026-10-05" }, { now })).toThrow(/domenica/);
+  });
+  it("the date must fall inside that Sunday-to-Saturday week", () => {
+    expect(() => validatePortfolioSnapshot({ ...base, date: "2026-10-03" }, { now })).toThrow(ValidationError);
+    expect(() => validatePortfolioSnapshot({ ...base, date: "2026-10-11" }, { now })).toThrow(ValidationError);
+    expect(validatePortfolioSnapshot({ ...base, date: "2026-10-04" }, { now }).date).toBe("2026-10-04");
+  });
+  it("rejects a date in the future (one day of timezone slack allowed)", () => {
+    const early = new Date("2026-10-05T10:00:00Z"); // Monday
+    expect(() => validatePortfolioSnapshot({ ...base, date: "2026-10-07" }, { now: early })).toThrow(ValidationError);
+    expect(validatePortfolioSnapshot({ ...base, date: "2026-10-06" }, { now: early }).date).toBe("2026-10-06");
+  });
+  it("rejects impossible or malformed dates", () => {
+    expect(() => validatePortfolioSnapshot({ ...base, weekKey: "2026-02-30" }, { now })).toThrow(ValidationError);
+    expect(() => validatePortfolioSnapshot({ ...base, date: "oggi" }, { now })).toThrow(ValidationError);
+  });
+  it("totals must be positive, finite and sane", () => {
+    for (const bad of [0, -5, NaN, Infinity, "abc", 1e11]) {
+      expect(() => validatePortfolioSnapshot({ ...base, valore: bad }, { now })).toThrow(ValidationError);
+    }
+    expect(() => validatePortfolioSnapshot({ ...base, investito: 0 }, { now })).toThrow(ValidationError);
+  });
+  it("holdings: 1-200 entries with a valid ticker, positive quantity and price", () => {
+    expect(() => validatePortfolioSnapshot({ ...base, holdings: [] }, { now })).toThrow(ValidationError);
+    expect(() => validatePortfolioSnapshot({ ...base, holdings: undefined }, { now })).toThrow(ValidationError);
+    expect(() => validatePortfolioSnapshot({ ...base, holdings: Array(201).fill(base.holdings[0]) }, { now })).toThrow(ValidationError);
+    for (const h of [{ ticker: "bad ticker!", quantita: 1, prezzo: 1 }, { ticker: "X", quantita: 0, prezzo: 1 }, { ticker: "X", quantita: 1, prezzo: -1 }, { ticker: "X", quantita: "1", prezzo: 1 }, { ticker: "", quantita: 1, prezzo: 1 }, null]) {
+      expect(() => validatePortfolioSnapshot({ ...base, holdings: [h] }, { now })).toThrow(ValidationError);
+    }
+  });
+  it("rejects non-objects", () => {
+    expect(() => validatePortfolioSnapshot(null, { now })).toThrow(ValidationError);
+    expect(() => validatePortfolioSnapshot("x", { now })).toThrow(ValidationError);
   });
 });

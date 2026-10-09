@@ -248,6 +248,8 @@ async function connectDB(mongoUri = MONGO_URI, dbName = DB_NAME) {
   await db.collection("accounts").createIndex({ householdId: 1 });
   await db.collection("goals").createIndex({ householdId: 1 });
   await db.collection("positions").createIndex({ householdId: 1 });
+  // Weekly portfolio snapshots: one per household per week (first one wins — see the route).
+  await db.collection("portfolio_snapshots").createIndex({ householdId: 1, weekKey: 1 }, { unique: true });
   // Live-quote cache docs (ticker, autoPrice, fetchedAt) live in the same
   // collection as manual price overrides but never carry a householdId —
   // that's what separates the two kinds of quotes_cache document.

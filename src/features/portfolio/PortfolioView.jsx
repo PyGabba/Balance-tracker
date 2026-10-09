@@ -1,16 +1,22 @@
 import { useState, useEffect } from "react";
 import { IconRefresh, IconX, IconPlus, IconCheck, IconPencil, IconChevronUp, IconChevronDown, IconChartLine } from "@tabler/icons-react";
-import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, saveManualPricesRemote, deleteManualPriceRemote, fetchQuotes, getSession } from "../../api.js";
+import { fetchPositions, addPosition, deletePosition, updatePosition, fetchManualPrices, fetchPortfolioSnapshots, savePortfolioSnapshot, saveManualPricesRemote, deleteManualPriceRemote, fetchQuotes, getSession } from "../../api.js";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { DonutChart, LineChart } from "../../components/ui/Charts.jsx";
-import { computeHoldingsBreakdown, computeValueHistory } from "../../services/portfolioService.js";
+import { computeHoldingsBreakdown, computeValueSeries } from "../../services/portfolioService.js";
+import { buildSnapshot, needsSnapshot } from "../../services/snapshotService.js";
 import { readAutoPrices, writeAutoPrices } from "../../lib/autoPriceCache.js";
 import { AccountIcon } from "../../components/ui/AccountIcon.jsx";
 import { confirmDialog } from "../../components/ui/Dialog.jsx";
 import { EmptyState, LoadingState } from "../../components/ui/EmptyState.jsx";
+
+// Axis labels: "12,5k" instead of a full "12.534,00 €" that won't fit.
+function formatCompact(v) {
+  return Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(Math.abs(v) >= 10000 ? 0 : 1).replace(".", ",")}k` : String(Math.round(v));
+}
 
 export function PortfolioView({ lang = "it", conti = [] }) {
   const [positions, setPositions] = useState([]);
@@ -88,6 +94,15 @@ export function PortfolioView({ lang = "it", conti = [] }) {
     fetchManualPrices().then(p => setManualPrices(p));
   }, []);
 
+  // ── Weekly value history ──
+  // The first price refresh of each week stores quantity × price per holding
+  // (and the totals); the chart plots those real records, never a
+  // reconstruction from today's prices.
+  const [snapshots, setSnapshots] = useState([]);
+  useEffect(() => {
+    fetchPortfolioSnapshots().then(setSnapshots);
+  }, []);
+
   // ── Live prices (Yahoo Finance, best-effort) ──
   // Fetched only on demand via the refresh button below, never on load —
   // but the last-fetched values are persisted (src/lib/autoPriceCache.js,
@@ -111,10 +126,22 @@ export function PortfolioView({ lang = "it", conti = [] }) {
     setRefreshingPrices(true);
     const before = tickerKey.split(",").length;
     const q = await fetchQuotes(tickerKey.split(","), { force: true });
-    persistAutoPrices({ ...autoPrices, ...q });
-    setRefreshingPrices(false);
+    const merged = { ...autoPrices, ...q };
+    persistAutoPrices(merged);
     const got = Object.keys(q).length;
-    toast(got > 0 ? `${t(lang, "portfolio.pricesUpdated")} (${got}/${before})` : t(lang, "portfolio.pricesUpdateFailed"), got > 0 ? "success" : "error");
+    let recorded = false;
+    if (got > 0) {
+      const snap = buildSnapshot({ positions, manualPrices, autoPrices: merged });
+      if (snap && needsSnapshot(snapshots, snap.weekKey)) {
+        const res = await savePortfolioSnapshot(snap);
+        recorded = !!res?.created;
+        if (res) setSnapshots(await fetchPortfolioSnapshots());
+      }
+    }
+    setRefreshingPrices(false);
+    toast(got > 0
+      ? `${t(lang, "portfolio.pricesUpdated")} (${got}/${before})${recorded ? ` · ${t(lang, "portfolio.snapshotSaved")}` : ""}`
+      : t(lang, "portfolio.pricesUpdateFailed"), got > 0 ? "success" : "error");
   }
 
   // Optimistic, but reverted on failure — otherwise a dropped PUT (network
@@ -257,7 +284,9 @@ export function PortfolioView({ lang = "it", conti = [] }) {
   });
 
   const currentPriceByTicker = Object.fromEntries(holdings.map(h => [h.ticker, prezzoDi(h.ticker)]));
-  const { history: valueHistory, prediction: valuePrediction } = computeValueHistory(positions, currentPriceByTicker, { range: chartRange });
+  const series = computeValueSeries(positions, snapshots, currentPriceByTicker, { range: chartRange });
+  const realPoints = series.value.filter(p => !p.live).length;
+  const lastSnapshot = snapshots.length ? snapshots[snapshots.length - 1].date : null;
 
   if (loading) return <LoadingState label={t(lang, "portfolio.loading")} />;
 
@@ -688,14 +717,10 @@ export function PortfolioView({ lang = "it", conti = [] }) {
       )}
 
       {/* Value over time + prediction */}
-      {valueHistory.length >= 2 && (
+      {positions.length > 0 && series.domain && (
         <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginTop: 16, border: `1px solid ${color.border}`, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase" }}>{t(lang, "portfolio.valueOverTime")}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
-              <span style={{ width: 10, height: 2, background: color.textMuted, display: "inline-block", borderRadius: 1 }} />
-              <span style={{ fontSize: 9, color: color.textMuted }}>{t(lang, "portfolio.prediction")}</span>
-            </div>
           </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
             {["week", "month", "max"].map(r => (
@@ -709,7 +734,17 @@ export function PortfolioView({ lang = "it", conti = [] }) {
               </button>
             ))}
           </div>
-          <LineChart history={valueHistory} prediction={valuePrediction} formatValue={formattaValuta} />
+          <LineChart
+            value={series.value} invested={series.invested} prediction={series.prediction} domain={series.domain}
+            formatValue={formattaValuta} formatAxis={formatCompact} lang={lang}
+            labels={{ value: t(lang, "portfolio.value"), invested: t(lang, "portfolio.invested"), gain: t(lang, "portfolio.gain"), prediction: t(lang, "portfolio.prediction"), today: t(lang, "portfolio.today") }}
+          />
+          {realPoints < 2 && (
+            <div style={{ marginTop: 12, fontSize: 11, lineHeight: 1.5, color: color.textMuted }}>
+              {t(lang, "portfolio.snapshotHint")}
+              {lastSnapshot ? ` ${t(lang, "portfolio.snapshotLast")} ${lastSnapshot}.` : ""}
+            </div>
+          )}
         </div>
       )}
     </div>

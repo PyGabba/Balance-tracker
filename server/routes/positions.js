@@ -2,7 +2,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { ObjectId } from "mongodb";
 import { roundAmount, toMinorUnits } from "../../src/lib/money.js";
-import { ValidationError, validatePositiveNumber, validateEnum, POSITION_TIPI } from "../validation.js";
+import { ValidationError, validatePositiveNumber, validateEnum, POSITION_TIPI, validatePortfolioSnapshot } from "../validation.js";
 import {
   sendError, requireHousehold, requireRole, writeLimiter, db, transactionsCol,
   idempotencyKeyFrom, claimIdempotencyKey, handleIdempotencyClaim, finalizeIdempotencyKey,
@@ -422,6 +422,48 @@ router.get("/api/quotes", quotesLimiter, requireHousehold, async (req, res) => {
     }));
 
     res.json({ quotes });
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+// ─── Weekly portfolio snapshots ───
+// Collection: portfolio_snapshots { householdId, weekKey, date, valore,
+// valoreMinorUnits, investito, investitoMinorUnits, holdings: [{ ticker,
+// quantita, prezzo }], createdAt }. The chart plots these real points.
+// weekKey (the Sunday that starts the week) is unique per household and
+// FIRST WINS: the client saves on the first price refresh of each week, a
+// later one the same week (or the same refresh sent twice, or from another
+// device) is a no-op rather than an overwrite.
+router.get("/api/portfolio/snapshots", requireHousehold, requirePortfolioAccess, async (req, res) => {
+  try {
+    const docs = await db.collection("portfolio_snapshots")
+      .find({ householdId: req.householdId }, { projection: { _id: 0, householdId: 0, valoreMinorUnits: 0, investitoMinorUnits: 0 } })
+      .sort({ date: 1 }).limit(2000).toArray();
+    res.json(docs);
+  } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
+});
+
+router.post("/api/portfolio/snapshots", writeLimiter, requireHousehold, requireRole("member"), requirePortfolioAccess, async (req, res) => {
+  try {
+    const valuta = req.household.valutaBase || "EUR";
+    let snap;
+    try { snap = validatePortfolioSnapshot(req.body, { currency: valuta }); }
+    catch (ve) {
+      if (ve instanceof ValidationError) return sendError(res, 400, ve.code, ve.message, ve.fields);
+      throw ve;
+    }
+    const doc = {
+      ...snap,
+      valoreMinorUnits: toMinorUnits(snap.valore, valuta), // MOD-016
+      investitoMinorUnits: toMinorUnits(snap.investito, valuta),
+      createdAt: new Date(),
+    };
+    const r = await db.collection("portfolio_snapshots").updateOne(
+      { householdId: req.householdId, weekKey: snap.weekKey },
+      { $setOnInsert: { householdId: req.householdId, ...doc } },
+      { upsert: true }
+    );
+    const created = r.upsertedCount === 1;
+    res.status(created ? 201 : 200).json({ created, weekKey: snap.weekKey });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
 });
 

@@ -60,82 +60,87 @@ export function computeHoldingsBreakdown(positions) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const pad2 = (n) => String(n).padStart(2, "0");
 
-// Per-range display window/granularity + how far the projection reaches.
+// "YYYY-MM-DD" in the viewer's own calendar.
+export function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const dayMs = (iso) => new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)).getTime();
+
+// Per-range display window + how far the projection reaches.
 const RANGE_CONFIG = {
-  week:  { windowDays: 7,        stepDays: 1, predictDays: 7 },
-  month: { windowDays: 30,       stepDays: 2, predictDays: 14 },
-  max:   { windowDays: Infinity, stepDays: 7, predictDays: 42 },
+  week:  { windowDays: 7,        predictDays: 7,  stepDays: 1 },
+  month: { windowDays: 30,       predictDays: 14, stepDays: 2 },
+  max:   { windowDays: Infinity, predictDays: 42, stepDays: 7 },
 };
 
-// Portfolio value series for a given range ("week" | "month" | "max") + a
-// short forward projection.
+// The portfolio chart's data. Three honest ingredients:
 //
-// No historical price feed exists (fetchQuotes only returns *current*
-// quotes), so past values are an estimate: at each bucket date we take the
-// real cost basis held as of that date (from computeHoldingsBreakdown on
-// the trades up to that date) and scale it by the portfolio's overall gain
-// ratio (currentValue / currentCost), interpolated linearly by elapsed time
-// from 1.0 at the first trade to the real ratio today — the gain-rate
-// anchor always spans the *whole* trade history, independent of the
-// display window, so switching range never changes what "today's value"
-// or the projection mean. This reproduces the exact current total exactly
-// at the last point while giving earlier buckets a plausible trajectory
-// instead of a flat cost-basis line.
+//  - invested: what you actually put in, as a step line rebuilt from the
+//    trades themselves (exact — a purchase is a vertical step on its date)
+//  - value: the REAL weekly snapshots (quantity × price, recorded the first
+//    time prices are refreshed each week — see snapshotService.js) inside the
+//    window, ending with today's live mark-to-market value. Nothing between
+//    two snapshots is invented: the chart simply joins them, and with fewer
+//    than two points it says so instead of faking a trajectory.
+//  - prediction: a short projection of the portfolio's overall gain rate
+//    (unchanged: "based on the gain", not a separate forecasting model)
 //
-// The prediction segment compounds that same overall daily gain rate
-// forward — "based on the gain" per the product ask, not a separate
-// forecasting model.
-export function computeValueHistory(positions, currentPriceByTicker = {}, { range = "max", now = new Date() } = {}) {
+// `snapshots`: [{ date, valore, investito }]. Returns
+// { value, invested, prediction, domain } where every point is
+// { date: "YYYY-MM-DD", value } (value points also carry `invested`, and the
+// live one `live: true`); `domain` = { start, end } of the plotted window.
+export function computeValueSeries(positions, snapshots = [], currentPriceByTicker = {}, { range = "max", now = new Date() } = {}) {
+  const empty = { value: [], invested: [], prediction: [], domain: null };
   const trades = positions.filter(p => p.dataAcquisto);
-  if (!trades.length) return { history: [], prediction: [] };
+  if (!trades.length) return empty;
 
-  const firstDate = trades.reduce((min, p) => p.dataAcquisto < min ? p.dataAcquisto : min, trades[0].dataAcquisto);
-  const firstTradeTime = new Date(firstDate).getTime();
-  const nowTime = now.getTime();
-  if (isNaN(firstTradeTime) || firstTradeTime >= nowTime) return { history: [], prediction: [] };
+  const today = localDateStr(now);
+  const firstTrade = trades.reduce((min, p) => p.dataAcquisto < min ? p.dataAcquisto : min, trades[0].dataAcquisto);
+  if (isNaN(dayMs(firstTrade)) || firstTrade > today) return empty;
 
   const cfg = RANGE_CONFIG[range] || RANGE_CONFIG.max;
-  const windowStart = Number.isFinite(cfg.windowDays)
-    ? Math.max(firstTradeTime, nowTime - cfg.windowDays * DAY_MS)
-    : firstTradeTime;
-  const stepMs = cfg.stepDays * DAY_MS;
-  const totalSpanMs = nowTime - firstTradeTime; // gain-rate anchor: full history, not just the display window
+  const start = Number.isFinite(cfg.windowDays)
+    ? [firstTrade, localDateStr(addDays(now, -cfg.windowDays))].reduce((a, b) => (a > b ? a : b))
+    : firstTrade;
+
+  const investedAt = (date) => computeHoldingsBreakdown(trades.filter(p => p.dataAcquisto <= date))
+    .holdings.reduce((sum, h) => sum + h.costoTotale, 0);
+
+  // Invested as a step line: flat, a vertical jump on each trade date.
+  const invested = [{ date: start, value: investedAt(start) }];
+  for (const d of [...new Set(trades.map(p => p.dataAcquisto))].sort()) {
+    if (d <= start || d > today) continue;
+    invested.push({ date: d, value: invested[invested.length - 1].value });
+    invested.push({ date: d, value: investedAt(d) });
+  }
+  const currentInvested = investedAt(today);
+  invested.push({ date: today, value: currentInvested });
 
   const { holdings: currentHoldings } = computeHoldingsBreakdown(trades);
-  const currentInvested = currentHoldings.reduce((s, h) => s + h.costoTotale, 0);
   const currentValue = currentHoldings.reduce((sum, h) => {
     const prezzo = currentPriceByTicker[h.ticker];
     return sum + (prezzo > 0 ? h.quantita * prezzo : h.costoTotale);
   }, 0);
-  const overallRatio = currentInvested > 0 && currentValue > 0 ? currentValue / currentInvested : 1;
 
-  const history = [];
-  for (let t = windowStart; ; t += stepMs) {
-    const bucketTime = Math.min(t, nowTime);
-    const bucketDate = new Date(bucketTime).toISOString().slice(0, 10);
-    const tradesUpTo = trades.filter(p => p.dataAcquisto <= bucketDate);
-    const { holdings } = computeHoldingsBreakdown(tradesUpTo);
-    const invested = holdings.reduce((s, h) => s + h.costoTotale, 0);
-    const f = totalSpanMs > 0 ? Math.min(1, Math.max(0, (bucketTime - firstTradeTime) / totalSpanMs)) : 1;
-    const ratio = 1 + f * (overallRatio - 1);
-    const value = bucketTime >= nowTime ? currentValue : invested * ratio;
-    history.push({ date: bucketDate, invested, value });
-    if (bucketTime >= nowTime) break;
-  }
+  // Real snapshots inside the window (a snapshot taken today is superseded by
+  // the live value), then today.
+  const value = [...snapshots]
+    .filter(s => s.date >= start && s.date < today && Number.isFinite(s.valore))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(s => ({ date: s.date, value: s.valore, invested: s.investito }));
+  value.push({ date: today, value: currentValue, invested: currentInvested, live: true });
 
-  const totalDays = Math.max(1, totalSpanMs / DAY_MS);
-  const dailyRate = currentInvested > 0 && currentValue > 0
-    ? Math.pow(currentValue / currentInvested, 1 / totalDays) - 1
-    : 0;
-  const lastValue = history[history.length - 1]?.value ?? 0;
-  const predictSteps = Math.max(1, Math.ceil(cfg.predictDays / cfg.stepDays));
+  // Projection: the overall gain rate since the first trade, compounded.
+  const totalDays = Math.max(1, (dayMs(today) - dayMs(firstTrade)) / DAY_MS);
+  const dailyRate = currentInvested > 0 && currentValue > 0 ? Math.pow(currentValue / currentInvested, 1 / totalDays) - 1 : 0;
   const prediction = [];
-  for (let k = 1; k <= predictSteps; k++) {
+  for (let k = 1; k <= Math.max(1, Math.ceil(cfg.predictDays / cfg.stepDays)); k++) {
     const days = k * cfg.stepDays;
-    const date = new Date(nowTime + days * DAY_MS).toISOString().slice(0, 10);
-    prediction.push({ date, value: lastValue * Math.pow(1 + dailyRate, days) });
+    prediction.push({ date: localDateStr(addDays(now, days)), value: currentValue * Math.pow(1 + dailyRate, days) });
   }
 
-  return { history, prediction };
+  return { value, invested, prediction, domain: { start, end: today } };
 }

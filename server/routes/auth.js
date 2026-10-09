@@ -349,6 +349,7 @@ router.delete("/api/auth/household", requireHousehold, requireRole("owner"), asy
     await withTransaction(async (session) => {
       await transactionsCol.deleteMany({ householdId: hid }, { session });
       await db.collection("positions").deleteMany({ householdId: hid }, { session });
+      await db.collection("portfolio_snapshots").deleteMany({ householdId: hid }, { session });
       await db.collection("goals").deleteMany({ householdId: hid }, { session });
       await db.collection("accounts").deleteMany({ householdId: hid }, { session });
       await tripsCol.deleteMany({ householdId: hid }, { session });

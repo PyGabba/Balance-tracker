@@ -1,5 +1,6 @@
 import express from "express";
 import { toMinorUnits } from "../../src/lib/money.js";
+import { validatePortfolioSnapshot } from "../validation.js";
 import {
   sendError, requireHousehold, writeLimiter, db, transactionsCol, tripsCol,
   quotesCol, householdsCol, auditCol, withTransaction, sanitizePersone, sanitizeText,
@@ -13,13 +14,14 @@ router.get("/api/backup", requireHousehold, async (req, res) => {
   try {
     const hid = req.householdId;
     const strip = (d) => { const id = d._id.toString(); const o = { id, ...d }; delete o._id; delete o.householdId; return o; };
-    const [transactions, accounts, goals, trips, positions, priceDocs] = await Promise.all([
+    const [transactions, accounts, goals, trips, positions, priceDocs, snapshots] = await Promise.all([
       transactionsCol.find({ householdId: hid }).toArray(),
       db.collection("accounts").find({ householdId: hid }).toArray(),
       db.collection("goals").find({ householdId: hid }).toArray(),
       tripsCol.find({ householdId: hid }).toArray(),
       db.collection("positions").find({ householdId: hid }).toArray(),
       quotesCol.find({ householdId: hid, manualPrice: { $exists: true } }).toArray(),
+      db.collection("portfolio_snapshots").find({ householdId: hid }, { projection: { _id: 0, householdId: 0, valoreMinorUnits: 0, investitoMinorUnits: 0 } }).sort({ date: 1 }).toArray(),
     ]);
     const manualPrices = {};
     for (const d of priceDocs) manualPrices[d.ticker] = d.manualPrice;
@@ -33,6 +35,7 @@ router.get("/api/backup", requireHousehold, async (req, res) => {
       goals: goals.map(strip),
       trips: trips.map(strip),
       positions: positions.map(strip),
+      portfolioSnapshots: snapshots,
       manualPrices,
     });
   } catch (e) { console.error(e); sendError(res, 500, "INTERNAL_ERROR", "Errore"); }
@@ -46,7 +49,7 @@ router.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, r
     const valutaBase = req.household.valutaBase || "EUR";
     const asArray = (x) => Array.isArray(x) ? x : [];
     const clean = (d) => { const o = { ...d }; delete o.id; delete o._id; o.householdId = hid; return o; };
-    const counts = { transactions: 0, accounts: 0, goals: 0, trips: 0, positions: 0, manualPrices: 0 };
+    const counts = { transactions: 0, accounts: 0, goals: 0, trips: 0, positions: 0, manualPrices: 0, portfolioSnapshots: 0 };
 
     // One Mongo transaction for the whole restore: previously each
     // collection was inserted in its own unguarded loop, so a failure
@@ -104,6 +107,20 @@ router.post("/api/backup/restore", writeLimiter, requireHousehold, async (req, r
         doc.restoredAt = new Date();
         await db.collection("positions").insertOne(doc, { session });
         counts.positions++;
+      }
+
+      // 4b. Weekly portfolio snapshots (the chart's real history). Same rule as
+      // the live endpoint: a week that already has one keeps it (first wins),
+      // rows that don't validate are skipped rather than failing the restore.
+      for (const raw of asArray(b.portfolioSnapshots).slice(0, 2000)) {
+        let snap;
+        try { snap = validatePortfolioSnapshot(raw, { currency: valutaBase }); } catch { continue; }
+        const r = await db.collection("portfolio_snapshots").updateOne(
+          { householdId: hid, weekKey: snap.weekKey },
+          { $setOnInsert: { householdId: hid, ...snap, valoreMinorUnits: toMinorUnits(snap.valore, valutaBase), investitoMinorUnits: toMinorUnits(snap.investito, valutaBase), createdAt: new Date(), restoredAt: new Date() } },
+          { upsert: true, session }
+        );
+        if (r.upsertedCount === 1) counts.portfolioSnapshots++;
       }
 
       // 5. Manual prices (upsert, non-destructive)

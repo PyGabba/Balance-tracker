@@ -476,3 +476,49 @@ export function isTripSettlementCandidate(trip, { today, nowMs, staleMs }) {
 export function settlementTransactionKey(tripId, index) {
   return `${tripId}:${index}`;
 }
+
+// ─── Weekly portfolio snapshot (POST /api/portfolio/snapshots) ───
+// One record per household per week (weeks start on Sunday): the real total
+// of the portfolio, quantity × price per holding, saved the first time prices
+// are refreshed that week. `weekKey` is the Sunday that starts the week and
+// the record's identity (first one wins, see the route); `date` is the day
+// the refresh actually happened and must fall inside that week. Totals and
+// holdings are the client's computation — validated for shape and sanity
+// like every other money input, not recomputed.
+const SNAPSHOT_TICKER_RE = /^[A-Z0-9.^=-]{1,20}$/;
+const addDaysIso = (iso, n) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+
+export function validatePortfolioSnapshot(b, { now = new Date(), currency = "EUR" } = {}) {
+  if (!b || typeof b !== "object") throw new ValidationError("INVALID_SNAPSHOT", "Rilevazione non valida", {});
+  const weekKey = validateDateStr(b.weekKey);
+  const [wy, wm, wd] = weekKey.split("-").map(Number);
+  if (new Date(Date.UTC(wy, wm - 1, wd)).getUTCDay() !== 0) {
+    throw new ValidationError("INVALID_SNAPSHOT_WEEK", "La settimana deve iniziare di domenica", { weekKey });
+  }
+  const date = validateDateStr(b.date);
+  // Inside that Sunday-to-Saturday week, and not (meaningfully) in the future:
+  // one day of slack because the client's calendar can be ahead of UTC.
+  if (date < weekKey || date > addDaysIso(weekKey, 6) || date > addDaysIso(now.toISOString().slice(0, 10), 1)) {
+    throw new ValidationError("INVALID_SNAPSHOT_DATE", "Data della rilevazione fuori dalla settimana", { weekKey, date });
+  }
+  const valore = validateAmount(b.valore, currency);
+  const investito = validateAmount(b.investito, currency);
+  if (valore > 1e10 || investito > 1e10) throw new ValidationError("INVALID_AMOUNT", "Importo non valido", {});
+  if (!Array.isArray(b.holdings) || b.holdings.length === 0 || b.holdings.length > 200) {
+    throw new ValidationError("INVALID_SNAPSHOT_HOLDINGS", "Elenco titoli non valido", {});
+  }
+  const holdings = b.holdings.map((h) => {
+    const ticker = String(h?.ticker ?? "").toUpperCase().trim();
+    const quantita = typeof h?.quantita === "number" ? h.quantita : NaN;
+    const prezzo = typeof h?.prezzo === "number" ? h.prezzo : NaN;
+    if (!SNAPSHOT_TICKER_RE.test(ticker) || !Number.isFinite(quantita) || quantita <= 0 || quantita > 1e12
+      || !Number.isFinite(prezzo) || prezzo <= 0 || prezzo > 1e9) {
+      throw new ValidationError("INVALID_SNAPSHOT_HOLDINGS", "Titolo non valido nella rilevazione", { ticker });
+    }
+    return { ticker, quantita, prezzo };
+  });
+  return { weekKey, date, valore, investito, holdings };
+}

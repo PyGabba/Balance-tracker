@@ -55,6 +55,10 @@ Never accumulate raw floats for currency math. `src/lib/money.js` converts decim
 - `src/services/*.js` — pure business logic per domain (debt-splitting math, goal auto-contributions, recurring-transaction generation, portfolio valuation), each with a co-located `.test.js`.
 - `src/lib/finance.js` — debt-matrix / minimal-settlement algorithm and per-person share calculations shared across Home, Stats, and Trips.
 
+### Portfolio value history
+
+The Portfolio "Andamento valore" chart plots **real recorded history**, never a reconstruction from today's prices. The first price refresh (🔄) of each Sunday-started week saves a snapshot (`portfolio_snapshots`: per-holding quantity × price plus totals) via `POST /api/portfolio/snapshots`; the unique index `{householdId, weekKey}` and `$setOnInsert` make the first save of a week win, so a second device can't overwrite it. A snapshot is only built when every open holding has a real (manual or live) price (`src/services/snapshotService.js`); `computeValueSeries` in `portfolioService.js` turns snapshots + trades into the value line, the invested step line and the dashed prediction. Snapshots are included in backup/restore (additive) and removed with the household.
+
 ### Transaction types
 
 Three `tipo` values matter across balance/debt/stats calculations: `"uscita"` (expense), `"entrata"` (income), `"saldo"` (a debt settlement payment — **not** income; every place that sums income filters `tipo === "entrata"` specifically, and debt-matrix calculations exclude `saldo` transactions from the current month to avoid fabricating reversed debts). Recurring transactions carry a "variable amount" flag (`importoVariabile`) that flags the freshly-renewed copy for the user to double check rather than silently repeating a stale amount.

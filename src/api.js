@@ -848,6 +848,39 @@ export async function fetchManualPrices() {
   return {};
 }
 
+// Weekly portfolio value history (see services/snapshotService.js). The first
+// price refresh of each Sunday-started week records one snapshot; the server
+// keeps the first save per week, so a second device can't overwrite it.
+export async function fetchPortfolioSnapshots() {
+  if (!currentHousehold) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/portfolio/snapshots`, {
+      headers: authHeaders(),
+      credentials: "include",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (await checkAuthError(res)) return [];
+    if (res.ok) return (await res.json()).snapshots || [];
+  } catch {}
+  return [];
+}
+
+export async function savePortfolioSnapshot(snapshot) {
+  if (!currentHousehold) return null;
+  try {
+    const res = await fetch(`${API_BASE}/api/portfolio/snapshots`, {
+      method: "POST",
+      headers: authHeaders(),
+      credentials: "include",
+      body: JSON.stringify(snapshot),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (await checkAuthError(res)) return null;
+    if (res.ok) return await res.json();
+  } catch {}
+  return null;
+}
+
 async function putManualPrices(prices, timeoutMs) {
   const res = await fetch(`${API_BASE}/api/positions/prices`, {
     method: "PUT",
