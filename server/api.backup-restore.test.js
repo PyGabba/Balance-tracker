@@ -63,7 +63,7 @@ describe("POST /api/backup/restore happy path", () => {
 
     const res = await agent.post("/api/backup/restore").send(sampleBackup());
     expect(res.status).toBe(200);
-    expect(res.body.counts).toEqual({ transactions: 1, accounts: 1, goals: 0, trips: 0, positions: 0, manualPrices: 0 });
+    expect(res.body.counts).toEqual({ transactions: 1, accounts: 1, goals: 0, trips: 0, positions: 0, manualPrices: 0, portfolioSnapshots: 0 });
 
     const accRes = await agent.get("/api/accounts");
     expect(accRes.status).toBe(200);
