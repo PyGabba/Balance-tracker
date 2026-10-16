@@ -543,6 +543,17 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
     <div style={{ padding: "20px 16px" }}>
       <SubHeader title={t(lang, "settings.row.categorie")} onBack={back} />
       <div style={{ fontSize: 11, color: color.textMuted, lineHeight: 1.5, marginBottom: 14 }}>{t(lang, "settings.budgetHint")}</div>
+      {(() => {
+        // Somma dei budget mensili attivi (le categorie senza budget valgono 0).
+        const budgetTotale = categorie.reduce((s, c) => s + (c.budget > 0 ? c.budget : 0), 0);
+        if (budgetTotale <= 0) return null;
+        return (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, background: color.bg, border: `1px solid ${color.border}`, borderRadius: 12, padding: "10px 14px", marginBottom: 14 }}>
+            <span style={{ fontSize: 12, color: color.textMuted }}>{t(lang, "settings.budgetTotal")}</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: color.textPrimary, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>{formattaValuta(budgetTotale)}</span>
+          </div>
+        );
+      })()}
       {categorie.map(c => (
         <div key={c.id}>
           {editingCatId === c.id ? (
