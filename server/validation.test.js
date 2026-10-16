@@ -18,6 +18,7 @@ import {
   HOUSEHOLD_ROLES,
   DEFAULT_HOUSEHOLD_ROLE,
   validatePortfolioSnapshot,
+  sanitizeCategorie,
 } from "./validation.js";
 
 const householdPersonIds = ["g", "l"];
@@ -513,5 +514,42 @@ describe("validatePortfolioSnapshot", () => {
   it("rejects non-objects", () => {
     expect(() => validatePortfolioSnapshot(null, { now })).toThrow(ValidationError);
     expect(() => validatePortfolioSnapshot("x", { now })).toThrow(ValidationError);
+  });
+});
+
+describe("sanitizeCategorie", () => {
+  it("keeps known keys and trims/caps text fields", () => {
+    const out = sanitizeCategorie([{ id: "cibo", nome: "  Cibo  ", emoji: "🍕", colore: "#fff", osa: "x".repeat(200) }]);
+    expect(out).toEqual([{ id: "cibo", nome: "Cibo", emoji: "🍕", colore: "#fff" }]);
+  });
+
+  it("drops unknown keys and non-object entries", () => {
+    expect(sanitizeCategorie([null, 42, [], { id: "a" }])).toEqual([{ id: "a" }]);
+  });
+
+  it("without allowBudget the budget field is ignored", () => {
+    expect(sanitizeCategorie([{ id: "a", budget: 250 }])).toEqual([{ id: "a" }]);
+  });
+
+  it("allowBudget accepts a non-negative budget rounded to cents", () => {
+    expect(sanitizeCategorie([{ id: "a", budget: 250 }], { allowBudget: true })[0].budget).toBe(250);
+    expect(sanitizeCategorie([{ id: "a", budget: "12.345" }], { allowBudget: true })[0].budget).toBe(12.35);
+    expect(sanitizeCategorie([{ id: "a", budget: 99.999 }], { allowBudget: true })[0].budget).toBe(100);
+  });
+
+  it("allowBudget drops invalid, negative or zero budgets instead of failing the list", () => {
+    for (const bad of [0, -10, NaN, Infinity, "abc", null, undefined, {}]) {
+      expect(sanitizeCategorie([{ id: "a", budget: bad }], { allowBudget: true })[0]).toEqual({ id: "a" });
+    }
+  });
+
+  it("allowStrings keeps the string-entry behavior of the categories endpoint", () => {
+    expect(sanitizeCategorie(["  Cibo  "], { allowStrings: true })).toEqual(["Cibo"]);
+    expect(sanitizeCategorie(["  Cibo  "])).toEqual([]); // trip categories reject strings
+  });
+
+  it("returns [] for a non-array input", () => {
+    expect(sanitizeCategorie(null)).toEqual([]);
+    expect(sanitizeCategorie({ id: "a" })).toEqual([]);
   });
 });

@@ -407,3 +407,17 @@ export function forecastNextMonthExpenses(transazioni, categorie, oggi = new Dat
     perCategory,
   };
 }
+
+// ─── Stato budget di una categoria ───
+// Confronta la spesa del periodo col budget mensile impostato sulla
+// categoria (household.categorieUscita[].budget, vedi sanitizeCategorie sul
+// server). Ritorna sempre pct non clampato — 130% è informazione utile — e
+// hasBudget=false quando la categoria non ha budget (assente o ≤ 0), così la
+// UI può semplicemente saltarla invece di mostrare barre vuote.
+export function budgetStatus(speso, budget) {
+  const b = Number(budget) || 0;
+  const s = Number(speso) || 0;
+  if (!(b > 0)) return { hasBudget: false, speso: s, budget: 0, pct: 0, remaining: 0, over: false };
+  const remaining = b - s;
+  return { hasBudget: true, speso: s, budget: b, pct: (s / b) * 100, remaining, over: remaining < 0 };
+}

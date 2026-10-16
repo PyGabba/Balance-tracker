@@ -1,5 +1,6 @@
 import express from "express";
-import { sendError, requireHousehold, writeLimiter, householdsCol, sanitizeText } from "../shared.js";
+import { sendError, requireHousehold, writeLimiter, householdsCol } from "../shared.js";
+import { sanitizeCategorie } from "../validation.js";
 
 const router = express.Router();
 
@@ -17,19 +18,9 @@ router.put("/api/categorie", requireHousehold, async (req, res) => {
       return sendError(res, 400, "INVALID_CATEGORIES", "categorie deve essere un array non vuoto");
     if (categorie.length > 100)
       return sendError(res, 400, "TOO_MANY_CATEGORIES", "Massimo 100 categorie");
-    // Sanitize: allow strings or objects with known keys only
-    const ALLOWED_CAT_KEYS = new Set(["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"]);
-    const sanitized = categorie.map(c => {
-      if (typeof c === "string") return sanitizeText(c, 100);
-      if (c && typeof c === "object" && !Array.isArray(c)) {
-        const safe = {};
-        for (const k of ALLOWED_CAT_KEYS) {
-          if (c[k] !== undefined) safe[k] = sanitizeText(String(c[k]), 100);
-        }
-        return safe;
-      }
-      return null;
-    }).filter(Boolean);
+    // Sanitize: known keys only; per-category monthly budget allowed here
+    // (the expenses categories are what budgets are set against).
+    const sanitized = sanitizeCategorie(categorie, { allowBudget: true, allowStrings: true });
     if (sanitized.length === 0)
       return sendError(res, 400, "NO_VALID_CATEGORIES", "Nessuna categoria valida");
     await householdsCol.updateOne(
@@ -52,17 +43,7 @@ router.put("/api/trip-categories", writeLimiter, requireHousehold, async (req, r
       return sendError(res, 400, "INVALID_CATEGORIES", "categorie deve essere un array non vuoto");
     if (categorie.length > 100)
       return sendError(res, 400, "TOO_MANY_CATEGORIES", "Massimo 100 categorie");
-    const ALLOWED_CAT_KEYS = new Set(["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"]);
-    const sanitized = categorie.map(c => {
-      if (c && typeof c === "object" && !Array.isArray(c)) {
-        const safe = {};
-        for (const k of ALLOWED_CAT_KEYS) {
-          if (c[k] !== undefined) safe[k] = sanitizeText(String(c[k]), 100);
-        }
-        return safe;
-      }
-      return null;
-    }).filter(Boolean);
+    const sanitized = sanitizeCategorie(categorie);
     if (sanitized.length === 0)
       return sendError(res, 400, "NO_VALID_CATEGORIES", "Nessuna categoria valida");
     await householdsCol.updateOne(

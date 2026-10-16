@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses, quotaPersonale } from "./finance.js";
+import { calcolaDebitiMatrix, calcolaSaldiConti, calcolaValorePortfolio, calcolaSettleViaggio, filtraTransazioni, contaFiltriAttivi, forecastNextMonthExpenses, quotaPersonale, budgetStatus } from "./finance.js";
 
 const persone = [
   { id: "g", nome: "Gabriele" },
@@ -420,5 +420,43 @@ describe("quotaPersonale", () => {
   it("saldo e trasferimento non sono mai personali", () => {
     expect(quotaPersonale({ tipo: "saldo", importo: 50, pagatoDa: "g", ricevutoDa: "l" }, "g")).toBe(0);
     expect(quotaPersonale({ tipo: "trasferimento", importo: 50 }, "g")).toBe(0);
+  });
+});
+
+describe("budgetStatus", () => {
+  it("senza budget (assente o ≤ 0) non mostra nulla", () => {
+    expect(budgetStatus(120, 0).hasBudget).toBe(false);
+    expect(budgetStatus(120, undefined).hasBudget).toBe(false);
+    expect(budgetStatus(120, null).hasBudget).toBe(false);
+    expect(budgetStatus(120, -5).hasBudget).toBe(false);
+  });
+
+  it("sotto budget: remaining positivo e pct proporzionale", () => {
+    const s = budgetStatus(120, 500);
+    expect(s.hasBudget).toBe(true);
+    expect(s.pct).toBeCloseTo(24, 5);
+    expect(s.remaining).toBe(380);
+    expect(s.over).toBe(false);
+  });
+
+  it("esattamente al budget: remaining zero, non sforato", () => {
+    const s = budgetStatus(500, 500);
+    expect(s.pct).toBe(100);
+    expect(s.remaining).toBe(0);
+    expect(s.over).toBe(false);
+  });
+
+  it("oltre budget: pct sopra 100 e over=true (non clampato)", () => {
+    const s = budgetStatus(650, 500);
+    expect(s.pct).toBeCloseTo(130, 5);
+    expect(s.remaining).toBe(-150);
+    expect(s.over).toBe(true);
+  });
+
+  it("spesa assente vale 0", () => {
+    const s = budgetStatus(undefined, 300);
+    expect(s.speso).toBe(0);
+    expect(s.pct).toBe(0);
+    expect(s.remaining).toBe(300);
   });
 });

@@ -84,6 +84,37 @@ export function isPlainId(v, maxLen = 50) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= maxLen;
 }
 
+// ─── Category list sanitization (shared by /api/categorie and
+// /api/trip-categories) ───
+// Categories are stored verbatim on the household document (no schema), so
+// this is the only gate between client input and storage: keep only known
+// keys and cap each text field. `allowBudget` additionally accepts an
+// optional non-negative per-category budget (monthly, in the household's
+// base currency) rounded to cents — the expenses half of the app sets one
+// budget per category; trip categories are display-only and never carry
+// one. An invalid/missing budget is dropped rather than rejecting the
+// whole list, matching the "sanitize, don't bounce" stance used here.
+export const CATEGORY_TEXT_KEYS = ["nome", "etichetta", "label", "emoji", "icona", "colore", "color", "id"];
+
+export function sanitizeCategorie(categorie, { allowBudget = false, allowStrings = false } = {}) {
+  if (!Array.isArray(categorie)) return [];
+  return categorie.map(c => {
+    if (allowStrings && typeof c === "string") return sanitizeText(c, 100);
+    if (c && typeof c === "object" && !Array.isArray(c)) {
+      const safe = {};
+      for (const k of CATEGORY_TEXT_KEYS) {
+        if (c[k] !== undefined) safe[k] = sanitizeText(String(c[k]), 100);
+      }
+      if (allowBudget) {
+        const b = typeof c.budget === "number" ? c.budget : parseFloat(c.budget);
+        if (Number.isFinite(b) && b > 0) safe.budget = Math.round(b * 100) / 100;
+      }
+      return safe;
+    }
+    return null;
+  }).filter(Boolean);
+}
+
 // ─── Reusable participant-membership check (MOD-009) ───
 // One small predicate used everywhere a client-supplied id must belong to
 // a specific set of known participants — household members (+ any ad-hoc

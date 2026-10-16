@@ -3,6 +3,7 @@ import { IconChevronLeft, IconChevronRight, IconUsers, IconTag, IconBuildingBank
 import { deleteHousehold, setRecoveryEmail, fetchHousehold, createWidgetKey, revokeWidgetKey, createCalendarKey, revokeCalendarKey, getApiBase, fetchTrash, restoreTransaction, permanentDeleteTransaction, emptyTrash, updateValutaBase, fetchExchangeRates, updatePersonaRuolo, enrollPersonaCredential, removePersonaCredential, addPersona, removePersona } from "../../api.js";
 import { LANGUAGES, t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
+import { evalImporto } from "../../lib/appHelpers.js";
 import { toast } from "../../components/Toast.jsx";
 import { labelStyle, inputStyle, color, alpha, accentGradient, moneyFont, displayFont } from "../../components/ui/styles.js";
 import { VALUTE_FALLBACK } from "../transactions/helpers.js";
@@ -318,10 +319,26 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
   const [editingCatId, setEditingCatId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [showNewCat, setShowNewCat] = useState(false);
-  const [newCat, setNewCat] = useState({ emoji: "📦", nome: "", colore: "#A8A8A8" });
+  const [newCat, setNewCat] = useState({ emoji: "📦", nome: "", colore: "#A8A8A8", budget: "" });
+
+  // Budget input is free text (accepts "1.234,56" and expressions, like every
+  // other amount field) — normalize to a positive amount in the base currency,
+  // or 0 meaning "no budget" so the field is dropped before saving.
+  function parseBudget(v) {
+    const raw = String(v ?? "").trim();
+    if (raw === "") return 0;
+    const n = evalImporto(raw);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+  }
 
   function handleSaveEdit(id) {
-    onCategorieChange(categorie.map(c => c.id === id ? { ...c, ...editForm } : c));
+    onCategorieChange(categorie.map(c => {
+      if (c.id !== id) return c;
+      const updated = { ...c, ...editForm };
+      const budget = parseBudget(editForm.budget ?? c.budget);
+      if (budget > 0) updated.budget = budget; else delete updated.budget;
+      return updated;
+    }));
     setEditingCatId(null);
   }
   function handleDeleteCat(id) {
@@ -332,10 +349,13 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
     const newId = newCat.nome.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") + "_" + Date.now().toString(36);
     const without = categorie.filter(c => c.id !== "altro");
     const altro = categorie.find(c => c.id === "altro");
-    const updated = [...without, { ...newCat, id: newId }, ...(altro ? [altro] : [])];
+    const created = { id: newId, emoji: newCat.emoji, nome: newCat.nome, colore: newCat.colore };
+    const budget = parseBudget(newCat.budget);
+    if (budget > 0) created.budget = budget;
+    const updated = [...without, created, ...(altro ? [altro] : [])];
     onCategorieChange(updated);
     setShowNewCat(false);
-    setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" });
+    setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8", budget: "" });
   }
 
   async function eseguiElimina() {
@@ -522,6 +542,7 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
   if (screen === "categorie") return (
     <div style={{ padding: "20px 16px" }}>
       <SubHeader title={t(lang, "settings.row.categorie")} onBack={back} />
+      <div style={{ fontSize: 11, color: color.textMuted, lineHeight: 1.5, marginBottom: 14 }}>{t(lang, "settings.budgetHint")}</div>
       {categorie.map(c => (
         <div key={c.id}>
           {editingCatId === c.id ? (
@@ -534,6 +555,13 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
                 <input type="color" value={editForm.colore || c.colore} onChange={e => setEditForm(f => ({ ...f, colore: e.target.value }))}
                   style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
               </div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: color.textMuted, marginBottom: 4 }}>{t(lang, "settings.budgetLabel")}</div>
+                <input inputMode="decimal" value={editForm.budget ?? (c.budget > 0 ? String(c.budget) : "")}
+                  onChange={e => setEditForm(f => ({ ...f, budget: e.target.value }))}
+                  placeholder={t(lang, "settings.budgetPlaceholder")}
+                  style={{ ...inputStyle, padding: "8px 10px" }} />
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setEditingCatId(null)} style={{ flex: 1, padding: "8px", border: `1px solid ${color.border}`, borderRadius: 10, background: "transparent", color: color.textMuted, fontSize: 12, cursor: "pointer", fontFamily: displayFont }}>{t(lang, "common.cancel")}</button>
                 <button onClick={() => handleSaveEdit(c.id)} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: color.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: displayFont }}>{t(lang, "common.save")}</button>
@@ -543,7 +571,14 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${color.border}` }}>
               <span style={{ fontSize: 20 }}>{c.emoji}</span>
               <div style={{ width: 10, height: 10, borderRadius: "50%", background: c.colore, flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 14, color: color.textSecondary, fontWeight: 600 }}>{c.nome}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, color: color.textSecondary, fontWeight: 600 }}>{c.nome}</div>
+                {c.budget > 0 && (
+                  <div style={{ fontSize: 10, color: color.textMuted, marginTop: 2, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums" }}>
+                    {t(lang, "settings.budgetLabel")}: {formattaValuta(c.budget)}
+                  </div>
+                )}
+              </div>
               <button onClick={() => { setEditingCatId(c.id); setEditForm({}); }} style={{ padding: "5px 8px", border: `1px solid ${color.border}`, borderRadius: 8, background: "transparent", color: color.textMuted, fontSize: 11, cursor: "pointer" }}>{t(lang, "common.edit")}</button>
               {categorie.length > 1 && (
                 <button onClick={() => handleDeleteCat(c.id)} style={{ padding: "5px 8px", border: `1px solid ${alpha(color.negative, 0.2)}`, borderRadius: 8, background: "transparent", color: color.negative, fontSize: 11, cursor: "pointer" }}>{t(lang, "common.delete")}</button>
@@ -562,8 +597,13 @@ export function ImpostazioniView({ householdName, householdId, persone, activePe
             <input type="color" value={newCat.colore} onChange={e => setNewCat(n => ({ ...n, colore: e.target.value }))}
               style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer", padding: 2 }} />
           </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: color.textMuted, marginBottom: 4 }}>{t(lang, "settings.budgetLabel")}</div>
+            <input inputMode="decimal" value={newCat.budget} onChange={e => setNewCat(n => ({ ...n, budget: e.target.value }))}
+              placeholder={t(lang, "settings.budgetPlaceholder")} style={{ ...inputStyle, padding: "8px 10px" }} />
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => { setShowNewCat(false); setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8" }); }} style={{ flex: 1, padding: "8px", border: `1px solid ${color.border}`, borderRadius: 10, background: "transparent", color: color.textMuted, fontSize: 12, cursor: "pointer", fontFamily: displayFont }}>{t(lang, "common.cancel")}</button>
+            <button onClick={() => { setShowNewCat(false); setNewCat({ emoji: "📦", nome: "", colore: "#A8A8A8", budget: "" }); }} style={{ flex: 1, padding: "8px", border: `1px solid ${color.border}`, borderRadius: 10, background: "transparent", color: color.textMuted, fontSize: 12, cursor: "pointer", fontFamily: displayFont }}>{t(lang, "common.cancel")}</button>
             <button onClick={handleAddCat} disabled={!newCat.nome.trim()} style={{ flex: 1, padding: "8px", border: "none", borderRadius: 10, background: newCat.nome.trim() ? color.accent : color.border, color: newCat.nome.trim() ? "#fff" : color.textMuted, fontSize: 12, fontWeight: 700, cursor: newCat.nome.trim() ? "pointer" : "default", fontFamily: displayFont }}>{t(lang, "common.add")}</button>
           </div>
         </div>

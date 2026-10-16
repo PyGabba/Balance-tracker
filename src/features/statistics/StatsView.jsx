@@ -1,5 +1,5 @@
 import { IconTrendingUp, IconTrendingDown, IconArrowRight, IconTrophy, IconBulb, IconAlertTriangle, IconTag, IconCalendar, IconChartBar } from "@tabler/icons-react";
-import { calcolaDebitiMatrix, forecastNextMonthExpenses, quotaPersonale } from "../../lib/finance.js";
+import { calcolaDebitiMatrix, forecastNextMonthExpenses, quotaPersonale, budgetStatus } from "../../lib/finance.js";
 import { t, mese } from "../../lib/i18n.js";
 import { formattaValuta } from "../../lib/format.js";
 import { getAllPersone } from "../../lib/appHelpers.js";
@@ -19,6 +19,14 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   // HomeView and the widget, which both only count tipo:"entrata".
   const totalEntrate = txMese.filter(t=>t.tipo==="entrata").reduce((s,t)=>s+t.importo,0);
   const perCategoria = categorie.map(cat=>({...cat,valore:usciteMese.filter(t=>t.categoria===cat.id).reduce((s,t)=>s+t.importo,0)})).filter(c=>c.valore>0).sort((a,b)=>b.valore-a.valore);
+
+  // ─── Budget per categoria ───
+  // Independent of perCategoria above (which drops zero-spend categories):
+  // a budget must stay visible even in a month where nothing was spent yet.
+  const budgetCategorie = categorie
+    .map(cat => ({ cat, ...budgetStatus(usciteMese.filter(t => t.categoria === cat.id).reduce((s, t) => s + t.importo, 0), cat.budget) }))
+    .filter(b => b.hasBudget)
+    .sort((a, b) => b.pct - a.pct);
 
   // ─── Personal stats (only when logged in as a specific persona) ───
   const activePerson = activePersonaId ? persone.find(p => p.id === activePersonaId) : null;
@@ -106,6 +114,9 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
   if (catUp) insights.push({ icon: catUp.emoji, color: catUp.colore, text: `${catUp.nome} +${Math.round(catUp.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catUp.curr)})` });
   if (catDown) insights.push({ icon: catDown.emoji, color: catDown.colore, text: `${catDown.nome} ${Math.round(catDown.delta)}% ${t(lang, "stats.vsLastMonth")} (${formattaValuta(catDown.curr)})` });
   if (mediaGiornaliera > 0) insights.push({ icon: IconChartBar, color: color.accent, text: `${t(lang, "stats.dailyAverage")}: ${formattaValuta(mediaGiornaliera)}/${t(lang, "stats.perDay")}` });
+  for (const b of budgetCategorie.filter(b => b.over).slice(0, 2)) {
+    insights.push({ icon: b.cat.emoji, color: color.negative, text: `${t(lang, "stats.budgetExceededInsight")} ${b.cat.nome} (${formattaValuta(b.speso)} / ${formattaValuta(b.budget)})` });
+  }
 
   // Previsione prossimo mese — ricorrenze note + stima robusta del variabile
   // sugli ultimi 6 mesi completi, sempre relativa a "oggi" (non al mese che
@@ -215,6 +226,37 @@ export function StatsView({ transazioni, persone, meseOffset, categorie, goals, 
           </div>
         );
       })()}
+      {budgetCategorie.length > 0 && (
+        <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${color.border}` }}>
+          <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "stats.budgetTitle")}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {budgetCategorie.map(b => {
+              const barColor = b.over ? color.negative : b.pct >= 85 ? color.warn : color.positive;
+              return (
+                <div key={b.cat.id}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, marginBottom: 5 }}>
+                    <span style={{ color: color.textSecondary, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.cat.emoji} {b.cat.nome}</span>
+                    <span style={{ color: color.textMuted, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                      {formattaValuta(b.speso)} {t(lang, "stats.budgetOf")} {formattaValuta(b.budget)}
+                    </span>
+                  </div>
+                  <div style={{ height: 8, background: color.border, borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, b.pct)}%`, background: barColor, borderRadius: 4 }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 4 }}>
+                    <span style={{ color: barColor, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{Math.round(b.pct)}%</span>
+                    <span style={{ color: b.over ? color.negative : color.textMuted }}>
+                      {b.over
+                        ? `${t(lang, "stats.budgetOverPrefix")} ${formattaValuta(Math.abs(b.remaining))}`
+                        : `${t(lang, "stats.budgetRemainingPrefix")} ${formattaValuta(b.remaining)}`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {goals && goals.length > 0 && (
         <div style={{ background: color.surface, borderRadius: 20, padding: 20, marginBottom: 24, border: `1px solid ${color.border}` }}>
           <div style={{ fontSize: 12, color: color.textSecondary, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>{t(lang, "home.savingsGoals")}</div>
