@@ -125,6 +125,7 @@ const dict = {
     "type.expense": "▼ Uscita",
     "type.income": "▲ Entrata",
     "type.transfer": "⇄ Giro",
+    "type.investment": "Investimento",
 
     "aggiungi.title": "Nuova transazione",
     "aggiungi.convertedPrefix": "Convertito in",
@@ -809,6 +810,7 @@ const dict = {
     "type.expense": "▼ Expense",
     "type.income": "▲ Income",
     "type.transfer": "⇄ Transfer",
+    "type.investment": "Investment",
 
     "aggiungi.title": "New transaction",
     "aggiungi.convertedPrefix": "Converted to",

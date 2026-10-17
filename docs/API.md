@@ -365,14 +365,17 @@ server-side via a Mongo aggregation for its own response.
 
 ### Funding a position from an account
 
-A position created/updated with a `contoId` gets a linked transaction
-(`tipo: "uscita"` for a buy, `"entrata"` for a sell; `categoria:
-"investimenti"`) so the account's balance actually reflects the cash
+A position created/updated with a `contoId` gets a linked **single-sided
+transfer** transaction (`tipo: "trasferimento"`; `contoDa` set for a buy,
+`contoA` for a sell) so the account's balance actually reflects the cash
 leaving/entering it — otherwise a position would inflate net worth with no
-corresponding drop in the funding account. The position stores the linked
-transaction's id as `linkedTransactionId`; the transaction stores the
-position's id back as `positionId`. Both endpoints keep them in sync inside
-a Mongo transaction (`withTransaction`) so they can't diverge:
+corresponding drop in the funding account. It is deliberately a transfer and
+not an `uscita`/`entrata`: buying an investment is not spending and selling
+one is not income, so it stays out of every income/expense total while still
+moving the account's balance. The position stores the linked transaction's id
+as `linkedTransactionId`; the transaction stores the position's id back as
+`positionId`. Both endpoints keep them in sync inside a Mongo transaction
+(`withTransaction`) so they can't diverge:
 - POST with `contoId` creates both atomically.
 - PUT that changes `quantita`/`prezzoAcquisto`/`dataAcquisto`/`tipo`/`ticker`/`contoId` updates the existing linked transaction in place (same id — moving `contoId` to a different account does not create a new transaction); clearing `contoId` deletes it; adding one where none existed creates it.
 - DELETE of a position with a `linkedTransactionId` also deletes the linked transaction.
@@ -381,9 +384,10 @@ If the position's `valuta` differs from the household's base currency, the
 linked transaction is converted the same way a manually-entered foreign-
 currency transaction is (`applyValutaTransazione`) — a 422
 `EXCHANGE_RATE_UNAVAILABLE` is possible if no rate can be fetched right now.
-The linked transaction is otherwise an ordinary transaction (editable/
-deletable from `/api/transactions` like any other) — deleting or editing it
-directly there does not update `linkedTransactionId` back on the position.
+The linked transaction is system-managed: the client shows it read-only (the
+portfolio owns it) and it is not meant to be edited on its own — deleting or
+editing it directly through `/api/transactions` does not update
+`linkedTransactionId` back on the position.
 
 ### Cost-basis accounting (MOD-018)
 

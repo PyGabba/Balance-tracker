@@ -3,9 +3,11 @@ import request from "supertest";
 import { startTestServer, stopTestServer } from "./testUtils.js";
 
 // A position bought/sold "from" a household account should move money the
-// same way a real purchase would: a linked expense/income transaction that
-// keeps the account's balance and the portfolio's value consistent, kept in
-// sync as the position is edited and reversed when it's deleted.
+// same way a real purchase would: a linked transaction that keeps the
+// account's balance and the portfolio's value consistent, kept in sync as
+// the position is edited and reversed when it's deleted. It's a single-sided
+// transfer (money moved), never an uscita/entrata — an investment must not
+// count as an expense, nor a sale as income.
 
 let app;
 let agent;
@@ -46,7 +48,7 @@ describe("POST /api/positions with contoId", () => {
     expect(res.body.error.code).toBe("UNKNOWN_ACCOUNT");
   });
 
-  it("a buy creates a linked expense transaction against the chosen account", async () => {
+  it("a buy creates a linked transfer out of the chosen account (not an expense)", async () => {
     const res = await agent.post("/api/positions").send({
       ticker: "VWCE", quantita: 10, prezzoAcquisto: 95.5, dataAcquisto: "2026-01-15", contoId, tipo: "buy",
     });
@@ -57,13 +59,15 @@ describe("POST /api/positions with contoId", () => {
     const txs = await transactionsForAccount(contoId);
     const linked = txs.find(t => t.id === res.body.linkedTransactionId);
     expect(linked).toBeTruthy();
-    expect(linked.tipo).toBe("uscita");
-    expect(linked.categoria).toBe("investimenti");
+    expect(linked.tipo).toBe("trasferimento");
+    expect(linked.contoDa).toBe(contoId);
+    expect(linked.contoA).toBe(null);
+    expect(linked.categoria).toBeUndefined();
     expect(linked.importo).toBeCloseTo(955, 5);
     expect(linked.positionId).toBe(res.body.id);
   });
 
-  it("a sell creates a linked income transaction instead", async () => {
+  it("a sell creates a linked transfer back into the account (not income)", async () => {
     const res = await agent.post("/api/positions").send({
       ticker: "VWCE", quantita: 2, prezzoAcquisto: 100, dataAcquisto: "2026-02-01", contoId, tipo: "sell",
     });
@@ -71,7 +75,9 @@ describe("POST /api/positions with contoId", () => {
 
     const txs = await transactionsForAccount(contoId);
     const linked = txs.find(t => t.id === res.body.linkedTransactionId);
-    expect(linked.tipo).toBe("entrata");
+    expect(linked.tipo).toBe("trasferimento");
+    expect(linked.contoA).toBe(contoId);
+    expect(linked.contoDa).toBe(null);
     expect(linked.importo).toBeCloseTo(200, 5);
   });
 

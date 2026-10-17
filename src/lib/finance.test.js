@@ -92,6 +92,18 @@ describe("calcolaSaldiConti", () => {
     expect(s.b + s.c).toBe(1050);
   });
 
+  // The portfolio records a buy/sell from an account as a transfer with just
+  // one side set (the money goes to/from the untracked position): the account
+  // still moves, and — being a transfer — it never counts as spending/income.
+  it("un investimento è un trasferimento a un solo lato: muove il conto", () => {
+    const s = calcolaSaldiConti(conti, [
+      { tipo: "trasferimento", importo: 300, contoDa: "b", contoA: null }, // acquisto
+      { tipo: "trasferimento", importo: 120, contoDa: null, contoA: "b" }, // vendita
+    ]);
+    expect(s.b).toBe(820); // 1000 − 300 + 120
+    expect(s.c).toBe(50);
+  });
+
   it("saldi tra persone e conti orfani sono ignorati", () => {
     const s = calcolaSaldiConti(conti, [
       { tipo: "saldo", importo: 999, pagatoDa: "x", ricevutoDa: "y" },

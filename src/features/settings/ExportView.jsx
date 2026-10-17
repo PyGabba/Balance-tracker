@@ -229,12 +229,15 @@ export function ExportView({ transazioni, persone, positions, conti = [], onImpo
       const row = {};
       const p = persone.find(p => p.id === t.pagatoDa);
       if (colonne.includes("data")) row["Data"] = t.data;
-      if (colonne.includes("tipo")) row["Tipo"] = t.tipo === "saldo" ? "Saldo" : t.tipo === "trasferimento" ? "Giroconto" : t.tipo === "uscita" ? "Uscita" : "Entrata";
+      if (colonne.includes("tipo")) row["Tipo"] = t.positionId ? "Investimento" : t.tipo === "saldo" ? "Saldo" : t.tipo === "trasferimento" ? "Giroconto" : t.tipo === "uscita" ? "Uscita" : "Entrata";
       if (colonne.includes("importo")) row["Importo (€)"] = t.importo;
       if (colonne.includes("categoria")) row["Categoria"] = t.tipo === "saldo" ? "" : (t.categoria || "");
       if (colonne.includes("descrizione")) row["Descrizione"] = t.descrizione || "";
       if (colonne.includes("conto")) {
-        if (t.tipo === "trasferimento") {
+        if (t.positionId) {
+          // A portfolio mirror: the account it moved money to/from.
+          row["Conto"] = conti.find(c => c.id === (t.contoDa || t.contoA))?.nome || "";
+        } else if (t.tipo === "trasferimento") {
           const cDa = conti.find(c => c.id === t.contoDa); const cA = conti.find(c => c.id === t.contoA);
           row["Conto"] = `${cDa?.nome || "?"} → ${cA?.nome || "?"}`;
         } else {

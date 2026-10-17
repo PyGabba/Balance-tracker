@@ -4,5 +4,6 @@
 // what defines the order in the first place.
 import migration001 from "./001_amount_minor_units.js";
 import migration002 from "./002_household_roles.js";
+import migration003 from "./003_portfolio_mirror_transfer.js";
 
-export const migrations = [migration001, migration002];
+export const migrations = [migration001, migration002, migration003];

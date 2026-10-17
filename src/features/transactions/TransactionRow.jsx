@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { IconArrowsLeftRight, IconX, IconRepeat, IconAlertTriangle, IconUsers } from "@tabler/icons-react";
+import { IconArrowsLeftRight, IconX, IconRepeat, IconAlertTriangle, IconUsers, IconChartLine } from "@tabler/icons-react";
 import { t } from "../../lib/i18n.js";
 import { formattaValuta, formattaData } from "../../lib/format.js";
 import { splitsTotalOk } from "../../lib/appHelpers.js";
@@ -63,6 +63,28 @@ export function TransactionRow({ t: tx, persone, categorie, conti = [], isEditin
   }
 
   const personaIntestata = persone.find(p => p.id === tx.intestataA);
+
+  // Money moved between an account and a position (a buy/sell funded from a
+  // tracked account). It's owned by the portfolio, which keeps it in sync, so
+  // it's shown read-only here — and in neither the expense red nor the income
+  // green: it isn't spending, it's cash changing form.
+  if (tx.positionId) {
+    const conto = conti.find(c => c.id === (tx.contoDa || tx.contoA));
+    const versoConto = !!tx.contoA; // a sale brings the cash back into the account
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: color.surface, borderRadius: 14, padding: "12px 14px", border: `1px solid ${color.border}` }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: `${alpha(color.accent, 0.13)}`, display: "flex", alignItems: "center", justifyContent: "center", color: color.accent, flexShrink: 0 }}><IconChartLine size={20} /></div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: color.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.descrizione || t(lang, "type.investment")}</div>
+          <div style={{ fontSize: 11, color: color.textMuted, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            {formattaData(tx.data)} · {t(lang, "type.investment")}
+            {conto && <> · <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><AccountIcon icona={conto.icona} size={11} /> {conto.nome}</span></>}
+          </div>
+        </div>
+        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: moneyFont, fontVariantNumeric: "tabular-nums", color: color.accent, flexShrink: 0 }}>{versoConto ? "+" : "-"}{formattaValuta(tx.importo)}</div>
+      </div>
+    );
+  }
 
   // Transfers: dedicated read-only row (no edit form, only delete)
   if (tx.tipo === "trasferimento") {

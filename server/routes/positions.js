@@ -40,24 +40,35 @@ function requirePortfolioAccess(req, res, next) {
 // validation.js, which validates against trip.partecipanti instead).
 
 // ─── Position <-> linked transaction (money moved to/from a tracked account) ───
-// Buying/selling a position "from" a household account creates a matching
-// expense/income transaction (categoria "investimenti") so the account's
-// balance (calcolaSaldiConti, client + widget) reflects the cash actually
+// Buying/selling a position "from" a household account moves cash between
+// that account and the position itself, so the account's balance
+// (calcolaSaldiConti, client + widget) reflects the cash actually
 // leaving/entering it — otherwise a position would inflate net worth with
-// no corresponding drop in the funding account. The transaction is a
-// system-managed side effect of its position, not an independent user
-// record: kept in sync (created/updated/deleted) by the position endpoints
-// below and tagged with positionId, never edited on its own.
+// no corresponding drop in the funding account.
+//
+// It is recorded as a single-sided transfer — contoDa for a purchase (cash
+// leaves the account), contoA for a sale (cash comes back) — NOT as an
+// uscita/entrata: moving money into an investment is not spending, and
+// cashing it out is not income, so it must stay out of every expense/income
+// total. A transfer with one side missing is skipped correctly everywhere
+// already (the absent account is simply ignored), which is exactly what
+// "went to/from the untracked portfolio" means.
+//
+// The transaction is a system-managed side effect of its position, not an
+// independent user record: kept in sync (created/updated/deleted) by the
+// position endpoints below and tagged with positionId, never edited on its
+// own.
 function positionTransactionFields(position, contoId) {
   const valuta = position.valuta || "EUR";
   const importo = roundAmount(position.quantita * position.prezzoAcquisto, valuta);
+  const vendita = position.tipo === "sell";
   return {
     householdId: position.householdId,
-    tipo: position.tipo === "sell" ? "entrata" : "uscita",
+    tipo: "trasferimento",
     data: position.dataAcquisto,
-    categoria: "investimenti",
     descrizione: sanitizeText(`${position.ticker} — portfolio`, 500),
-    contoId,
+    contoDa: vendita ? null : contoId,
+    contoA: vendita ? contoId : null,
     positionId: position._id.toString(),
     importo,
     importoMinorUnits: toMinorUnits(importo, valuta),
@@ -78,7 +89,9 @@ async function upsertPositionTransaction(session, position, contoId, valutaBase)
   if (position.linkedTransactionId && ObjectId.isValid(position.linkedTransactionId)) {
     await transactionsCol.updateOne(
       { _id: new ObjectId(position.linkedTransactionId), householdId: position.householdId },
-      { $set: txDoc },
+      // $unset the old expense/income-era fields so a position linked before
+      // the transfer change is fully normalised the first time it's edited.
+      { $set: txDoc, $unset: { contoId: "", categoria: "" } },
       { session }
     );
     return position.linkedTransactionId;
