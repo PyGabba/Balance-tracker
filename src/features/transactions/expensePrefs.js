@@ -1,10 +1,11 @@
 // ─── Expense-form memory + split summary (pure helpers) ───
 // The add-expense form should open ready for the NEXT typical expense: the
-// same person usually pays, split the same way. We remember the payer and the
-// split of the last expense (per household, in localStorage — a convenience,
-// not data) and describe a split in one line so it doesn't need a full editor
-// open on every entry. Category is deliberately NOT remembered: a silently
-// pre-selected wrong category is worse than an obvious default.
+// same person usually pays, split the same way, out of the same account. We
+// remember the payer, the split and the account of the last expense (per
+// household, in localStorage — a convenience, not data) and describe a split
+// in one line so it doesn't need a full editor open on every entry. Category
+// is deliberately NOT remembered: a silently pre-selected wrong category is
+// worse than an obvious default.
 
 import { t } from "../../lib/i18n.js";
 import { splitsTotalOk } from "../../lib/appHelpers.js";
@@ -13,14 +14,18 @@ const KEY = (householdId) => `finanza:lastExpense:${householdId}`;
 const EPS = 0.05; // same tolerance as the form's split validation
 
 // Drops anything that no longer fits the household (a removed persona, a
-// split that doesn't sum to 100) so a stale memory can never produce an
-// invalid expense. Returns { pagatoDa?, splits? } — missing keys mean "use
-// the default".
-export function sanitizeExpensePrefs(prefs, persone) {
+// deleted account, a split that doesn't sum to 100) so a stale memory can
+// never produce an invalid expense. Returns
+// { pagatoDa?, contoId?, splits? } — missing keys mean "use the default".
+export function sanitizeExpensePrefs(prefs, persone, conti = []) {
   const ids = new Set(persone.map(p => p.id));
+  const accountIds = new Set(conti.map(c => c.id));
   const out = {};
   if (!prefs || typeof prefs !== "object") return out;
   if (ids.has(prefs.pagatoDa)) out.pagatoDa = prefs.pagatoDa;
+  // Only a real account is remembered — "" ("Nessun conto") is the default
+  // anyway, so there's nothing to restore.
+  if (typeof prefs.contoId === "string" && accountIds.has(prefs.contoId)) out.contoId = prefs.contoId;
   if (Array.isArray(prefs.splits) && prefs.splits.length > 0
     && prefs.splits.every(s => s && ids.has(s.personaId) && Number.isFinite(s.quota))
     && new Set(prefs.splits.map(s => s.personaId)).size === prefs.splits.length
@@ -30,19 +35,21 @@ export function sanitizeExpensePrefs(prefs, persone) {
   return out;
 }
 
-export function loadExpensePrefs(householdId, persone, storage = globalThis.localStorage) {
+export function loadExpensePrefs(householdId, persone, conti = [], storage = globalThis.localStorage) {
   if (!householdId) return {};
   try {
-    return sanitizeExpensePrefs(JSON.parse(storage?.getItem(KEY(householdId)) || "null"), persone);
+    return sanitizeExpensePrefs(JSON.parse(storage?.getItem(KEY(householdId)) || "null"), persone, conti);
   } catch { return {}; }
 }
 
 // `splits` is stored only when it involves household members alone — an
-// ad-hoc guest ("extraPersone") is specific to one expense.
-export function saveExpensePrefs(householdId, { pagatoDa, splits, extraPersone }, persone, storage = globalThis.localStorage) {
+// ad-hoc guest ("extraPersone") is specific to one expense. The account is
+// remembered only while it still exists.
+export function saveExpensePrefs(householdId, { pagatoDa, splits, extraPersone, contoId }, persone, conti = [], storage = globalThis.localStorage) {
   if (!householdId) return;
   const memberIds = new Set(persone.map(p => p.id));
   const prefs = { pagatoDa };
+  if (contoId && conti.some(c => c.id === contoId)) prefs.contoId = contoId;
   if (!(extraPersone?.length) && splits?.every(s => memberIds.has(s.personaId))) prefs.splits = splits;
   try { storage?.setItem(KEY(householdId), JSON.stringify(prefs)); } catch { /* private mode / quota: remembering is optional */ }
 }

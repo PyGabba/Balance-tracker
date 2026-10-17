@@ -16,9 +16,9 @@ import { loadExpensePrefs, saveExpensePrefs } from "./expensePrefs.js";
 // ─── Add ───
 export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie, conti = [], initialTipo = "uscita", initialImporto = "", initialDescrizione = "", initialCategoria = "", initialPagatoDa = "", valutaBase = "EUR", lang = "it" }) {
   const householdId = getSession()?.householdId;
-  // Payer and split of the last expense: the form opens ready for the next
-  // typical one (see expensePrefs.js). A shortcut's explicit payer wins.
-  const [prefs] = useState(() => loadExpensePrefs(householdId, persone));
+  // Payer, split and account of the last expense: the form opens ready for
+  // the next typical one (see expensePrefs.js). A shortcut's explicit payer wins.
+  const [prefs] = useState(() => loadExpensePrefs(householdId, persone, conti));
   const [tipo, setTipo] = useState(initialTipo);
   const [importoRaw, setImportoRaw] = useState(initialImporto);
   const importoInputRef = useRef(null);
@@ -52,7 +52,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
   const [intestataA, setIntestataA] = useState(persone[0]?.id || "");
   const [ricorrenza, setRicorrenza] = useState("no");
   const [importoVariabile, setImportoVariabile] = useState(false);
-  const [contoId, setContoId] = useState("");
+  const [contoId, setContoId] = useState(() => prefs.contoId || "");
   const [contoDa, setContoDa] = useState("");
   const [contoA, setContoA] = useState("");
   const [valuta, setValuta] = useState(valutaBase);
@@ -85,6 +85,19 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
       if (match) setCategoria(match.id);
     }
   }, [initialCategoria]);
+
+  // Accounts load asynchronously: the remembered account may not be in
+  // `conti` yet when the form mounts (e.g. a cold start via an add deep
+  // link). Apply it once the list is there, and only once — a "Nessuno"
+  // the user picks later must not be silently switched back.
+  const appliedPrefsConto = useRef(false);
+  useEffect(() => {
+    if (appliedPrefsConto.current || !prefs.contoId) return;
+    if (conti.some(c => c.id === prefs.contoId)) {
+      appliedPrefsConto.current = true;
+      setContoId(prefs.contoId);
+    }
+  }, [conti, prefs]);
 
   function handleReceiptScan(parsed) {
     if (parsed.importo) {
@@ -139,7 +152,7 @@ export function AggiungiView({ onAggiungi, persone, transazioni = [], categorie,
       ricorrenza: ricorrenzaData,
       valuta: valuta !== valutaBase ? valuta : null,
     });
-    if (tipo === "uscita") saveExpensePrefs(householdId, { pagatoDa, splits, extraPersone }, persone);
+    if (tipo === "uscita") saveExpensePrefs(householdId, { pagatoDa, splits, extraPersone, contoId }, persone, conti);
     setImportoRaw(""); setImporto(0); setDescrizione(""); setRicorrenza("no"); setImportoVariabile(false); setValuta(valutaBase); setSalvato(true);
     setTimeout(() => setSalvato(false), 1500);
   }
